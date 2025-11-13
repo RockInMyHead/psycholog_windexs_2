@@ -23,9 +23,9 @@ const Navigation = () => {
         <div className="flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2 group">
             <div className="w-10 h-10 rounded-full bg-hero-gradient flex items-center justify-center shadow-medium group-hover:scale-110 transition-transform">
-              <span className="text-white font-bold text-lg">ИИ</span>
+              <span className="text-white font-bold text-sm">W</span>
             </div>
-            <span className="text-xl font-bold text-foreground hidden sm:block">Психолог</span>
+            <span className="text-xl font-bold text-foreground hidden sm:block">Windexs-Психолог</span>
           </Link>
 
           {/* Desktop Navigation */}
