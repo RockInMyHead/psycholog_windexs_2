@@ -1,9 +1,9 @@
 // Custom fetch with proxy support
 export const proxyFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
-  const proxyHost = process.env.REACT_APP_PROXY_HOST;
-  const proxyPort = process.env.REACT_APP_PROXY_PORT;
-  const proxyUsername = process.env.REACT_APP_PROXY_USERNAME;
-  const proxyPassword = process.env.REACT_APP_PROXY_PASSWORD;
+  const proxyHost = import.meta.env.REACT_APP_PROXY_HOST;
+  const proxyPort = import.meta.env.REACT_APP_PROXY_PORT;
+  const proxyUsername = import.meta.env.REACT_APP_PROXY_USERNAME;
+  const proxyPassword = import.meta.env.REACT_APP_PROXY_PASSWORD;
 
   if (!proxyHost || !proxyPort || !proxyUsername || !proxyPassword) {
     console.warn('Proxy configuration missing, falling back to regular fetch');
