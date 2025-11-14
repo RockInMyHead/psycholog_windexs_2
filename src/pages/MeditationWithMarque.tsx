@@ -290,18 +290,23 @@ const MeditationWithMarque = () => {
 
   // Start webcam
   const startWebcam = async () => {
+    console.log("📹 START WEBCAM called");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       });
+      console.log("📹 WEBCAM stream obtained");
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
+        console.log("📹 WEBCAM stream assigned to video element");
+      } else {
+        console.log("❌ WEBCAM videoRef.current is null");
       }
     } catch (error) {
-      console.error("Error accessing webcam:", error);
+      console.error("❌ WEBCAM Error accessing webcam:", error);
     }
   };
 
@@ -550,6 +555,7 @@ const MeditationWithMarque = () => {
         }).filter(Boolean);
 
         setSelectedYogaPoses(posesWithDuration);
+        console.log("🧘 YOGA POSES SET:", posesWithDuration.length, "poses");
 
         // First pose will be started automatically via useEffect when poses are loaded
       }
@@ -618,6 +624,7 @@ const MeditationWithMarque = () => {
     startBackgroundMusic();
 
     // Main timer
+    console.log("⏰ STARTING MAIN TIMER for", selectedTime, "minutes");
     timerRef.current = window.setInterval(() => {
       setElapsedTime((prev) => {
         const newTime = prev + 1;
