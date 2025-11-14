@@ -66,7 +66,7 @@ ENABLE_MOCK_API=false
 ```bash
 npm run dev
 ```
-Приложение будет доступно на `http://localhost:8080`
+Приложение будет доступно на `http://localhost:8080` (для локальной разработки)
 
 #### Development режим с прокси-сервером
 ```bash

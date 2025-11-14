@@ -17,10 +17,11 @@ REACT_APP_PROXY_USERNAME=rBD9e6
 REACT_APP_PROXY_PASSWORD=jZdUnJ
 
 # Server Configuration
-PORT=3001
+PORT=3002
 
-# API Configuration
-REACT_APP_API_BASE_URL=https://psycholog.windexs.ru
+# API Configuration (автоматически настраивается в коде)
+# В продакшене используется https://psycholog.windexs.ru/api
+# В разработке используется http://localhost:3002/api
 ```
 
 ## Режимы работы
