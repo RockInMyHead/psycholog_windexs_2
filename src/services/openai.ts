@@ -6,8 +6,9 @@ if (!apiKey) {
   console.warn('OpenAI API key is not defined. Please set VITE_OPENAI_API_KEY in your environment.');
 }
 
-const baseURL = import.meta.env.PROD ? 'https://psycholog.windexs.ru/api' : 'http://localhost:3002/api';
-console.log('OpenAI client config:', { baseURL, isProduction: import.meta.env.PROD, mode: import.meta.env.MODE });
+// Production API endpoint
+const baseURL = 'https://psycholog.windexs.ru/api';
+console.log('OpenAI client initialized for production');
 
 const openai = new OpenAI({
   apiKey,
