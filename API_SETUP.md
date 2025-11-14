@@ -30,7 +30,7 @@ REACT_APP_API_BASE_URL=https://psycholog.windexs.ru
 npm run dev
 ```
 - Все API запросы идут на https://psycholog.windexs.ru
-- Frontend доступен по адресу https://psycholog.windexs.ru
+- Frontend работает на localhost:8080
 
 ### 2. Development режим с локальным прокси
 ```bash
@@ -45,14 +45,14 @@ npm run dev:with-proxy
 
 1. **Развернуть API сервер** на домене psycholog.windexs.ru
 2. **Установить переменную окружения** REACT_APP_API_BASE_URL=https://psycholog.windexs.ru
-3. **Настроить CORS** на сервере для приема запросов от https://psycholog.windexs.ru
+3. **Настроить CORS** на сервере для приема запросов от localhost:8080
 
 ### Пример настройки сервера на psycholog.windexs.ru
 
 ```javascript
 // server/app.js
 app.use(cors({
-  origin: ['https://psycholog.windexs.ru', 'http://psycholog.windexs.ru'],
+  origin: ['http://localhost:8080', 'https://psycholog.windexs.ru'],
   credentials: true
 }));
 ```
@@ -61,7 +61,7 @@ app.use(cors({
 
 Тестирование API:
 ```bash
-curl https://psycholog.windexs.ru/api/v1/models
+curl http://localhost:8080/api/v1/models
 ```
 
 Если возвращается 502 Bad Gateway - значит домен не настроен.

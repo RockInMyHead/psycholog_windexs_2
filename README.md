@@ -61,7 +61,7 @@ REACT_APP_API_BASE_URL=https://psycholog.windexs.ru
 ```bash
 npm run dev
 ```
-Приложение будет доступно на `https://psycholog.windexs.ru`
+Приложение будет доступно на `http://localhost:8080`
 
 #### Development режим с локальным прокси
 ```bash

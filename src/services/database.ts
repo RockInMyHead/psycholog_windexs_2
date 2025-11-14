@@ -77,6 +77,16 @@ type StoredQuoteView = {
   liked: boolean;
 };
 
+type MemoryType = 'chat' | 'audio';
+
+type StoredConversationMemory = {
+  id: ID;
+  userId: ID;
+  type: MemoryType;
+  content: string;
+  updatedAt: StoredDate;
+};
+
 type StoredUserStats = {
   id: ID;
   userId: ID;
@@ -100,6 +110,9 @@ type StoredSubscription = {
   autoRenew: boolean;
   createdAt: StoredDate;
   updatedAt: StoredDate;
+  audioSessionsLimit?: number;
+  audioSessionsUsed?: number;
+  lastAudioResetAt?: StoredDate;
 };
 
 type DataStore = {
@@ -112,6 +125,7 @@ type DataStore = {
   quoteViews: Record<ID, StoredQuoteView>;
   userStats: Record<ID, StoredUserStats>;
   subscriptions: Record<ID, StoredSubscription>;
+  conversationMemories: Record<ID, StoredConversationMemory>;
 };
 
 const STORAGE_KEY = 'zen-mind-mate-data-v1';
@@ -384,6 +398,7 @@ function createDefaultStore(): DataStore {
     quoteViews: {},
     userStats: {},
     subscriptions: {},
+    conversationMemories: {},
   };
 }
 
@@ -425,6 +440,22 @@ function loadStore(): DataStore {
         }
       });
 
+      saveStore(store);
+    }
+
+    let needsSave = false;
+    if (!store.conversationMemories) {
+      store.conversationMemories = {};
+      needsSave = true;
+    }
+
+    Object.values(store.subscriptions ?? {}).forEach((subscription) => {
+      if (ensureSubscriptionAudioUsage(subscription, new Date())) {
+        needsSave = true;
+      }
+    });
+
+    if (needsSave) {
       saveStore(store);
     }
 
@@ -500,12 +531,75 @@ export type UserStat = Omit<StoredUserStats, 'lastActivity' | 'createdAt' | 'upd
   updatedAt: Date;
 };
 
-export type Subscription = Omit<StoredSubscription, 'startedAt' | 'expiresAt' | 'createdAt' | 'updatedAt'> & {
+export type Subscription = Omit<StoredSubscription, 'startedAt' | 'expiresAt' | 'createdAt' | 'updatedAt' | 'lastAudioResetAt'> & {
   startedAt: Date;
   expiresAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+  lastAudioResetAt?: Date;
 };
+
+const MAX_MEMORY_LENGTH = 2000;
+const PREMIUM_AUDIO_SESSIONS_LIMIT = 4;
+
+function ensureSubscriptionAudioUsage(subscription: StoredSubscription, now: Date): boolean {
+  let changed = false;
+  const nowIso = now.toISOString();
+
+  if (subscription.plan === 'premium' && subscription.status === 'active') {
+    if (subscription.audioSessionsLimit !== PREMIUM_AUDIO_SESSIONS_LIMIT) {
+      subscription.audioSessionsLimit = PREMIUM_AUDIO_SESSIONS_LIMIT;
+      changed = true;
+    }
+
+    if (typeof subscription.audioSessionsUsed !== 'number' || subscription.audioSessionsUsed < 0) {
+      subscription.audioSessionsUsed = 0;
+      changed = true;
+    }
+
+    const lastReset = subscription.lastAudioResetAt ? new Date(subscription.lastAudioResetAt) : undefined;
+    if (!lastReset || lastReset.getUTCFullYear() !== now.getUTCFullYear() || lastReset.getUTCMonth() !== now.getUTCMonth()) {
+      subscription.audioSessionsUsed = 0;
+      subscription.lastAudioResetAt = nowIso;
+      changed = true;
+    }
+
+    if ((subscription.audioSessionsUsed ?? 0) > (subscription.audioSessionsLimit ?? PREMIUM_AUDIO_SESSIONS_LIMIT)) {
+      subscription.audioSessionsUsed = subscription.audioSessionsLimit ?? PREMIUM_AUDIO_SESSIONS_LIMIT;
+      changed = true;
+    }
+  } else {
+    if (subscription.audioSessionsLimit !== 0) {
+      subscription.audioSessionsLimit = 0;
+      changed = true;
+    }
+    if ((subscription.audioSessionsUsed ?? 0) !== 0) {
+      subscription.audioSessionsUsed = 0;
+      changed = true;
+    }
+    if (!subscription.lastAudioResetAt) {
+      subscription.lastAudioResetAt = nowIso;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    subscription.updatedAt = nowIso;
+  }
+
+  return changed;
+}
+
+function getLatestSubscriptionRecord(store: DataStore, userId: ID): StoredSubscription | undefined {
+  const subscriptions = Object.values(store.subscriptions ?? {});
+  if (subscriptions.length === 0) {
+    return undefined;
+  }
+
+  return subscriptions
+    .filter((sub) => sub.userId === userId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
 
 const convertUser = (user: StoredUser): User => ({
   ...user,
@@ -561,6 +655,7 @@ const convertSubscription = (subscription: StoredSubscription): Subscription => 
   expiresAt: toDate(subscription.expiresAt),
   createdAt: toDateRequired(subscription.createdAt),
   updatedAt: toDateRequired(subscription.updatedAt),
+  lastAudioResetAt: toDate(subscription.lastAudioResetAt),
 });
 
 async function refreshUserStats(userId: ID) {
@@ -597,6 +692,31 @@ export const userService = {
 
     store.users[user.id] = user;
     saveStore(store);
+
+    const userId = user.id;
+    const existingSubscription = Object.values(store.subscriptions ?? {}).find((sub) => sub.userId === userId);
+    if (!existingSubscription) {
+      const nowIso = new Date().toISOString();
+      const subscriptionId = generateId('subscription');
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const subscription: StoredSubscription = {
+        id: subscriptionId,
+        userId,
+        plan: 'premium',
+        status: 'active',
+        startedAt: nowIso,
+        expiresAt,
+        autoRenew: true,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        audioSessionsLimit: PREMIUM_AUDIO_SESSIONS_LIMIT,
+        audioSessionsUsed: 0,
+        lastAudioResetAt: nowIso,
+      };
+
+      store.subscriptions[subscriptionId] = subscription;
+      saveStore(store);
+    }
 
     return convertUser(user);
   },
@@ -651,6 +771,28 @@ export const userService = {
         createdAt: now,
         updatedAt: now,
       };
+
+      const existingSubscription = Object.values(store.subscriptions ?? {}).find((sub) => sub.userId === id);
+      if (!existingSubscription) {
+        const subscriptionId = generateId('subscription');
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const subscription: StoredSubscription = {
+          id: subscriptionId,
+          userId: id,
+          plan: 'premium',
+          status: 'active',
+          startedAt: now,
+          expiresAt,
+          autoRenew: true,
+          createdAt: now,
+          updatedAt: now,
+          audioSessionsLimit: PREMIUM_AUDIO_SESSIONS_LIMIT,
+          audioSessionsUsed: 0,
+          lastAudioResetAt: now,
+        };
+
+        store.subscriptions[subscriptionId] = subscription;
+      }
 
       saveStore(store);
     }
@@ -1043,14 +1185,16 @@ export const subscriptionService = {
   async getUserSubscription(userId: ID): Promise<Subscription | undefined> {
     await delay();
     const store = loadStore();
-    if (!store.subscriptions) {
+    const record = getLatestSubscriptionRecord(store, userId);
+    if (!record) {
       return undefined;
     }
-    const subscriptions = Object.values(store.subscriptions)
-      .filter(sub => sub.userId === userId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-    return subscriptions[0] ? convertSubscription(subscriptions[0]) : undefined;
+    if (ensureSubscriptionAudioUsage(record, new Date())) {
+      saveStore(store);
+    }
+
+    return convertSubscription(record);
   },
 
   async createSubscription(
@@ -1081,6 +1225,9 @@ export const subscriptionService = {
       autoRenew: true,
       createdAt: now,
       updatedAt: now,
+      audioSessionsLimit: plan === 'premium' ? PREMIUM_AUDIO_SESSIONS_LIMIT : 0,
+      audioSessionsUsed: 0,
+      lastAudioResetAt: now,
     };
 
     store.subscriptions[id] = subscription;
@@ -1109,6 +1256,8 @@ export const subscriptionService = {
     subscription.status = status;
     subscription.updatedAt = new Date().toISOString();
 
+    ensureSubscriptionAudioUsage(subscription, new Date());
+
     store.subscriptions[subscriptionId] = subscription;
     saveStore(store);
 
@@ -1127,9 +1276,149 @@ export const subscriptionService = {
     if (!store.subscriptions) {
       return [];
     }
-    return Object.values(store.subscriptions)
+    const now = new Date();
+    const subscriptions = Object.values(store.subscriptions)
       .filter(sub => sub.userId === userId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map(convertSubscription);
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    let changed = false;
+    subscriptions.forEach((sub) => {
+      if (ensureSubscriptionAudioUsage(sub, now)) {
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      saveStore(store);
+    }
+
+    return subscriptions.map(convertSubscription);
+  },
+
+  async getAudioSessionInfo(userId: ID): Promise<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' }> {
+    await delay();
+    const store = loadStore();
+    const record = getLatestSubscriptionRecord(store, userId);
+    const now = new Date();
+
+    if (record) {
+      if (ensureSubscriptionAudioUsage(record, now)) {
+        saveStore(store);
+      }
+
+      const limit = record.audioSessionsLimit ?? (record.plan === 'premium' ? PREMIUM_AUDIO_SESSIONS_LIMIT : 0);
+      const used = record.audioSessionsUsed ?? 0;
+      const remaining = Math.max(0, limit - used);
+
+      return {
+        plan: record.plan,
+        remaining,
+        limit,
+        status: record.status,
+      };
+    }
+
+    return {
+      plan: 'none',
+      remaining: 0,
+      limit: 0,
+      status: 'none',
+    };
+  },
+
+  async recordAudioSession(userId: ID): Promise<{ success: boolean; remaining: number; limit: number; message?: string }> {
+    await delay();
+    const store = loadStore();
+    const record = getLatestSubscriptionRecord(store, userId);
+
+    if (!record || record.plan !== 'premium' || record.status !== 'active') {
+      return { success: false, remaining: 0, limit: 0, message: 'Нет активной премиум подписки' };
+    }
+
+    const now = new Date();
+    ensureSubscriptionAudioUsage(record, now);
+
+    const limit = record.audioSessionsLimit ?? PREMIUM_AUDIO_SESSIONS_LIMIT;
+    const used = record.audioSessionsUsed ?? 0;
+
+    if (used >= limit) {
+      saveStore(store);
+      return { success: false, remaining: 0, limit, message: 'Лимит аудио сессий исчерпан' };
+    }
+
+    record.audioSessionsUsed = used + 1;
+    record.updatedAt = now.toISOString();
+    store.subscriptions[record.id] = record;
+    saveStore(store);
+
+    return {
+      success: true,
+      remaining: Math.max(0, limit - record.audioSessionsUsed),
+      limit,
+    };
+  },
+};
+
+const buildMemoryKey = (userId: ID, type: MemoryType) => `${type}_${userId}`;
+
+export const memoryService = {
+  async getMemory(userId: ID, type: MemoryType): Promise<string> {
+    await delay();
+    const store = loadStore();
+    const key = buildMemoryKey(userId, type);
+    const memory = store.conversationMemories[key];
+    return memory ? memory.content : '';
+  },
+
+  async setMemory(userId: ID, type: MemoryType, content: string): Promise<string> {
+    await delay();
+    const store = loadStore();
+    const key = buildMemoryKey(userId, type);
+    const now = new Date().toISOString();
+
+    const trimmedContent = content.trim();
+
+    store.conversationMemories[key] = {
+      id: buildMemoryKey(userId, type),
+      userId,
+      type,
+      content: trimmedContent,
+      updatedAt: now,
+    };
+
+    saveStore(store);
+    return trimmedContent;
+  },
+
+  async appendMemory(userId: ID, type: MemoryType, entry: string, maxLength = MAX_MEMORY_LENGTH): Promise<string> {
+    await delay();
+    const store = loadStore();
+    const key = buildMemoryKey(userId, type);
+    const now = new Date().toISOString();
+
+    const existing = store.conversationMemories[key]?.content ?? '';
+    const combined = [existing, entry.trim()].filter(Boolean).join('\n').trim();
+    const truncated = combined.length > maxLength ? combined.slice(combined.length - maxLength) : combined;
+
+    store.conversationMemories[key] = {
+      id: buildMemoryKey(userId, type),
+      userId,
+      type,
+      content: truncated,
+      updatedAt: now,
+    };
+
+    saveStore(store);
+    return truncated;
+  },
+
+  async clearMemory(userId: ID, type: MemoryType): Promise<void> {
+    await delay();
+    const store = loadStore();
+    const key = buildMemoryKey(userId, type);
+    if (store.conversationMemories[key]) {
+      delete store.conversationMemories[key];
+      saveStore(store);
+    }
   },
 };

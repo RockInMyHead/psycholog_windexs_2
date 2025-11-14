@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { userService, audioCallService } from "@/services/database";
+import { userService, audioCallService, memoryService, subscriptionService } from "@/services/database";
 import { useAuth } from "@/contexts/AuthContext";
 import { psychologistAI, type ChatMessage } from "@/services/openai";
 
@@ -18,6 +18,7 @@ const AudioCall = () => {
   const [transcriptionStatus, setTranscriptionStatus] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' } | null>(null);
 
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callTimerRef = useRef<number | null>(null);
@@ -29,6 +30,7 @@ const AudioCall = () => {
   const responseQueueRef = useRef<Promise<void>>(Promise.resolve());
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingAudioRef = useRef(false);
+  const currentSpeechSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const processingSoundIntervalRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const speakerGainRef = useRef<GainNode | null>(null);
@@ -36,6 +38,17 @@ const AudioCall = () => {
     audioElement?: HTMLAudioElement;
     isPlaying: boolean;
   }>({ isPlaying: false });
+  const callLimitReachedRef = useRef(false);
+  const callLimitWarningSentRef = useRef(false);
+  const memoryRef = useRef<string>("");
+  const pendingTranscriptRef = useRef<string>("");
+  const pendingProcessTimeoutRef = useRef<number | null>(null);
+  const audioAnalyserRef = useRef<AnalyserNode | null>(null);
+  const volumeMonitorRef = useRef<number | null>(null);
+
+  const MAX_CALL_DURATION_SECONDS = 40 * 60;
+  const CALL_LIMIT_WARNING_SECONDS = MAX_CALL_DURATION_SECONDS - 5 * 60;
+  const VOICE_DETECTION_THRESHOLD = 30;
 
   const initializeAudioContext = () => {
     if (!audioContextRef.current) {
@@ -225,9 +238,11 @@ const AudioCall = () => {
           const source = audioContext.createBufferSource();
           source.buffer = decoded;
           source.connect(outputNode ?? audioContext.destination);
+          currentSpeechSourceRef.current = source;
           source.onended = () => resolve();
           source.start(0);
         });
+        currentSpeechSourceRef.current = null;
       }
     } catch (error) {
       console.error("Error during audio playback:", error);
@@ -254,6 +269,66 @@ const AudioCall = () => {
     }
   };
 
+  const stopAssistantSpeech = () => {
+    audioQueueRef.current = [];
+    if (currentSpeechSourceRef.current) {
+      try {
+        currentSpeechSourceRef.current.stop();
+      } catch (error) {
+        console.warn("Error stopping speech source:", error);
+      }
+      currentSpeechSourceRef.current.disconnect();
+      currentSpeechSourceRef.current = null;
+    }
+    isPlayingAudioRef.current = false;
+  };
+
+  const startVolumeMonitoring = (stream: MediaStream) => {
+    try {
+      const audioContext = initializeAudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      audioAnalyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const checkVolume = () => {
+        if (!recognitionActiveRef.current || !audioAnalyserRef.current) {
+          return;
+        }
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
+        }
+        const average = sum / dataArray.length;
+        
+        // Если обнаружен звук и Марк говорит - прерываем его
+        if (average > VOICE_DETECTION_THRESHOLD && isPlayingAudioRef.current) {
+          console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)}), прерываем Марка`);
+          stopAssistantSpeech();
+        }
+
+        volumeMonitorRef.current = window.requestAnimationFrame(checkVolume);
+      };
+      volumeMonitorRef.current = window.requestAnimationFrame(checkVolume);
+    } catch (error) {
+      console.warn("Error starting volume monitoring:", error);
+    }
+  };
+
+  const stopVolumeMonitoring = () => {
+    if (volumeMonitorRef.current) {
+      cancelAnimationFrame(volumeMonitorRef.current);
+      volumeMonitorRef.current = null;
+    }
+    if (audioAnalyserRef.current) {
+      audioAnalyserRef.current.disconnect();
+      audioAnalyserRef.current = null;
+    }
+  };
+
   const stopRecognition = () => {
     recognitionActiveRef.current = false;
     if (recognitionRef.current) {
@@ -271,9 +346,15 @@ const AudioCall = () => {
 
   const cleanupRecording = () => {
     stopRecognition();
+    stopVolumeMonitoring();
     resetAudioPlayback();
     conversationRef.current = [];
     responseQueueRef.current = Promise.resolve();
+    pendingTranscriptRef.current = "";
+    if (pendingProcessTimeoutRef.current) {
+      window.clearTimeout(pendingProcessTimeoutRef.current);
+      pendingProcessTimeoutRef.current = null;
+    }
 
     if (audioStreamRef.current) {
       audioStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -303,7 +384,7 @@ const AudioCall = () => {
       // Начинаем звуковые сигналы во время генерации ответа
       startProcessingSound();
 
-      const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current);
+      const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current, memoryRef.current);
       conversationRef.current.push({ role: "assistant", content: assistantReply });
 
       // Останавливаем сигналы и начинаем TTS
@@ -312,6 +393,7 @@ const AudioCall = () => {
 
       await enqueueSpeechPlayback(assistantReply);
       setTranscriptionStatus("");
+      await updateConversationMemory(text, assistantReply);
     } catch (error) {
       console.error("Error generating assistant response:", error);
       stopProcessingSound(); // Останавливаем сигналы при ошибке
@@ -320,15 +402,62 @@ const AudioCall = () => {
     }
   };
 
-  const handleRecognizedText = (rawText: string) => {
+  const flushPendingTranscript = () => {
+    const text = pendingTranscriptRef.current.trim();
+    pendingTranscriptRef.current = "";
+    if (!text) {
+      return;
+    }
+
+    stopAssistantSpeech();
+
     responseQueueRef.current = responseQueueRef.current
       .catch((error) => console.error("Previous voice response error:", error))
-      .then(() => processRecognizedText(rawText));
+      .then(() => processRecognizedText(text));
+  };
+
+  const handleRecognizedText = (rawText: string) => {
+    const segment = rawText.trim();
+    if (!segment) {
+      return;
+    }
+
+    stopAssistantSpeech();
+
+    pendingTranscriptRef.current = [pendingTranscriptRef.current, segment].filter(Boolean).join(" ");
+
+    if (pendingProcessTimeoutRef.current) {
+      window.clearTimeout(pendingProcessTimeoutRef.current);
+    }
+
+    pendingProcessTimeoutRef.current = window.setTimeout(() => {
+      pendingProcessTimeoutRef.current = null;
+      flushPendingTranscript();
+    }, 300);
+  };
+
+  const updateConversationMemory = async (userText: string, assistantText: string) => {
+    if (!user) {
+      return;
+    }
+
+    const entry = `Клиент: ${userText}\nМарк: ${assistantText}`;
+    try {
+      const updatedMemory = await memoryService.appendMemory(user.id, "audio", entry);
+      memoryRef.current = updatedMemory;
+    } catch (error) {
+      console.error("Error updating audio memory:", error);
+    }
+  };
+
+  const getUserCredentials = () => {
+    const fallbackEmail = 'user@zenmindmate.com';
+    const email = authUser?.email ?? fallbackEmail;
+    const name = authUser?.name ?? authUser?.email ?? 'Пользователь';
+    return { email, name };
   };
 
   // Default user ID for demo purposes
-  const defaultUserId = 'user@zenmindmate.com';
-
   useEffect(() => {
     initializeUser();
   }, [authUser]);
@@ -393,13 +522,20 @@ const AudioCall = () => {
       if (callTimerRef.current) {
         clearInterval(callTimerRef.current);
       }
+      if (pendingProcessTimeoutRef.current) {
+        window.clearTimeout(pendingProcessTimeoutRef.current);
+        pendingProcessTimeoutRef.current = null;
+      }
     };
   }, []);
 
   const initializeUser = async () => {
     try {
-      const userData = await userService.getOrCreateUser(defaultUserId, 'Пользователь');
+      const { email, name } = getUserCredentials();
+      const userData = await userService.getOrCreateUser(email, name);
       setUser(userData);
+      const info = await subscriptionService.getAudioSessionInfo(userData.id);
+      setSubscriptionInfo(info);
     } catch (error) {
       console.error('Error initializing user:', error);
     } finally {
@@ -423,8 +559,26 @@ const AudioCall = () => {
       isMutedRef.current = false;
       setIsSpeakerOn(true);
       setCallDuration(0);
-      conversationRef.current = [];
-      responseQueueRef.current = Promise.resolve();
+      callLimitReachedRef.current = false;
+      callLimitWarningSentRef.current = false;
+      memoryRef.current = await memoryService.getMemory(user.id, "audio");
+
+      const sessionInfo = await subscriptionService.getAudioSessionInfo(user.id);
+      setSubscriptionInfo(sessionInfo);
+
+      if (sessionInfo.plan === 'premium') {
+        if (sessionInfo.status !== 'active') {
+          setAudioError('Ваша премиум подписка не активна. Продлите подписку, чтобы делать звонки.');
+          setIsCallActive(false);
+          return;
+        }
+
+        if (sessionInfo.remaining <= 0) {
+          setAudioError('Лимит аудио сессий на этот месяц исчерпан.');
+          setIsCallActive(false);
+          return;
+        }
+      }
 
       const SpeechRecognitionConstructor =
         typeof window !== "undefined"
@@ -458,6 +612,14 @@ const AudioCall = () => {
         }
       };
 
+      recognition.onspeechstart = () => {
+        stopAssistantSpeech();
+      };
+
+      recognition.onaudiostart = () => {
+        stopAssistantSpeech();
+      };
+
       recognition.onerror = (event: any) => {
         console.error("Speech recognition error:", event);
         if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
@@ -487,6 +649,9 @@ const AudioCall = () => {
       recognitionRef.current = recognition;
       recognitionActiveRef.current = true;
 
+      // Запускаем мониторинг громкости для прерывания Марка
+      startVolumeMonitoring(stream);
+
       try {
         recognition.start();
       } catch (error) {
@@ -501,7 +666,6 @@ const AudioCall = () => {
 
       const greeting = "Здравствуйте. Я Марк, психолог. Расскажите, что вас сейчас больше всего беспокоит?";
       conversationRef.current.push({ role: "assistant", content: greeting });
-      setTranscriptionStatus("Озвучиваю ответ...");
       await enqueueSpeechPlayback(greeting);
 
       if (callTimerRef.current) {
@@ -509,7 +673,35 @@ const AudioCall = () => {
       }
 
       callTimerRef.current = window.setInterval(() => {
-        setCallDuration((prev) => prev + 1);
+        setCallDuration((prev) => {
+          const next = prev + 1;
+          if (!callLimitWarningSentRef.current && next >= CALL_LIMIT_WARNING_SECONDS && next < MAX_CALL_DURATION_SECONDS) {
+            callLimitWarningSentRef.current = true;
+            const warningMessage = "У нас осталось около пяти минут. Давайте коротко вспомним, что вы успели проговорить и что хотите забрать с собой";
+            conversationRef.current.push({ role: "assistant", content: warningMessage });
+            responseQueueRef.current = responseQueueRef.current
+              .catch((error) => console.error("Previous voice response error:", error))
+              .then(async () => {
+                try {
+                  setTranscriptionStatus("Озвучиваю напоминание...");
+                  await enqueueSpeechPlayback(warningMessage);
+                } catch (error) {
+                  console.error("Error playing limit warning:", error);
+                } finally {
+                  setTranscriptionStatus("");
+                }
+              });
+          }
+          if (next >= MAX_CALL_DURATION_SECONDS && !callLimitReachedRef.current) {
+            callLimitReachedRef.current = true;
+            window.setTimeout(() => {
+              setAudioError("Звонок автоматически завершён: достигнут лимит 40 минут.");
+              endCall(next).catch((error) => console.error("Error auto-ending call", error));
+            }, 0);
+            return MAX_CALL_DURATION_SECONDS;
+          }
+          return Math.min(next, MAX_CALL_DURATION_SECONDS);
+        });
       }, 1000);
 
       setTranscriptionStatus("");
@@ -525,7 +717,7 @@ const AudioCall = () => {
     }
   };
 
-  const endCall = async () => {
+  const endCall = async (overrideDuration?: number) => {
     if (!currentCallId) {
       return;
     }
@@ -539,19 +731,33 @@ const AudioCall = () => {
         callTimerRef.current = null;
       }
 
-      await audioCallService.endAudioCall(currentCallId, callDuration);
+      const durationToSave = overrideDuration ?? callDuration;
+      await audioCallService.endAudioCall(currentCallId, durationToSave);
+
+      if (user && durationToSave > 0 && subscriptionInfo?.plan === 'premium' && subscriptionInfo.status === 'active') {
+        const result = await subscriptionService.recordAudioSession(user.id);
+        if (!result.success && result.message) {
+          setAudioError(result.message);
+        }
+        const latestInfo = await subscriptionService.getAudioSessionInfo(user.id);
+        setSubscriptionInfo(latestInfo);
+      }
     } catch (error) {
       console.error("Error ending call:", error);
       setAudioError("Не удалось корректно завершить звонок.");
     } finally {
       // Останавливаем фоновую музыку
       stopBackgroundMusic();
+      stopAssistantSpeech();
       setIsCallActive(false);
       setCallDuration(0);
       setIsMuted(false);
       isMutedRef.current = false;
       setCurrentCallId(null);
       setTranscriptionStatus(null);
+      callLimitReachedRef.current = false;
+      callLimitWarningSentRef.current = false;
+      memoryRef.current = "";
     }
   };
 
@@ -586,6 +792,15 @@ const AudioCall = () => {
                   <p className="text-muted-foreground">
                     Нажмите кнопку ниже, чтобы начать голосовую сессию
                   </p>
+                  {subscriptionInfo && subscriptionInfo.plan === 'premium' ? (
+                    <p className="mt-3 text-sm text-primary font-medium">
+                      Осталось аудио сессий: {subscriptionInfo.remaining} из {subscriptionInfo.limit}
+                    </p>
+                  ) : subscriptionInfo ? (
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Осталось аудио сессий: {subscriptionInfo.remaining} из {subscriptionInfo.limit}
+                    </p>
+                  ) : null}
                 </div>
 
                 <Button
@@ -618,9 +833,6 @@ const AudioCall = () => {
                   <h2 className="text-2xl font-bold text-foreground mb-2">
                     Звонок идет
                   </h2>
-                  <p className="text-3xl font-mono text-white">
-                    {formatDuration(callDuration)}
-                  </p>
                 </div>
 
                 <div className="flex justify-center gap-4">
@@ -655,6 +867,12 @@ const AudioCall = () => {
                 <p className="text-muted-foreground text-sm">
                   {!isSpeakerOn && "Звук выключен"}
                 </p>
+
+                {subscriptionInfo && (
+                  <p className="text-xs text-muted-foreground">
+                    Осталось сессий в этом месяце: {subscriptionInfo.remaining} из {subscriptionInfo.limit}
+                  </p>
+                )}
 
                 {transcriptionStatus && (
                   <p className="text-sm text-primary/80">{transcriptionStatus}</p>

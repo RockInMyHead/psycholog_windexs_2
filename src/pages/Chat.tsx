@@ -4,7 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Send, Mic, Square, Loader2 } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { userService, chatService } from "@/services/database";
+import { userService, chatService, memoryService } from "@/services/database";
+import { useAuth } from "@/contexts/AuthContext";
 import { psychologistAI } from "@/services/openai";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 
@@ -16,6 +17,7 @@ interface Message {
 }
 
 const Chat = () => {
+  const { user: authUser } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(true);
@@ -25,6 +27,7 @@ const Chat = () => {
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
+  const memoryRef = useRef<string>("");
   const {
     isRecording,
     startRecording,
@@ -33,20 +36,28 @@ const Chat = () => {
     hasPermission,
   } = useAudioRecorder();
 
-  // Default user ID for demo purposes
-  const defaultUserId = 'user@zenmindmate.com';
+  const getUserCredentials = () => {
+    const fallbackEmail = 'user@zenmindmate.com';
+    const email = authUser?.email ?? fallbackEmail;
+    const name = authUser?.name ?? authUser?.email ?? 'Пользователь';
+    return { email, name };
+  };
 
   useEffect(() => {
     initializeChat();
-  }, []);
+  }, [authUser]);
 
   const initializeChat = async () => {
     try {
       setLoading(true);
 
       // Get or create user
-      const userData = await userService.getOrCreateUser(defaultUserId, 'Пользователь');
+      const { email, name } = getUserCredentials();
+      const userData = await userService.getOrCreateUser(email, name);
       setUser(userData);
+
+      const existingMemory = await memoryService.getMemory(userData.id, "chat");
+      memoryRef.current = existingMemory ?? "";
 
       // Create new chat session
       const session = await chatService.createChatSession(userData.id);
@@ -89,6 +100,14 @@ const Chat = () => {
     messagesRef.current = messages;
   }, [messages]);
 
+  const sanitizeAssistantResponse = (text: string) => {
+    const withoutWord = text.replace(/\bсегодня\b/gi, "");
+    return withoutWord
+      .replace(/\s{2,}/g, " ")
+      .replace(/\s([?.!,])/g, "$1")
+      .trim();
+  };
+
   const sendMessage = async (content: string) => {
     if (!content.trim() || !currentSessionId || !user) return;
 
@@ -115,7 +134,8 @@ const Chat = () => {
           content: msg.text
         }));
 
-        const botResponse = await psychologistAI.getResponse(conversationHistory);
+        const rawBotResponse = await psychologistAI.getResponse(conversationHistory, memoryRef.current);
+        const botResponse = sanitizeAssistantResponse(rawBotResponse);
 
         // Save bot message to database
         await chatService.addChatMessage(currentSessionId, user.id, botResponse, "assistant");
@@ -127,6 +147,7 @@ const Chat = () => {
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, botMessage]);
+        await updateConversationMemory(content, botResponse);
       } catch (error) {
         console.error('Error getting AI response:', error);
         // Fallback message
@@ -141,6 +162,7 @@ const Chat = () => {
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, botMessage]);
+        await updateConversationMemory(content, fallbackMessage);
       } finally {
         setIsTyping(false);
       }
@@ -155,6 +177,20 @@ const Chat = () => {
     if (!text) return;
     setInputValue("");
     await sendMessage(text);
+  };
+
+  const updateConversationMemory = async (userText: string, assistantText: string) => {
+    if (!user) {
+      return;
+    }
+
+    const entry = `Клиент: ${userText}\nМарк: ${assistantText}`;
+    try {
+      const updatedMemory = await memoryService.appendMemory(user.id, "chat", entry);
+      memoryRef.current = updatedMemory;
+    } catch (error) {
+      console.error('Error updating chat memory:', error);
+    }
   };
 
   const handleToggleRecording = async () => {
@@ -206,23 +242,23 @@ const Chat = () => {
     <div className="min-h-screen bg-calm-gradient">
       <Navigation />
       
-      <div className="pt-16">
-        <div className="w-full">
-          <Card className="bg-card border-0 shadow-none animate-scale-in rounded-none">
-            <div className="h-[80vh] flex flex-col">
+      <div className="pt-16 px-4">
+        <div className="w-full max-w-5xl mx-auto">
+          <Card className="bg-card border-0 shadow-none animate-scale-in rounded-3xl">
+            <div className="min-h-[calc(100vh-8rem)] flex flex-col">
               {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {loading ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="text-center">
-                      <Bot className="w-12 h-12 mx-auto mb-4 text-primary animate-pulse" />
+                      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-hero-gradient animate-pulse" />
                       <p className="text-muted-foreground">Загрузка чата...</p>
                     </div>
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="text-center">
-                      <Bot className="w-12 h-12 mx-auto mb-4 text-primary" />
+                      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-hero-gradient" />
                       <p className="text-muted-foreground">Начните разговор с ИИ-психологом</p>
                     </div>
                   </div>
@@ -235,7 +271,7 @@ const Chat = () => {
                       }`}
                     >
                       <div
-                        className={`flex-1 max-w-[80%] p-4 rounded-2xl ${
+                        className={`flex-1 max-w-[80%] p-4 rounded-3xl ${
                           message.sender === "assistant"
                             ? "bg-muted/50 text-foreground"
                             : "bg-hero-gradient text-white shadow-soft"
@@ -256,7 +292,7 @@ const Chat = () => {
                 {/* Typing indicator */}
                 {isTyping && (
                   <div className="flex gap-3 animate-fade-in">
-                    <div className="flex-1 max-w-[80%] p-4 rounded-2xl bg-muted/50 text-foreground">
+                    <div className="flex-1 max-w-[80%] p-4 rounded-3xl bg-muted/50 text-foreground">
                       <div className="flex items-center gap-1">
                         <div className="flex gap-1">
                           <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
@@ -271,7 +307,7 @@ const Chat = () => {
               </div>
 
               {/* Input Area */}
-              <div className="border-t border-border">
+              <div className="border-t border-border pb-[10px]">
                 <div className="flex gap-2">
                   <Input
                     value={inputValue}
