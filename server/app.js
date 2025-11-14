@@ -29,12 +29,18 @@ app.use('/api', createProxyMiddleware({
   changeOrigin: true,
   secure: true,
   agent: agent,
+  pathRewrite: {
+    '^/api': '' // Remove /api prefix when forwarding to OpenAI
+  },
   onProxyReq: (proxyReq, req, res) => {
-    console.log('Proxying request to:', req.url);
+    console.log('[PROXY] Forwarding:', req.method, req.path, '-> https://api.openai.com' + req.path);
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log('[PROXY] Response status:', proxyRes.statusCode);
   },
   onError: (err, req, res) => {
-    console.error('Proxy error:', err);
-    res.status(500).json({ error: 'Proxy error' });
+    console.error('[PROXY] Error:', err.message);
+    res.status(500).json({ error: 'Proxy error', details: err.message });
   }
 }));
 
