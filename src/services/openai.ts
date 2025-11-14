@@ -1,17 +1,17 @@
 import OpenAI from 'openai';
 
 const apiKey = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.REACT_APP_API_BASE_URL || 'https://psycholog.windexs.ru';
 
 if (!apiKey) {
   console.warn('OpenAI API key is not defined. Please set VITE_OPENAI_API_KEY in your environment.');
 }
 
-console.log('OpenAI client config:', { apiBaseUrl });
+const baseURL = import.meta.env.PROD ? '/api' : 'http://localhost:3002/api';
+console.log('OpenAI client config:', { baseURL, isProduction: import.meta.env.PROD, mode: import.meta.env.MODE });
 
 const openai = new OpenAI({
   apiKey,
-  baseURL: `${apiBaseUrl}/api`,  // Route through proxy server
+  baseURL,
   dangerouslyAllowBrowser: true,
   defaultHeaders: {
     'X-Forwarded-For': 'client'

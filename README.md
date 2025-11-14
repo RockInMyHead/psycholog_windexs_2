@@ -37,37 +37,107 @@ cd ..
 
 ### 3. Настройка переменных окружения
 ```bash
-cp .env.example .env
+cp env-example.txt .env
 ```
 
 Отредактируйте `.env` файл:
 ```env
 # OpenAI API Configuration
-REACT_APP_OPENAI_API_KEY=ваш_openai_api_key
+VITE_OPENAI_API_KEY=ваш_openai_api_key
+
+# Server Configuration
+PORT=3002
+NODE_ENV=development
 
 # Proxy Configuration (если используется)
-REACT_APP_PROXY_HOST=185.68.187.20
-REACT_APP_PROXY_PORT=8000
-REACT_APP_PROXY_USERNAME=rBD9e6
-REACT_APP_PROXY_PASSWORD=jZdUnJ
+USE_PROXY=false
+PROXY_HOST=185.68.187.20
+PROXY_PORT=8000
+PROXY_USERNAME=rBD9e6
+PROXY_PASSWORD=jZdUnJ
 
-# API Configuration
-REACT_APP_API_BASE_URL=https://psycholog.windexs.ru
+# Enable mock API responses (for testing)
+ENABLE_MOCK_API=false
 ```
 
 ### 4. Запуск приложения
 
-#### Production режим (рекомендуемый)
+#### Development режим
 ```bash
 npm run dev
 ```
-Приложение будет доступно на `https://psycholog.windexs.ru`
+Приложение будет доступно на `http://localhost:8080`
 
-#### Development режим с локальным прокси
+#### Development режим с прокси-сервером
 ```bash
 npm run dev:with-proxy
 ```
-Запустится frontend + локальный прокси-сервер
+Запустится frontend на порту 8080 + прокси-сервер на порту 3002
+
+#### Production сборка
+```bash
+npm run build
+npm run preview
+```
+Соберет приложение для продакшена и запустит preview сервер
+
+#### Развертывание в продакшене
+
+**Важно:** На сервере должен быть остановлен dev сервер Vite и развернута статическая сборка!
+
+##### Шаг 1: Собрать приложение
+```bash
+npm run build
+```
+
+##### Шаг 2: Остановить dev сервер на сервере
+```bash
+# Найти процесс Vite
+ps aux | grep vite
+# Остановить процесс
+kill -9 <PID_процесса>
+```
+
+##### Шаг 3: Загрузить файлы на сервер
+Скопируйте все файлы из локальной папки `dist/` в корневую директорию веб-сервера (например, `/var/www/html/` или `/var/www/psycholog.windexs.ru/`)
+
+##### Шаг 4: Настроить веб-сервер (nginx)
+```nginx
+server {
+    listen 443 ssl;
+    server_name psycholog.windexs.ru;
+
+    root /var/www/html;
+    index index.html;
+
+    # Раздача статических файлов
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Прокси для API
+    location /api {
+        proxy_pass http://localhost:3002;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # SSL настройки (добавьте свои сертификаты)
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+}
+```
+
+##### Шаг 5: Запустить Express сервер
+```bash
+cd /path/to/server/directory
+NODE_ENV=production npm start
+```
+
+##### Шаг 6: Проверить развертывание
+- Главная страница: `https://psycholog.windexs.ru`
+- API тест: `https://psycholog.windexs.ru/api/test`
 
 ## 🛠️ Технологии
 

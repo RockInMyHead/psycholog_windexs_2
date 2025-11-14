@@ -1,8 +1,24 @@
 # OpenAI API Configuration
 VITE_OPENAI_API_KEY=your_openai_api_key_here
 
+# Server Configuration
+PORT=3002
+NODE_ENV=production
+
+# Proxy Configuration (optional, for accessing OpenAI through proxy)
+USE_PROXY=false
+PROXY_HOST=185.68.187.20
+PROXY_PORT=8000
+PROXY_USERNAME=rBD9e6
+PROXY_PASSWORD=jZdUnJ
+
+# Enable mock API responses in production (for testing)
+ENABLE_MOCK_API=false
+
 # Instructions:
 # 1. Get your API key from https://platform.openai.com/api-keys
 # 2. Copy this file to .env
 # 3. Replace 'your_openai_api_key_here' with your actual API key
-# 4. Restart the development server
+# 4. For production deployment, set NODE_ENV=production
+# 5. If you need to use a proxy for OpenAI API, set USE_PROXY=true
+# 6. Restart the development server after making changes
