@@ -6,13 +6,10 @@ if (!apiKey) {
   console.warn('OpenAI API key is not defined. Please set VITE_OPENAI_API_KEY in your environment.');
 }
 
-// Determine API endpoint based on environment
-const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
-const baseURL = isDevelopment
-  ? 'http://localhost:3002/api'
-  : 'https://psycholog.windexs.ru/api';
+// API endpoint
+const baseURL = 'https://psycholog.windexs.ru/api';
 
-console.log(`OpenAI client initialized for ${isDevelopment ? 'development' : 'production'} - using ${baseURL}`);
+console.log(`OpenAI client initialized - using ${baseURL}`);
 
 const openai = new OpenAI({
   apiKey,

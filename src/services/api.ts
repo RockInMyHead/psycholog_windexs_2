@@ -1,7 +1,7 @@
 // API service for client-side communication with server
 const API_FALLBACK_ORIGIN =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_ORIGIN) ||
-  'http://localhost:3002';
+  'https://psycholog.windexs.ru';
 
 const hasHttpOrigin =
   typeof window !== 'undefined' &&
