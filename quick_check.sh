@@ -24,7 +24,7 @@ echo ""
 echo "3. OpenAI API тест:"
 CHAT_RESP=$(timeout 10 curl -s -X POST https://psycholog.windexs.ru/api/chat/completions \
     -H "Content-Type: application/json" \
-    -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"test"}]}' 2>/dev/null)
+    -d '{"model":"gpt-5.1","messages":[{"role":"user","content":"test"}]}' 2>/dev/null)
 if echo "$CHAT_RESP" | grep -q "chat.completion"; then
     echo "✅ OK: OpenAI API работает"
 elif echo "$CHAT_RESP" | grep -q "404"; then

@@ -142,7 +142,7 @@ NODE_ENV=production npm start
 - **Frontend**: React + TypeScript + Vite
 - **UI**: Shadcn/ui + Tailwind CSS
 - **Database**: SQLite + Drizzle ORM
-- **AI**: OpenAI GPT-4o-mini
+- **AI**: OpenAI GPT-5.1
 - **Authentication**: JWT-based
 - **Proxy**: HTTPS-proxy-agent для обхода ограничений
 

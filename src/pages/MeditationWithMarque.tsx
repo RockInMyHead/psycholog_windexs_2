@@ -397,7 +397,7 @@ const MeditationWithMarque = () => {
       console.log("🔍 Base64 data prepared, length:", base64Data.length);
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-5.1",
         messages: [
           {
             role: "user",
@@ -432,7 +432,7 @@ const MeditationWithMarque = () => {
             ],
           },
         ],
-        max_tokens: 100,
+        max_completion_tokens: 100,
       });
 
       if (!completion.choices || !completion.choices[0] || !completion.choices[0].message) {

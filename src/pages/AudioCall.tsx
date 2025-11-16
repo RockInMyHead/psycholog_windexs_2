@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { userService, audioCallService, memoryService, subscriptionService } from "@/services/database";
+import { userApi, audioCallApi, memoryApi, subscriptionApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { psychologistAI, type ChatMessage } from "@/services/openai";
 
@@ -18,6 +18,7 @@ const AudioCall = () => {
   const [transcriptionStatus, setTranscriptionStatus] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fastMode, setFastMode] = useState(false); // Быстрый режим для ускорения
   const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' } | null>(null);
 
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -48,7 +49,7 @@ const AudioCall = () => {
 
   const MAX_CALL_DURATION_SECONDS = 40 * 60;
   const CALL_LIMIT_WARNING_SECONDS = MAX_CALL_DURATION_SECONDS - 5 * 60;
-  const VOICE_DETECTION_THRESHOLD = 30;
+  const VOICE_DETECTION_THRESHOLD = 20; // Уменьшили порог с 30 до 20 для более быстрого прерывания
 
   const initializeAudioContext = () => {
     if (!audioContextRef.current) {
@@ -207,64 +208,98 @@ const AudioCall = () => {
   };
 
   const playQueuedAudio = async () => {
+    console.log("[AudioCall] playQueuedAudio called, queue length:", audioQueueRef.current.length);
     if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) {
+      console.log("[AudioCall] Already playing or queue empty, skipping");
       return;
     }
 
     if (!audioContextRef.current) {
+      console.log("[AudioCall] Creating AudioContext");
       const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
       audioContextRef.current = new AudioContextConstructor();
     }
 
     const audioContext = audioContextRef.current;
     if (!audioContext) {
-      console.warn("AudioContext unavailable.");
+      console.warn("[AudioCall] AudioContext unavailable.");
       audioQueueRef.current = [];
       return;
     }
 
     const outputNode = getAudioOutputNode();
+    console.log("[AudioCall] Output node:", outputNode);
 
     isPlayingAudioRef.current = true;
+    console.log("[AudioCall] Starting audio playback, queue has", audioQueueRef.current.length, "items");
 
     try {
       while (audioQueueRef.current.length > 0) {
         const buffer = audioQueueRef.current.shift();
+        console.log("[AudioCall] Processing buffer, remaining:", audioQueueRef.current.length);
         if (!buffer) continue;
 
+        console.log("[AudioCall] Decoding audio data...");
         const decoded = await audioContext.decodeAudioData(buffer.slice(0));
+        console.log("[AudioCall] Audio decoded, duration:", decoded.duration);
 
         await new Promise<void>((resolve) => {
+          console.log("[AudioCall] Creating and starting audio source");
           const source = audioContext.createBufferSource();
           source.buffer = decoded;
           source.connect(outputNode ?? audioContext.destination);
           currentSpeechSourceRef.current = source;
-          source.onended = () => resolve();
+          source.onended = () => {
+            console.log("[AudioCall] Audio source ended");
+            resolve();
+          };
           source.start(0);
         });
         currentSpeechSourceRef.current = null;
       }
     } catch (error) {
-      console.error("Error during audio playback:", error);
+      console.error("[AudioCall] Error during audio playback:", error);
     } finally {
       isPlayingAudioRef.current = false;
+      console.log("[AudioCall] Audio playback finished");
     }
   };
 
   const enqueueSpeechPlayback = async (text: string) => {
+    console.log("[AudioCall] enqueueSpeechPlayback called with text:", text);
     const sentences = splitIntoSentences(text);
+    console.log("[AudioCall] Split into sentences:", sentences);
     if (sentences.length === 0) {
+      console.log("[AudioCall] No sentences to speak");
       return;
     }
 
     try {
+      console.log("[AudioCall] Starting parallel TTS synthesis for", sentences.length, "sentences");
+
+      // Параллельная обработка TTS для ускорения
       const audioBuffers = await Promise.all(
-        sentences.map((sentence) => psychologistAI.synthesizeSpeech(sentence))
+        sentences.map(async (sentence) => {
+          try {
+            return await psychologistAI.synthesizeSpeech(sentence);
+          } catch (error) {
+            console.warn("[AudioCall] Failed to synthesize sentence:", sentence, error);
+            return null; // Пропускаем неудачные синтезы
+          }
+        })
       );
-      audioQueueRef.current.push(...audioBuffers);
-      void playQueuedAudio();
+
+      // Фильтруем успешные буферы
+      const validBuffers = audioBuffers.filter(buffer => buffer !== null);
+      console.log("[AudioCall] TTS completed, enqueuing", validBuffers.length, "valid audio buffers");
+
+      if (validBuffers.length > 0) {
+        audioQueueRef.current.push(...validBuffers);
+        void playQueuedAudio();
+        console.log("[AudioCall] Audio queued and playback started");
+      }
     } catch (error) {
-      console.error("Error synthesizing speech:", error);
+      console.error("[AudioCall] Error synthesizing speech:", error);
       setAudioError("Не удалось озвучить ответ. Попробуйте ещё раз.");
     }
   };
@@ -365,7 +400,10 @@ const AudioCall = () => {
   };
 
   const processRecognizedText = async (rawText: string) => {
+    console.log("[AudioCall] processRecognizedText вызвана с текстом:", rawText);
+
     if (!user) {
+      console.warn("[AudioCall] Пользователь не найден, пропускаем обработку");
       return;
     }
 
@@ -384,7 +422,7 @@ const AudioCall = () => {
       // Начинаем звуковые сигналы во время генерации ответа
       startProcessingSound();
 
-      const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current, memoryRef.current);
+      const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current, memoryRef.current, fastMode);
       conversationRef.current.push({ role: "assistant", content: assistantReply });
 
       // Останавливаем сигналы и начинаем TTS
@@ -417,23 +455,29 @@ const AudioCall = () => {
   };
 
   const handleRecognizedText = (rawText: string) => {
+    console.log("[AudioCall] handleRecognizedText called with:", rawText);
     const segment = rawText.trim();
     if (!segment) {
+      console.log("[AudioCall] Empty segment, skipping");
       return;
     }
 
+    console.log("[AudioCall] Stopping assistant speech before processing");
     stopAssistantSpeech();
 
     pendingTranscriptRef.current = [pendingTranscriptRef.current, segment].filter(Boolean).join(" ");
+    console.log("[AudioCall] Updated pending transcript:", pendingTranscriptRef.current);
 
     if (pendingProcessTimeoutRef.current) {
       window.clearTimeout(pendingProcessTimeoutRef.current);
     }
 
+    const timeoutDelay = fastMode ? 50 : 100; // В быстром режиме - 50мс, в обычном - 100мс
     pendingProcessTimeoutRef.current = window.setTimeout(() => {
       pendingProcessTimeoutRef.current = null;
+      console.log("[AudioCall] Timeout reached, flushing pending transcript");
       flushPendingTranscript();
-    }, 300);
+    }, timeoutDelay);
   };
 
   const updateConversationMemory = async (userText: string, assistantText: string) => {
@@ -443,7 +487,7 @@ const AudioCall = () => {
 
     const entry = `Клиент: ${userText}\nМарк: ${assistantText}`;
     try {
-      const updatedMemory = await memoryService.appendMemory(user.id, "audio", entry);
+      const updatedMemory = await memoryApi.appendMemory(user.id, "audio", entry);
       memoryRef.current = updatedMemory;
     } catch (error) {
       console.error("Error updating audio memory:", error);
@@ -532,9 +576,9 @@ const AudioCall = () => {
   const initializeUser = async () => {
     try {
       const { email, name } = getUserCredentials();
-      const userData = await userService.getOrCreateUser(email, name);
+      const userData = await userApi.getOrCreateUser(email, name);
       setUser(userData);
-      const info = await subscriptionService.getAudioSessionInfo(userData.id);
+      const info = await subscriptionApi.getAudioSessionInfo(userData.id);
       setSubscriptionInfo(info);
     } catch (error) {
       console.error('Error initializing user:', error);
@@ -544,14 +588,20 @@ const AudioCall = () => {
   };
 
   const startCall = async () => {
+    console.log("[AudioCall] Начинаем запуск звонка...");
+
     if (!user || isCallActive) {
+      console.log("[AudioCall] Звонок уже активен или пользователь не найден");
       return;
     }
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices) {
+      console.error("[AudioCall] Браузер не поддерживает mediaDevices");
       setAudioError("Ваш браузер не поддерживает запись аудио.");
       return;
     }
+
+    console.log("[AudioCall] Проверяем поддержку Speech Recognition...");
 
     try {
       setAudioError(null);
@@ -561,9 +611,9 @@ const AudioCall = () => {
       setCallDuration(0);
       callLimitReachedRef.current = false;
       callLimitWarningSentRef.current = false;
-      memoryRef.current = await memoryService.getMemory(user.id, "audio");
+      memoryRef.current = await memoryApi.getMemory(user.id, "audio");
 
-      const sessionInfo = await subscriptionService.getAudioSessionInfo(user.id);
+      const sessionInfo = await subscriptionApi.getAudioSessionInfo(user.id);
       setSubscriptionInfo(sessionInfo);
 
       if (sessionInfo.plan === 'premium') {
@@ -585,16 +635,24 @@ const AudioCall = () => {
           ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
           : null;
 
+      console.log("[AudioCall] SpeechRecognition constructor:", SpeechRecognitionConstructor);
+
       if (!SpeechRecognitionConstructor) {
+        console.error("[AudioCall] Speech Recognition API не поддерживается");
         setAudioError("Ваш браузер не поддерживает системное распознавание речи.");
         return;
       }
 
-      const call = await audioCallService.createAudioCall(user.id);
-      setCurrentCallId(call.id);
+      console.log("[AudioCall] Создаем аудио сессию в БД...");
 
+      const call = await audioCallApi.createAudioCall(user.id);
+      setCurrentCallId(call.id);
+      console.log("[AudioCall] Аудио сессия создана, ID:", call.id);
+
+      console.log("[AudioCall] Запрашиваем доступ к микрофону...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
+      console.log("[AudioCall] Микрофон доступен, создаем recognition...");
 
       const recognition = new SpeechRecognitionConstructor();
       recognition.lang = "ru-RU";
@@ -603,25 +661,30 @@ const AudioCall = () => {
       recognition.maxAlternatives = 1;
 
       recognition.onresult = (event: any) => {
+        console.log("[AudioCall] Recognition result event:", event);
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
           const result = event.results[i];
           const transcript = result?.[0]?.transcript ?? "";
+          console.log(`[AudioCall] Result ${i}: final=${result.isFinal}, transcript="${transcript}"`);
           if (result.isFinal && transcript) {
+            console.log("[AudioCall] Финальный результат, передаем на обработку");
             handleRecognizedText(transcript);
           }
         }
       };
 
       recognition.onspeechstart = () => {
+        console.log("[AudioCall] Speech started - stopping assistant speech");
         stopAssistantSpeech();
       };
 
       recognition.onaudiostart = () => {
+        console.log("[AudioCall] Audio started - stopping assistant speech");
         stopAssistantSpeech();
       };
 
       recognition.onerror = (event: any) => {
-        console.error("Speech recognition error:", event);
+        console.error("[AudioCall] Speech recognition error:", event);
         if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
           setAudioError("Доступ к микрофону запрещён. Проверьте настройки браузера.");
         } else if (event?.error !== "aborted") {
@@ -648,25 +711,31 @@ const AudioCall = () => {
 
       recognitionRef.current = recognition;
       recognitionActiveRef.current = true;
+      console.log("[AudioCall] Recognition создан и настроен");
 
       // Запускаем мониторинг громкости для прерывания Марка
       startVolumeMonitoring(stream);
+      console.log("[AudioCall] Мониторинг громкости запущен");
 
       try {
+        console.log("[AudioCall] Запускаем speech recognition...");
         recognition.start();
+        console.log("[AudioCall] Speech recognition запущен успешно");
       } catch (error) {
-        console.error("Failed to start speech recognition:", error);
+        console.error("[AudioCall] Failed to start speech recognition:", error);
         setAudioError("Не удалось запустить распознавание речи.");
         stopRecognition();
         cleanupRecording();
-        await audioCallService.endAudioCall(call.id, 0);
+        await audioCallApi.endAudioCall(call.id, 0);
         setCurrentCallId(null);
         return;
       }
 
+      console.log("[AudioCall] Проигрываем приветствие...");
       const greeting = "Здравствуйте. Я Марк, психолог. Расскажите, что вас сейчас больше всего беспокоит?";
       conversationRef.current.push({ role: "assistant", content: greeting });
       await enqueueSpeechPlayback(greeting);
+      console.log("[AudioCall] Приветствие проиграно");
 
       if (callTimerRef.current) {
         clearInterval(callTimerRef.current);
@@ -732,14 +801,14 @@ const AudioCall = () => {
       }
 
       const durationToSave = overrideDuration ?? callDuration;
-      await audioCallService.endAudioCall(currentCallId, durationToSave);
+      await audioCallApi.endAudioCall(currentCallId, durationToSave);
 
       if (user && durationToSave > 0 && subscriptionInfo?.plan === 'premium' && subscriptionInfo.status === 'active') {
-        const result = await subscriptionService.recordAudioSession(user.id);
+        const result = await subscriptionApi.recordAudioSession(user.id);
         if (!result.success && result.message) {
           setAudioError(result.message);
         }
-        const latestInfo = await subscriptionService.getAudioSessionInfo(user.id);
+        const latestInfo = await subscriptionApi.getAudioSessionInfo(user.id);
         setSubscriptionInfo(latestInfo);
       }
     } catch (error) {
@@ -855,6 +924,16 @@ const AudioCall = () => {
                   </Button>
 
                   <Button
+                    onClick={() => setFastMode(!fastMode)}
+                    size="lg"
+                    variant={fastMode ? "default" : "outline"}
+                    className="rounded-full w-16 h-16 p-0"
+                    title={fastMode ? "Выключить быстрый режим" : "Включить быстрый режим"}
+                  >
+                    ⚡
+                  </Button>
+
+                  <Button
                     onClick={endCall}
                     size="lg"
                     variant="destructive"
@@ -864,9 +943,10 @@ const AudioCall = () => {
                   </Button>
                 </div>
 
-                <p className="text-muted-foreground text-sm">
-                  {!isSpeakerOn && "Звук выключен"}
-                </p>
+                <div className="text-center text-sm text-muted-foreground">
+                  {!isSpeakerOn && <p>Звук выключен</p>}
+                  {fastMode && <p className="text-primary font-medium">⚡ Быстрый режим активен</p>}
+                </div>
 
                 {subscriptionInfo && (
                   <p className="text-xs text-muted-foreground">
@@ -875,7 +955,27 @@ const AudioCall = () => {
                 )}
 
                 {transcriptionStatus && (
-                  <p className="text-sm text-primary/80">{transcriptionStatus}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-primary/80">{transcriptionStatus}</p>
+                    {transcriptionStatus.includes("обдумывает") && (
+                      <Button
+                        onClick={() => {
+                          // Прерываем ожидание и очищаем статус
+                          if (pendingProcessTimeoutRef.current) {
+                            window.clearTimeout(pendingProcessTimeoutRef.current);
+                            pendingProcessTimeoutRef.current = null;
+                          }
+                          setTranscriptionStatus("");
+                          console.log("[AudioCall] User skipped waiting for response");
+                        }}
+                        size="sm"
+                        variant="outline"
+                        className="text-xs px-2 py-1"
+                      >
+                        Пропустить
+                      </Button>
+                    )}
+                  </div>
                 )}
 
                 {audioError && (

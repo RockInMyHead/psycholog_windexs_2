@@ -16,10 +16,10 @@ export const chatSessions = sqliteTable('chat_sessions', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id').notNull().references(() => users.id),
   title: text('title'),
-  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
-  endedAt: integer('ended_at', { mode: 'timestamp' }),
+  startedAt: integer('started_at').notNull(),
+  endedAt: integer('ended_at'),
   messageCount: integer('message_count').notNull().default(0),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at').notNull(),
 });
 
 // Chat Messages table
@@ -29,19 +29,19 @@ export const chatMessages = sqliteTable('chat_messages', {
   userId: text('user_id').notNull().references(() => users.id),
   content: text('content').notNull(),
   role: text('role').notNull(), // 'user' or 'assistant'
-  timestamp: integer('timestamp', { mode: 'timestamp' }).notNull(),
+  timestamp: integer('timestamp').notNull(),
 });
 
 // Audio Calls table
 export const audioCalls = sqliteTable('audio_calls', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id').notNull().references(() => users.id),
-  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
-  endedAt: integer('ended_at', { mode: 'timestamp' }),
+  startedAt: integer('started_at').notNull(),
+  endedAt: integer('ended_at'),
   duration: integer('duration').notNull(), // in seconds
   status: text('status').notNull().default('completed'), // 'completed', 'missed', 'cancelled'
   notes: text('notes'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at').notNull(),
 });
 
 // Meditation Sessions table
@@ -50,10 +50,10 @@ export const meditationSessions = sqliteTable('meditation_sessions', {
   userId: text('user_id').notNull().references(() => users.id),
   meditationTitle: text('meditation_title').notNull(),
   duration: integer('duration').notNull(), // in minutes
-  completedAt: integer('completed_at', { mode: 'timestamp' }).notNull(),
+  completedAt: integer('completed_at').notNull(),
   rating: integer('rating'), // 1-5 stars
   notes: text('notes'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at').notNull(),
 });
 
 // Quotes table
@@ -62,7 +62,7 @@ export const quotes = sqliteTable('quotes', {
   text: text('text').notNull(),
   author: text('author').notNull(),
   category: text('category').notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at').notNull(),
 });
 
 // Quote Views table
@@ -70,7 +70,7 @@ export const quoteViews = sqliteTable('quote_views', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id').notNull().references(() => users.id),
   quoteId: text('quote_id').notNull().references(() => quotes.id),
-  viewedAt: integer('viewed_at', { mode: 'timestamp' }).notNull(),
+  viewedAt: integer('viewed_at').notNull(),
   liked: integer('liked').notNull().default(0), // 0 or 1
 });
 
@@ -82,9 +82,26 @@ export const userStats = sqliteTable('user_stats', {
   totalAudioCalls: integer('total_audio_calls').notNull().default(0),
   totalMeditationMinutes: integer('total_meditation_minutes').notNull().default(0),
   totalQuotesViewed: integer('total_quotes_viewed').notNull().default(0),
-  lastActivity: integer('last_activity', { mode: 'timestamp' }),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  lastActivity: integer('last_activity'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// Subscriptions table
+export const subscriptions = sqliteTable('subscriptions', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  userId: text('user_id').notNull().references(() => users.id),
+  plan: text('plan').notNull(), // 'free' or 'premium'
+  status: text('status').notNull().default('active'), // 'active', 'inactive', 'cancelled'
+  yookassaPaymentId: text('yookassa_payment_id'),
+  startedAt: integer('started_at').notNull(),
+  expiresAt: integer('expires_at'),
+  autoRenew: integer('auto_renew').notNull().default(1), // 0 or 1
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  audioSessionsLimit: integer('audio_sessions_limit'),
+  audioSessionsUsed: integer('audio_sessions_used').default(0),
+  lastAudioResetAt: integer('last_audio_reset_at'),
 });
 
 // Export types
@@ -111,3 +128,6 @@ export type NewQuoteView = typeof quoteViews.$inferInsert;
 
 export type UserStat = typeof userStats.$inferSelect;
 export type NewUserStat = typeof userStats.$inferInsert;
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type NewSubscription = typeof subscriptions.$inferInsert;

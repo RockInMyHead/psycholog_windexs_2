@@ -1,197 +1,156 @@
-/*
-  Database service using SQLite with Drizzle ORM.
-  Handles all database operations for the application.
-*/
+// Server-side database service wrapper
+// This wraps the client-side database functions for server use
 
-import { db } from '@/db/index';
-import * as schema from '@/db/schema';
-import { eq, desc, asc, and, sql } from 'drizzle-orm';
-import { createId } from '@paralleldrive/cuid2';
+const Database = require('better-sqlite3');
+const { drizzle } = require('drizzle-orm/better-sqlite3');
+const { eq, and, desc, sql } = require('drizzle-orm');
 
-export type ID = string;
+// Define schema inline for server use
+const { sqliteTable, text, integer } = require('drizzle-orm/sqlite-core');
+
+const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  avatar: text('avatar'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+const chatSessions = sqliteTable('chat_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  title: text('title'),
+  startedAt: integer('started_at').notNull(),
+  endedAt: integer('ended_at'),
+  messageCount: integer('message_count').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+});
+
+const chatMessages = sqliteTable('chat_messages', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  userId: text('user_id').notNull(),
+  content: text('content').notNull(),
+  role: text('role').notNull(),
+  timestamp: integer('timestamp').notNull(),
+});
+
+const audioCalls = sqliteTable('audio_calls', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  startedAt: integer('started_at').notNull(),
+  endedAt: integer('ended_at'),
+  duration: integer('duration').notNull(),
+  status: text('status').notNull().default('completed'),
+  notes: text('notes'),
+  createdAt: integer('created_at').notNull(),
+});
+
+const meditationSessions = sqliteTable('meditation_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  meditationTitle: text('meditation_title').notNull(),
+  duration: integer('duration').notNull(),
+  completedAt: integer('completed_at').notNull(),
+  rating: integer('rating'),
+  notes: text('notes'),
+  createdAt: integer('created_at').notNull(),
+});
+
+const quotes = sqliteTable('quotes', {
+  id: text('id').primaryKey(),
+  text: text('text').notNull(),
+  author: text('author').notNull(),
+  category: text('category').notNull(),
+  createdAt: integer('created_at').notNull(),
+});
+
+const quoteViews = sqliteTable('quote_views', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  quoteId: text('quote_id').notNull(),
+  viewedAt: integer('viewed_at').notNull(),
+  liked: integer('liked').notNull().default(0),
+});
+
+const userStats = sqliteTable('user_stats', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().unique(),
+  totalChatSessions: integer('total_chat_sessions').notNull().default(0),
+  totalAudioCalls: integer('total_audio_calls').notNull().default(0),
+  totalMeditationMinutes: integer('total_meditation_minutes').notNull().default(0),
+  totalQuotesViewed: integer('total_quotes_viewed').notNull().default(0),
+  lastActivity: integer('last_activity'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+const subscriptions = sqliteTable('subscriptions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  plan: text('plan').notNull(),
+  status: text('status').notNull().default('active'),
+  yookassaPaymentId: text('yookassa_payment_id'),
+  startedAt: integer('started_at').notNull(),
+  expiresAt: integer('expires_at'),
+  autoRenew: integer('auto_renew').notNull().default(1),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  audioSessionsLimit: integer('audio_sessions_limit'),
+  audioSessionsUsed: integer('audio_sessions_used').default(0),
+  lastAudioResetAt: integer('last_audio_reset_at'),
+});
+
+const schema = {
+  users,
+  chatSessions,
+  chatMessages,
+  audioCalls,
+  meditationSessions,
+  quotes,
+  quoteViews,
+  userStats,
+  subscriptions,
+};
+
+// Create database connection
+const sqlite = new Database('../zen-mind-mate.db', { verbose: console.log });
+
+// Create drizzle instance
+const db = drizzle(sqlite, { schema });
+
+// Enable foreign keys
+sqlite.pragma('foreign_keys = ON');
 
 // Utility functions
-function toDate(value?: Date | number): Date | undefined {
-  if (!value) return undefined;
+function toDate(value) {
+  return value ? new Date(value) : undefined;
+}
+
+function toDateRequired(value) {
   return new Date(value);
 }
 
-function toDateRequired(value: Date | number): Date {
-  return new Date(value);
-}
-
-// Type definitions matching schema
-export type User = {
-  id: ID;
-  name: string;
-  email: string;
-  avatar?: string;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type ChatSession = {
-  id: ID;
-  userId: ID;
-  title?: string;
-  startedAt: Date;
-  endedAt?: Date;
-  messageCount: number;
-  createdAt: Date;
-};
-
-export type ChatMessage = {
-  id: ID;
-  sessionId: ID;
-  userId: ID;
-  content: string;
-  role: 'user' | 'assistant';
-  timestamp: Date;
-};
-
-export type AudioCall = {
-  id: ID;
-  userId: ID;
-  startedAt: Date;
-  endedAt?: Date;
-  duration: number;
-  status: 'completed' | 'missed' | 'cancelled';
-  notes?: string;
-  createdAt: Date;
-};
-
-export type MeditationSession = {
-  id: ID;
-  userId: ID;
-  meditationTitle: string;
-  duration: number;
-  completedAt: Date;
-  rating?: number;
-  notes?: string;
-  createdAt: Date;
-};
-
-export type Quote = {
-  id: ID;
-  text: string;
-  author: string;
-  category: string;
-  createdAt: Date;
-};
-
-export type QuoteView = {
-  id: ID;
-  userId: ID;
-  quoteId: ID;
-  viewedAt: Date;
-  liked: boolean;
-};
-
-export type UserStat = {
-  id: ID;
-  userId: ID;
-  totalChatSessions: number;
-  totalAudioCalls: number;
-  totalMeditationMinutes: number;
-  totalQuotesViewed: number;
-  lastActivity?: Date;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type Subscription = {
-  id: ID;
-  userId: ID;
-  plan: 'free' | 'premium';
-  status: 'active' | 'inactive' | 'cancelled';
-  yookassaPaymentId?: string;
-  startedAt: Date;
-  expiresAt?: Date;
-  autoRenew: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  audioSessionsLimit?: number;
-  audioSessionsUsed?: number;
-  lastAudioResetAt?: Date;
-};
-
-// Memory types for conversation context
-type MemoryType = 'chat' | 'audio';
-
-type ConversationMemory = {
-  id: ID;
-  userId: ID;
-  type: MemoryType;
-  content: string;
-  updatedAt: Date;
-};
-
-const MAX_MEMORY_LENGTH = 2000;
-const PREMIUM_AUDIO_SESSIONS_LIMIT = 4;
-
-function ensureSubscriptionAudioUsage(subscription: any, now: Date): boolean {
-  let changed = false;
-  const nowIso = now.toISOString();
-
-  if (subscription.plan === 'premium' && subscription.status === 'active') {
-    if (subscription.audioSessionsLimit !== PREMIUM_AUDIO_SESSIONS_LIMIT) {
-      subscription.audioSessionsLimit = PREMIUM_AUDIO_SESSIONS_LIMIT;
-      changed = true;
-    }
-
-    if (typeof subscription.audioSessionsUsed !== 'number' || subscription.audioSessionsUsed < 0) {
-      subscription.audioSessionsUsed = 0;
-      changed = true;
-    }
-
-    const lastReset = subscription.lastAudioResetAt ? new Date(subscription.lastAudioResetAt) : undefined;
-    if (!lastReset || lastReset.getUTCFullYear() !== now.getUTCFullYear() || lastReset.getUTCMonth() !== now.getUTCMonth()) {
-      subscription.audioSessionsUsed = 0;
-      subscription.lastAudioResetAt = nowIso;
-      changed = true;
-    }
-
-    if ((subscription.audioSessionsUsed ?? 0) > (subscription.audioSessionsLimit ?? PREMIUM_AUDIO_SESSIONS_LIMIT)) {
-      subscription.audioSessionsUsed = subscription.audioSessionsLimit ?? PREMIUM_AUDIO_SESSIONS_LIMIT;
-      changed = true;
-    }
-  } else {
-    if (subscription.audioSessionsLimit !== 0) {
-      subscription.audioSessionsLimit = 0;
-      changed = true;
-    }
-    if ((subscription.audioSessionsUsed ?? 0) !== 0) {
-      subscription.audioSessionsUsed = 0;
-      changed = true;
-    }
-    if (!subscription.lastAudioResetAt) {
-      subscription.lastAudioResetAt = nowIso;
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    subscription.updatedAt = nowIso;
-  }
-
-  return changed;
+function toTimestamp(value) {
+  return value.getTime();
 }
 
 // User service
-export const userService = {
-  async getUserById(id: ID): Promise<User | undefined> {
+const userService = {
+  async getUserById(id) {
     const result = await db.select().from(schema.users).where(eq(schema.users.id, id));
     if (result.length === 0) return undefined;
 
     const user = result[0];
     return {
-  ...user,
-  createdAt: toDateRequired(user.createdAt),
-  updatedAt: toDateRequired(user.updatedAt),
+      ...user,
+      createdAt: toDateRequired(user.createdAt),
+      updatedAt: toDateRequired(user.updatedAt),
     };
   },
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
+  async getUserByEmail(email) {
     const result = await db.select().from(schema.users).where(eq(schema.users.email, email));
     if (result.length === 0) return undefined;
 
@@ -203,58 +162,58 @@ export const userService = {
     };
   },
 
-  async createUser(email: string, name: string): Promise<User> {
+  async createUser(email, name) {
     const now = new Date();
-    const userId = createId();
+    const userId = `user_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
 
     await db.insert(schema.users).values({
       id: userId,
       name,
       email,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: toTimestamp(now),
+      updatedAt: toTimestamp(now),
     });
 
     // Create default premium subscription
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await db.insert(schema.subscriptions).values({
-      id: createId(),
-        userId,
-        plan: 'premium',
-        status: 'active',
-      startedAt: now,
-      expiresAt: expiresAt,
-        autoRenew: true,
-      createdAt: now,
-      updatedAt: now,
-        audioSessionsLimit: PREMIUM_AUDIO_SESSIONS_LIMIT,
-        audioSessionsUsed: 0,
-      lastAudioResetAt: now,
+      id: `sub_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`,
+      userId,
+      plan: 'premium',
+      status: 'active',
+      startedAt: toTimestamp(now),
+      expiresAt: toTimestamp(expiresAt),
+      autoRenew: 1,
+      createdAt: toTimestamp(now),
+      updatedAt: toTimestamp(now),
+      audioSessionsLimit: 4,
+      audioSessionsUsed: 0,
+      lastAudioResetAt: toTimestamp(now),
     });
 
     return {
       id: userId,
-        name,
-        email,
-        createdAt: now,
-        updatedAt: now,
-      };
+      name,
+      email,
+      createdAt: now,
+      updatedAt: now,
+    };
   },
 
-  async updateUser(id: ID, data: Partial<Omit<User, 'id' | 'createdAt'>>): Promise<User | undefined> {
+  async updateUser(id, data) {
     const existing = await this.getUserById(id);
     if (!existing) return undefined;
 
-    const updateData: any = { ...data };
+    const updateData = { ...data };
     if (Object.keys(updateData).length > 0) {
-      updateData.updatedAt = new Date();
+      updateData.updatedAt = toTimestamp(new Date());
       await db.update(schema.users).set(updateData).where(eq(schema.users.id, id));
     }
 
     return await this.getUserById(id);
   },
 
-  async getOrCreateUser(email: string, name: string): Promise<User> {
+  async getOrCreateUser(email, name) {
     let user = await this.getUserByEmail(email);
     if (user) return user;
 
@@ -263,17 +222,17 @@ export const userService = {
 };
 
 // Chat service
-export const chatService = {
-  async createChatSession(userId: ID, title?: string): Promise<ChatSession> {
+const chatService = {
+  async createChatSession(userId, title) {
     const now = new Date();
-    const sessionId = createId();
+    const sessionId = `chat_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
 
     await db.insert(schema.chatSessions).values({
       id: sessionId,
       userId,
       title,
-      startedAt: now,
-      createdAt: now,
+      startedAt: toTimestamp(now),
+      createdAt: toTimestamp(now),
       messageCount: 0,
     });
 
@@ -287,19 +246,19 @@ export const chatService = {
     };
   },
 
-  async endChatSession(sessionId: ID): Promise<ChatSession | undefined> {
+  async endChatSession(sessionId) {
     const existing = await db.select().from(schema.chatSessions).where(eq(schema.chatSessions.id, sessionId));
     if (existing.length === 0) return undefined;
 
     const now = new Date();
     await db.update(schema.chatSessions)
-      .set({ endedAt: now })
+      .set({ endedAt: toTimestamp(now) })
       .where(eq(schema.chatSessions.id, sessionId));
 
     return await this.getChatSessionById(sessionId);
   },
 
-  async getChatSessionById(sessionId: ID): Promise<ChatSession | undefined> {
+  async getChatSessionById(sessionId) {
     const result = await db.select().from(schema.chatSessions).where(eq(schema.chatSessions.id, sessionId));
     if (result.length === 0) return undefined;
 
@@ -312,13 +271,8 @@ export const chatService = {
     };
   },
 
-  async addChatMessage(
-    sessionId: ID,
-    userId: ID,
-    content: string,
-    role: 'user' | 'assistant',
-  ): Promise<ChatMessage | undefined> {
-    const messageId = createId();
+  async addChatMessage(sessionId, userId, content, role) {
+    const messageId = `msg_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
 
     await db.insert(schema.chatMessages).values({
@@ -327,12 +281,12 @@ export const chatService = {
       userId,
       content,
       role,
-      timestamp: now,
+      timestamp: toTimestamp(now),
     });
 
     // Update message count in session
     await db.update(schema.chatSessions)
-      .set(sql`${schema.chatSessions.messageCount} = ${schema.chatSessions.messageCount} + 1`)
+      .set({ messageCount: sql`${schema.chatSessions.messageCount} + 1` })
       .where(eq(schema.chatSessions.id, sessionId));
 
     return {
@@ -345,12 +299,8 @@ export const chatService = {
     };
   },
 
-  async getChatMessages(sessionId: ID): Promise<ChatMessage[]> {
-    const result = await db
-      .select()
-      .from(schema.chatMessages)
-      .where(eq(schema.chatMessages.sessionId, sessionId))
-      .orderBy(asc(schema.chatMessages.timestamp));
+  async getChatMessages(sessionId) {
+    const result = await db.select().from(schema.chatMessages).where(eq(schema.chatMessages.sessionId, sessionId)).orderBy(schema.chatMessages.timestamp);
 
     return result.map(msg => ({
       ...msg,
@@ -358,9 +308,8 @@ export const chatService = {
     }));
   },
 
-  async getUserChatSessions(userId: ID, limit = 10): Promise<ChatSession[]> {
-    const result = await db
-      .select()
+  async getUserChatSessions(userId, limit = 10) {
+    const result = await db.select()
       .from(schema.chatSessions)
       .where(eq(schema.chatSessions.userId, userId))
       .orderBy(desc(schema.chatSessions.createdAt))
@@ -376,16 +325,16 @@ export const chatService = {
 };
 
 // Audio call service
-export const audioCallService = {
-  async createAudioCall(userId: ID): Promise<AudioCall> {
-    const callId = createId();
+const audioCallService = {
+  async createAudioCall(userId) {
+    const callId = `call_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
 
     await db.insert(schema.audioCalls).values({
       id: callId,
       userId,
-      startedAt: now,
-      createdAt: now,
+      startedAt: toTimestamp(now),
+      createdAt: toTimestamp(now),
       duration: 0,
       status: 'completed',
     });
@@ -400,14 +349,14 @@ export const audioCallService = {
     };
   },
 
-  async endAudioCall(callId: ID, duration: number): Promise<AudioCall | undefined> {
+  async endAudioCall(callId, duration) {
     const existing = await db.select().from(schema.audioCalls).where(eq(schema.audioCalls.id, callId));
     if (existing.length === 0) return undefined;
 
     const now = new Date();
     await db.update(schema.audioCalls)
       .set({
-        endedAt: now,
+        endedAt: toTimestamp(now),
         duration,
       })
       .where(eq(schema.audioCalls.id, callId));
@@ -415,7 +364,7 @@ export const audioCallService = {
     return await this.getAudioCallById(callId);
   },
 
-  async getAudioCallById(callId: ID): Promise<AudioCall | undefined> {
+  async getAudioCallById(callId) {
     const result = await db.select().from(schema.audioCalls).where(eq(schema.audioCalls.id, callId));
     if (result.length === 0) return undefined;
 
@@ -428,9 +377,8 @@ export const audioCallService = {
     };
   },
 
-  async getUserAudioCalls(userId: ID, limit = 10): Promise<AudioCall[]> {
-    const result = await db
-      .select()
+  async getUserAudioCalls(userId, limit = 10) {
+    const result = await db.select()
       .from(schema.audioCalls)
       .where(eq(schema.audioCalls.userId, userId))
       .orderBy(desc(schema.audioCalls.createdAt))
@@ -446,15 +394,9 @@ export const audioCallService = {
 };
 
 // Meditation service
-export const meditationService = {
-  async createMeditationSession(
-    userId: ID,
-    meditationTitle: string,
-    duration: number,
-    rating?: number,
-    notes?: string,
-  ): Promise<MeditationSession> {
-    const sessionId = createId();
+const meditationService = {
+  async createMeditationSession(userId, meditationTitle, duration, rating, notes) {
+    const sessionId = `med_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
 
     await db.insert(schema.meditationSessions).values({
@@ -462,10 +404,10 @@ export const meditationService = {
       userId,
       meditationTitle,
       duration,
-      completedAt: now,
+      completedAt: toTimestamp(now),
       rating,
       notes,
-      createdAt: now,
+      createdAt: toTimestamp(now),
     });
 
     return {
@@ -480,9 +422,8 @@ export const meditationService = {
     };
   },
 
-  async getUserMeditationSessions(userId: ID, limit = 20): Promise<MeditationSession[]> {
-    const result = await db
-      .select()
+  async getUserMeditationSessions(userId, limit = 20) {
+    const result = await db.select()
       .from(schema.meditationSessions)
       .where(eq(schema.meditationSessions.userId, userId))
       .orderBy(desc(schema.meditationSessions.completedAt))
@@ -495,18 +436,14 @@ export const meditationService = {
     }));
   },
 
-  async getUserMeditationStats(userId: ID): Promise<{
-    totalSessions: number;
-    totalMinutes: number;
-    avgRating: number;
-  }> {
+  async getUserMeditationStats(userId) {
     const sessions = await this.getUserMeditationSessions(userId, 1000); // Get all for stats
 
     const totalSessions = sessions.length;
     const totalMinutes = sessions.reduce((acc, session) => acc + session.duration, 0);
     const ratings = sessions
       .map((session) => session.rating)
-      .filter((rating): rating is number => rating !== undefined);
+      .filter((rating) => rating !== undefined);
 
     const avgRating = ratings.length > 0 ? ratings.reduce((acc, rating) => acc + rating, 0) / ratings.length : 0;
 
@@ -519,12 +456,9 @@ export const meditationService = {
 };
 
 // Quote service
-export const quoteService = {
-  async getAllQuotes(): Promise<Quote[]> {
-    const result = await db
-      .select()
-      .from(schema.quotes)
-      .orderBy(asc(schema.quotes.createdAt));
+const quoteService = {
+  async getAllQuotes() {
+    const result = await db.select().from(schema.quotes).orderBy(schema.quotes.createdAt);
 
     return result.map(quote => ({
       ...quote,
@@ -532,16 +466,16 @@ export const quoteService = {
     }));
   },
 
-  async viewQuote(userId: ID, quoteId: ID, liked = false): Promise<QuoteView> {
-    const viewId = createId();
+  async viewQuote(userId, quoteId, liked = false) {
+    const viewId = `view_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
 
     await db.insert(schema.quoteViews).values({
       id: viewId,
       userId,
       quoteId,
-      viewedAt: now,
-      liked,
+      viewedAt: toTimestamp(now),
+      liked: liked ? 1 : 0,
     });
 
     return {
@@ -553,7 +487,7 @@ export const quoteService = {
     };
   },
 
-  async toggleQuoteLike(userId: ID, quoteId: ID): Promise<QuoteView> {
+  async toggleQuoteLike(userId, quoteId) {
     const existing = await db
       .select()
       .from(schema.quoteViews)
@@ -569,7 +503,7 @@ export const quoteService = {
       await db.update(schema.quoteViews)
         .set({
           liked: newLiked,
-          viewedAt: now,
+          viewedAt: toTimestamp(now),
         })
         .where(eq(schema.quoteViews.id, view.id));
 
@@ -583,7 +517,7 @@ export const quoteService = {
     }
   },
 
-  async getUserQuoteViews(userId: ID, limit = 20): Promise<{ view: QuoteView; quote: Quote }[]> {
+  async getUserQuoteViews(userId, limit = 20) {
     const result = await db
       .select({
         view: schema.quoteViews,
@@ -604,17 +538,17 @@ export const quoteService = {
         ...row.quote,
         createdAt: toDateRequired(row.quote.createdAt),
       },
-      }));
+    }));
   },
 
-  async getUserQuoteStats(userId: ID): Promise<{ totalViewed: number; totalLiked: number }> {
-    const result = await db
-      .select({
-        totalViewed: sql<number>`count(*)`,
-        totalLiked: sql<number>`count(case when ${schema.quoteViews.liked} = 1 then 1 end)`,
-      })
-      .from(schema.quoteViews)
-      .where(eq(schema.quoteViews.userId, userId));
+  async getUserQuoteStats(userId) {
+    const result = await db.run(`
+      SELECT
+        COUNT(*) as totalViewed,
+        COUNT(CASE WHEN liked = 1 THEN 1 END) as totalLiked
+      FROM quote_views
+      WHERE user_id = ?
+    `, [userId]);
 
     return {
       totalViewed: result[0].totalViewed,
@@ -622,7 +556,7 @@ export const quoteService = {
     };
   },
 
-  async getUserLikedQuotes(userId: ID, limit = 50): Promise<{ quote: Quote; view: QuoteView }[]> {
+  async getUserLikedQuotes(userId, limit = 50) {
     const result = await db
       .select({
         view: schema.quoteViews,
@@ -643,50 +577,38 @@ export const quoteService = {
         ...row.quote,
         createdAt: toDateRequired(row.quote.createdAt),
       },
-      }));
+    }));
   },
 };
 
 // User stats service
-export const userStatsService = {
-  async updateUserStats(userId: ID): Promise<void> {
-    const chatSessions = await db.select({ count: sql<number>`count(*)` })
-      .from(schema.chatSessions)
-      .where(eq(schema.chatSessions.userId, userId));
-
-    const audioCalls = await db.select({ count: sql<number>`count(*)` })
-      .from(schema.audioCalls)
-      .where(eq(schema.audioCalls.userId, userId));
-
+const userStatsService = {
+  async updateUserStats(userId) {
+    const chatSessions = await db.run('SELECT COUNT(*) as count FROM chat_sessions WHERE user_id = ?', [userId]);
+    const audioCalls = await db.run('SELECT COUNT(*) as count FROM audio_calls WHERE user_id = ?', [userId]);
     const meditationStats = await meditationService.getUserMeditationStats(userId);
     const quoteStats = await quoteService.getUserQuoteStats(userId);
 
     const now = new Date();
 
-    await db.insert(schema.userStats).values({
-      id: createId(),
+    await db.run(`
+      INSERT OR REPLACE INTO user_stats
+      (id, user_id, total_chat_sessions, total_audio_calls, total_meditation_minutes, total_quotes_viewed, last_activity, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      `stats_${userId}`,
       userId,
-      totalChatSessions: chatSessions[0].count,
-      totalAudioCalls: audioCalls[0].count,
-      totalMeditationMinutes: meditationStats.totalMinutes,
-      totalQuotesViewed: quoteStats.totalViewed,
-      lastActivity: now,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: schema.userStats.userId,
-      set: {
-        totalChatSessions: chatSessions[0].count,
-        totalAudioCalls: audioCalls[0].count,
-        totalMeditationMinutes: meditationStats.totalMinutes,
-        totalQuotesViewed: quoteStats.totalViewed,
-        lastActivity: now,
-        updatedAt: now,
-      },
-    });
+      chatSessions[0].count,
+      audioCalls[0].count,
+      meditationStats.totalMinutes,
+      quoteStats.totalViewed,
+      toTimestamp(now),
+      toTimestamp(now),
+      toTimestamp(now),
+    ]);
   },
 
-  async getUserStats(userId: ID): Promise<UserStat> {
+  async getUserStats(userId) {
     let result = await db.select().from(schema.userStats).where(eq(schema.userStats.userId, userId));
 
     if (result.length === 0) {
@@ -705,8 +627,8 @@ export const userStatsService = {
 };
 
 // Subscription service
-export const subscriptionService = {
-  async getUserSubscription(userId: ID): Promise<Subscription | undefined> {
+const subscriptionService = {
+  async getUserSubscription(userId) {
     const result = await db
       .select()
       .from(schema.subscriptions)
@@ -727,12 +649,8 @@ export const subscriptionService = {
     };
   },
 
-  async createSubscription(
-    userId: ID,
-    plan: 'free' | 'premium',
-    yookassaPaymentId?: string
-  ): Promise<Subscription> {
-    const subscriptionId = createId();
+  async createSubscription(userId, plan, yookassaPaymentId) {
+    const subscriptionId = `sub_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
     const expiresAt = plan === 'premium' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : undefined;
 
@@ -742,14 +660,14 @@ export const subscriptionService = {
       plan,
       status: 'active',
       yookassaPaymentId,
-      startedAt: now,
-      expiresAt: expiresAt || undefined,
-      autoRenew: true,
-      createdAt: now,
-      updatedAt: now,
-      audioSessionsLimit: plan === 'premium' ? PREMIUM_AUDIO_SESSIONS_LIMIT : 0,
+      startedAt: toTimestamp(now),
+      expiresAt: expiresAt ? toTimestamp(expiresAt) : undefined,
+      autoRenew: 1,
+      createdAt: toTimestamp(now),
+      updatedAt: toTimestamp(now),
+      audioSessionsLimit: plan === 'premium' ? 4 : 0,
       audioSessionsUsed: 0,
-      lastAudioResetAt: now,
+      lastAudioResetAt: toTimestamp(now),
     });
 
     return {
@@ -763,16 +681,13 @@ export const subscriptionService = {
       autoRenew: true,
       createdAt: now,
       updatedAt: now,
-      audioSessionsLimit: plan === 'premium' ? PREMIUM_AUDIO_SESSIONS_LIMIT : 0,
+      audioSessionsLimit: plan === 'premium' ? 4 : 0,
       audioSessionsUsed: 0,
       lastAudioResetAt: now,
     };
   },
 
-  async updateSubscriptionStatus(
-    subscriptionId: ID,
-    status: 'active' | 'inactive' | 'cancelled'
-  ): Promise<Subscription | undefined> {
+  async updateSubscriptionStatus(subscriptionId, status) {
     const existing = await db.select().from(schema.subscriptions).where(eq(schema.subscriptions.id, subscriptionId));
     if (existing.length === 0) return undefined;
 
@@ -780,14 +695,14 @@ export const subscriptionService = {
     await db.update(schema.subscriptions)
       .set({
         status,
-        updatedAt: now,
+        updatedAt: toTimestamp(now),
       })
       .where(eq(schema.subscriptions.id, subscriptionId));
 
     return await this.getSubscriptionById(subscriptionId);
   },
 
-  async getSubscriptionById(subscriptionId: ID): Promise<Subscription | undefined> {
+  async getSubscriptionById(subscriptionId) {
     const result = await db.select().from(schema.subscriptions).where(eq(schema.subscriptions.id, subscriptionId));
     if (result.length === 0) return undefined;
 
@@ -802,11 +717,11 @@ export const subscriptionService = {
     };
   },
 
-  async cancelSubscription(subscriptionId: ID): Promise<Subscription | undefined> {
+  async cancelSubscription(subscriptionId) {
     return await this.updateSubscriptionStatus(subscriptionId, 'cancelled');
   },
 
-  async getUserSubscriptions(userId: ID): Promise<Subscription[]> {
+  async getUserSubscriptions(userId) {
     const result = await db
       .select()
       .from(schema.subscriptions)
@@ -823,7 +738,7 @@ export const subscriptionService = {
     }));
   },
 
-  async getAudioSessionInfo(userId: ID): Promise<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' }> {
+  async getAudioSessionInfo(userId) {
     const subscription = await this.getUserSubscription(userId);
 
     if (!subscription) {
@@ -833,29 +748,29 @@ export const subscriptionService = {
         limit: 0,
         status: 'none',
       };
-      }
+    }
 
-    const limit = subscription.audioSessionsLimit ?? (subscription.plan === 'premium' ? PREMIUM_AUDIO_SESSIONS_LIMIT : 0);
-    const used = subscription.audioSessionsUsed ?? 0;
-      const remaining = Math.max(0, limit - used);
+    const limit = subscription.audioSessionsLimit || (subscription.plan === 'premium' ? 4 : 0);
+    const used = subscription.audioSessionsUsed || 0;
+    const remaining = Math.max(0, limit - used);
 
-      return {
+    return {
       plan: subscription.plan,
-        remaining,
-        limit,
+      remaining,
+      limit,
       status: subscription.status,
     };
   },
 
-  async recordAudioSession(userId: ID): Promise<{ success: boolean; remaining: number; limit: number; message?: string }> {
+  async recordAudioSession(userId) {
     const subscription = await this.getUserSubscription(userId);
 
     if (!subscription || subscription.plan !== 'premium' || subscription.status !== 'active') {
       return { success: false, remaining: 0, limit: 0, message: 'Нет активной премиум подписки' };
     }
 
-    const limit = subscription.audioSessionsLimit ?? PREMIUM_AUDIO_SESSIONS_LIMIT;
-    const used = subscription.audioSessionsUsed ?? 0;
+    const limit = subscription.audioSessionsLimit || 4;
+    const used = subscription.audioSessionsUsed || 0;
 
     if (used >= limit) {
       return { success: false, remaining: 0, limit, message: 'Лимит аудио сессий исчерпан' };
@@ -865,7 +780,7 @@ export const subscriptionService = {
     await db.update(schema.subscriptions)
       .set({
         audioSessionsUsed: used + 1,
-        updatedAt: now,
+        updatedAt: toTimestamp(now),
       })
       .where(eq(schema.subscriptions.id, subscription.id));
 
@@ -878,10 +793,10 @@ export const subscriptionService = {
 };
 
 // Memory service for conversation context
-const buildMemoryKey = (userId: ID, type: MemoryType) => `${type}_${userId}`;
+const buildMemoryKey = (userId, type) => `${type}_${userId}`;
 
-export const memoryService = {
-  async getMemory(userId: ID, type: MemoryType): Promise<string> {
+const memoryService = {
+  async getMemory(userId, type) {
     // For now, we'll use a simple in-memory approach for conversation memory
     // In production, this could be stored in a separate table or Redis
     const key = buildMemoryKey(userId, type);
@@ -891,20 +806,34 @@ export const memoryService = {
     return '';
   },
 
-  async setMemory(userId: ID, type: MemoryType, content: string): Promise<string> {
+  async setMemory(userId, type, content) {
     // For now, this is a no-op since we're not storing persistent memory
     // Memory is derived from chat messages instead
     return content;
   },
 
-  async appendMemory(userId: ID, type: MemoryType, entry: string, maxLength = MAX_MEMORY_LENGTH): Promise<string> {
+  async appendMemory(userId, type, entry, maxLength = 2000) {
     // For now, this is a no-op since we're not storing persistent memory
     // Memory is derived from chat messages instead
     return entry;
   },
 
-  async clearMemory(userId: ID, type: MemoryType): Promise<void> {
+  async clearMemory(userId, type) {
     // For now, this is a no-op since we're not storing persistent memory
     // Memory is derived from chat messages instead
   },
+};
+
+module.exports = {
+  userService,
+  chatService,
+  audioCallService,
+  meditationService,
+  quoteService,
+  userStatsService,
+  subscriptionService,
+  memoryService,
+  db,
+  schema,
+  sqlite,
 };

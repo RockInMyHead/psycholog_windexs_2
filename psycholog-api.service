@@ -1,0 +1,20 @@
+[Unit]
+Description=Psycholog API Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/psycholog-backend
+EnvironmentFile=/opt/psycholog-backend/.env
+ExecStart=/usr/bin/node /opt/psycholog-backend/app.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
+
+

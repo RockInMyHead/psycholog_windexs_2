@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Check, Crown, Star, Sparkles, MessageCircle, Phone, Lightbulb, PlayCircle, Heart, CreditCard, X, CheckCircle, AlertCircle } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { subscriptionService } from "@/services/database";
+import { subscriptionApi } from "@/services/api";
 import { paymentService, PaymentData } from "@/services/payment";
 
 const Subscription = () => {
@@ -40,7 +40,7 @@ const Subscription = () => {
     if (!user) return;
 
     try {
-      const subscription = await subscriptionService.getUserSubscription(user.id);
+      const subscription = await subscriptionApi.getUserSubscription(user.id);
       setCurrentSubscription(subscription);
     } catch (error) {
       console.error('Error loading subscription:', error);
@@ -56,7 +56,7 @@ const Subscription = () => {
 
       if (success) {
         // Create premium subscription
-        await subscriptionService.createSubscription(userId, 'premium', paymentId);
+        await subscriptionApi.createSubscription(userId, 'premium', paymentId);
         setPaymentSuccess(true);
         await loadCurrentSubscription();
       } else {

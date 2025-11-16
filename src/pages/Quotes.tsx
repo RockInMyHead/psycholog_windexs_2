@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Lightbulb, Heart, Sparkles } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { userService, quoteService } from "@/services/database";
+import { userApi, quoteApi } from "@/services/api";
 
 const Quotes = () => {
   const [quotes, setQuotes] = useState<any[]>([]);
@@ -25,15 +25,15 @@ const Quotes = () => {
       setLoading(true);
 
       // Get or create user
-      const userData = await userService.getOrCreateUser(defaultUserId, 'Пользователь');
+      const userData = await userApi.getOrCreateUser(defaultUserId, 'Пользователь');
       setUser(userData);
 
       // Load quotes
-      const quotesData = await quoteService.getAllQuotes();
+      const quotesData = await quoteApi.getAllQuotes();
       setQuotes(quotesData);
 
       // Load user's quote views
-      const views = await quoteService.getUserQuoteViews(userData.id, 50);
+      const views = await quoteApi.getUserQuoteViews(userData.id, 50);
       const viewsMap = new Map<string, boolean>();
       views.forEach(view => {
         viewsMap.set(view.quote.id, view.view.liked === 1);
@@ -41,7 +41,7 @@ const Quotes = () => {
       setUserQuoteViews(viewsMap);
 
       // Load liked quotes
-      const liked = await quoteService.getUserLikedQuotes(userData.id, 50);
+      const liked = await quoteApi.getUserLikedQuotes(userData.id, 50);
       setLikedQuotes(liked.map(item => item.quote));
 
     } catch (error) {
@@ -56,7 +56,7 @@ const Quotes = () => {
 
     try {
       // Toggle like status using the new service method
-      await quoteService.toggleQuoteLike(user.id, quoteId);
+      await quoteApi.toggleQuoteLike(user.id, quoteId);
 
       // Update local state
       const currentlyLiked = userQuoteViews.get(quoteId) || false;

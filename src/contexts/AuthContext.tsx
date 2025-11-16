@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { userService, subscriptionService } from '@/services/database';
+import { userApi, subscriptionApi } from '@/services/api';
 
 interface User {
   id: string;
@@ -47,11 +47,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         if (savedUser) {
           const userData = JSON.parse(savedUser);
           // Verify user still exists in database
-          const dbUser = await userService.getUserByEmail(userData.email);
+          const dbUser = await userApi.getUser(userData.id);
           if (dbUser) {
             setUser(dbUser);
             // Load user subscription
-            const userSubscription = await subscriptionService.getUserSubscription(dbUser.id);
+            const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
             setSubscription(userSubscription);
           } else {
             localStorage.removeItem('auth_user');
@@ -72,12 +72,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       // In a real app, you'd validate password hash
       // For demo purposes, we'll just check if user exists
-      const dbUser = await userService.getUserByEmail(email);
+      const dbUser = await userApi.getUserByEmail(email);
       if (dbUser) {
         setUser(dbUser);
         localStorage.setItem('auth_user', JSON.stringify(dbUser));
         // Load user subscription
-        const userSubscription = await subscriptionService.getUserSubscription(dbUser.id);
+        const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
         setSubscription(userSubscription);
         return true;
       }
@@ -91,17 +91,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const register = async (email: string, password: string, name: string): Promise<boolean> => {
     try {
       // Check if user already exists
-      const existingUser = await userService.getUserByEmail(email);
-      if (existingUser) {
+      let existingUser = null;
+      try {
+        existingUser = await userApi.getUserByEmail(email);
+      } catch (error) {
+        console.error('Error checking existing user:', error);
+        // If there's an error other than 404, stop registration
         return false;
       }
 
+      if (existingUser) {
+        console.log('User already exists:', existingUser);
+        return false;
+      }
+
+      console.log('Creating new user:', { email, name });
+
       // Create new user
-      const newUser = await userService.createUser(email, name);
+      const newUser = await userApi.getOrCreateUser(email, name);
+      console.log('User created successfully:', newUser);
+      
       setUser(newUser);
       localStorage.setItem('auth_user', JSON.stringify(newUser));
       // Load user subscription (new users start with free plan)
-      const userSubscription = await subscriptionService.getUserSubscription(newUser.id);
+      const userSubscription = await subscriptionApi.getUserSubscription(newUser.id);
       setSubscription(userSubscription);
       return true;
     } catch (error) {

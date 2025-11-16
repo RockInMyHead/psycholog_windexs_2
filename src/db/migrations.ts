@@ -23,8 +23,119 @@ export async function initializeDatabase() {
 }
 
 async function createTables() {
-  // Tables are created automatically by drizzle when we run the first query
-  // But we can add any additional setup here if needed
+  console.log('Creating database tables...');
+
+  // Create all tables explicitly using raw SQL
+  const createTablesSQL = `
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      avatar TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT,
+      started_at INTEGER NOT NULL,
+      ended_at INTEGER,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      role TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS audio_calls (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      ended_at INTEGER,
+      duration INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'completed',
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS meditation_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      meditation_title TEXT NOT NULL,
+      duration INTEGER NOT NULL,
+      completed_at INTEGER NOT NULL,
+      rating INTEGER,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS quotes (
+      id TEXT PRIMARY KEY,
+      text TEXT NOT NULL,
+      author TEXT NOT NULL,
+      category TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS quote_views (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      quote_id TEXT NOT NULL,
+      viewed_at INTEGER NOT NULL,
+      liked INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (quote_id) REFERENCES quotes(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_stats (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      total_chat_sessions INTEGER NOT NULL DEFAULT 0,
+      total_audio_calls INTEGER NOT NULL DEFAULT 0,
+      total_meditation_minutes INTEGER NOT NULL DEFAULT 0,
+      total_quotes_viewed INTEGER NOT NULL DEFAULT 0,
+      last_activity INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      yookassa_payment_id TEXT,
+      started_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      auto_renew INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      audio_sessions_limit INTEGER,
+      audio_sessions_used INTEGER DEFAULT 0,
+      last_audio_reset_at INTEGER,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `;
+
+  // Execute the SQL to create tables
+  const dbInstance = db.$client;
+  dbInstance.exec(createTablesSQL);
+
+  console.log('Database tables created successfully!');
 }
 
 async function seedQuotes() {

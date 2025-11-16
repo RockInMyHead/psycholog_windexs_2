@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PlayCircle, Clock, Star, Wind } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { userService, meditationService } from "@/services/database";
+import { userApi, meditationApi } from "@/services/api";
 
 const meditations = [
   {
@@ -69,7 +69,7 @@ const Meditations = () => {
   const initializeUser = async () => {
     try {
       setLoading(true);
-      const userData = await userService.getOrCreateUser(defaultUserId, 'Пользователь');
+      const userData = await userApi.getOrCreateUser(defaultUserId, 'Пользователь');
       setUser(userData);
 
     } catch (error) {
@@ -90,7 +90,7 @@ const Meditations = () => {
     try {
       const duration = Math.floor((new Date().getTime() - meditationStartTime.getTime()) / (1000 * 60)); // in minutes
 
-      await meditationService.createMeditationSession(
+      await meditationApi.createMeditationSession(
         user.id,
         currentMeditation.title,
         duration,

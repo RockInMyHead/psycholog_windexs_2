@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Send, Mic, Square, Loader2 } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { userService, chatService, memoryService } from "@/services/database";
+import { userApi, chatApi, memoryApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { psychologistAI } from "@/services/openai";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
@@ -53,18 +53,18 @@ const Chat = () => {
 
       // Get or create user
       const { email, name } = getUserCredentials();
-      const userData = await userService.getOrCreateUser(email, name);
+      const userData = await userApi.getOrCreateUser(email, name);
       setUser(userData);
 
-      const existingMemory = await memoryService.getMemory(userData.id, "chat");
+      const existingMemory = await memoryApi.getMemory(userData.id, "chat");
       memoryRef.current = existingMemory ?? "";
 
       // Create new chat session
-      const session = await chatService.createChatSession(userData.id);
+      const session = await chatApi.createChatSession(userData.id);
       setCurrentSessionId(session.id);
 
       // Add initial bot message
-      await chatService.addChatMessage(
+      await chatApi.addChatMessage(
         session.id,
         userData.id,
         "Здравствуйте. Я Марк, психолог. Расскажите, что привело вас сюда?",
@@ -83,7 +83,7 @@ const Chat = () => {
 
   const loadMessages = async (sessionId: string) => {
     try {
-      const chatMessages = await chatService.getChatMessages(sessionId);
+      const chatMessages = await chatApi.getChatMessages(sessionId);
       const formattedMessages = chatMessages.map(msg => ({
         id: msg.id,
         text: msg.content,
@@ -113,7 +113,7 @@ const Chat = () => {
 
     try {
       // Save user message to database
-      await chatService.addChatMessage(currentSessionId, user.id, content, "user");
+      await chatApi.addChatMessage(currentSessionId, user.id, content, "user");
 
       // Add to local state
       const userMessage: Message = {
@@ -138,7 +138,7 @@ const Chat = () => {
         const botResponse = sanitizeAssistantResponse(rawBotResponse);
 
         // Save bot message to database
-        await chatService.addChatMessage(currentSessionId, user.id, botResponse, "assistant");
+        await chatApi.addChatMessage(currentSessionId, user.id, botResponse, "assistant");
 
         const botMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -153,7 +153,7 @@ const Chat = () => {
         // Fallback message
         const fallbackMessage = "Извините, я временно недоступен. Можете рассказать подробнее о том, что вас беспокоит?";
 
-        await chatService.addChatMessage(currentSessionId, user.id, fallbackMessage, "assistant");
+        await chatApi.addChatMessage(currentSessionId, user.id, fallbackMessage, "assistant");
 
         const botMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -186,7 +186,7 @@ const Chat = () => {
 
     const entry = `Клиент: ${userText}\nМарк: ${assistantText}`;
     try {
-      const updatedMemory = await memoryService.appendMemory(user.id, "chat", entry);
+      const updatedMemory = await memoryApi.appendMemory(user.id, "chat", entry);
       memoryRef.current = updatedMemory;
     } catch (error) {
       console.error('Error updating chat memory:', error);
@@ -279,7 +279,7 @@ const Chat = () => {
                       >
                         <p className="text-sm md:text-base leading-relaxed">{message.text}</p>
                         <span className="text-xs opacity-70 mt-2 block">
-                          {message.timestamp.toLocaleTimeString("ru-RU", {
+                          {new Date(message.timestamp).toLocaleTimeString("ru-RU", {
                             hour: "2-digit",
                             minute: "2-digit",
                           })}

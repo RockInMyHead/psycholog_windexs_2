@@ -11,12 +11,11 @@ import { createId } from '@paralleldrive/cuid2';
 export type ID = string;
 
 // Utility functions
-function toDate(value?: Date | number): Date | undefined {
-  if (!value) return undefined;
-  return new Date(value);
+function toDate(value?: string | Date): Date | undefined {
+  return value ? new Date(value) : undefined;
 }
 
-function toDateRequired(value: Date | number): Date {
+function toDateRequired(value: string | Date): Date {
   return new Date(value);
 }
 
@@ -185,9 +184,9 @@ export const userService = {
 
     const user = result[0];
     return {
-  ...user,
-  createdAt: toDateRequired(user.createdAt),
-  updatedAt: toDateRequired(user.updatedAt),
+      ...user,
+      createdAt: toDateRequired(user.createdAt),
+      updatedAt: toDateRequired(user.updatedAt),
     };
   },
 
@@ -219,26 +218,26 @@ export const userService = {
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await db.insert(schema.subscriptions).values({
       id: createId(),
-        userId,
-        plan: 'premium',
-        status: 'active',
+      userId,
+      plan: 'premium',
+      status: 'active',
       startedAt: now,
-      expiresAt: expiresAt,
-        autoRenew: true,
+      expiresAt,
+      autoRenew: true,
       createdAt: now,
       updatedAt: now,
-        audioSessionsLimit: PREMIUM_AUDIO_SESSIONS_LIMIT,
-        audioSessionsUsed: 0,
+      audioSessionsLimit: PREMIUM_AUDIO_SESSIONS_LIMIT,
+      audioSessionsUsed: 0,
       lastAudioResetAt: now,
     });
 
     return {
       id: userId,
-        name,
-        email,
-        createdAt: now,
-        updatedAt: now,
-      };
+      name,
+      email,
+      createdAt: now,
+      updatedAt: now,
+    };
   },
 
   async updateUser(id: ID, data: Partial<Omit<User, 'id' | 'createdAt'>>): Promise<User | undefined> {
@@ -604,7 +603,7 @@ export const quoteService = {
         ...row.quote,
         createdAt: toDateRequired(row.quote.createdAt),
       },
-      }));
+    }));
   },
 
   async getUserQuoteStats(userId: ID): Promise<{ totalViewed: number; totalLiked: number }> {
@@ -643,7 +642,7 @@ export const quoteService = {
         ...row.quote,
         createdAt: toDateRequired(row.quote.createdAt),
       },
-      }));
+    }));
   },
 };
 
@@ -743,7 +742,7 @@ export const subscriptionService = {
       status: 'active',
       yookassaPaymentId,
       startedAt: now,
-      expiresAt: expiresAt || undefined,
+      expiresAt,
       autoRenew: true,
       createdAt: now,
       updatedAt: now,
@@ -833,16 +832,16 @@ export const subscriptionService = {
         limit: 0,
         status: 'none',
       };
-      }
+    }
 
     const limit = subscription.audioSessionsLimit ?? (subscription.plan === 'premium' ? PREMIUM_AUDIO_SESSIONS_LIMIT : 0);
     const used = subscription.audioSessionsUsed ?? 0;
-      const remaining = Math.max(0, limit - used);
+    const remaining = Math.max(0, limit - used);
 
-      return {
+    return {
       plan: subscription.plan,
-        remaining,
-        limit,
+      remaining,
+      limit,
       status: subscription.status,
     };
   },
