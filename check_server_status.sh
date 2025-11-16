@@ -21,7 +21,7 @@ elif echo "$API_RESP" | grep -q "@vite/client"; then
     echo "   Нужно запустить Express сервер и настроить nginx прокси"
 else
     echo "❌ ПРОБЛЕМА: API сервер не отвечает"
-    echo "   Проверьте, запущен ли Express сервер на порту 3002"
+    echo "   Проверьте, запущен ли Express сервер на порту 1033"
 fi
 
 echo ""

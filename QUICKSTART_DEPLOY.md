@@ -38,7 +38,7 @@ cd /opt/psycholog-backend
 #### 2. Создать .env файл
 ```bash
 cat > .env << 'EOF'
-PORT=3002
+PORT=1033
 NODE_ENV=production
 VITE_OPENAI_API_KEY=your_real_api_key_here
 USE_PROXY=false

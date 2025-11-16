@@ -40,7 +40,7 @@ npm run build
 1. Создать `.env` файл:
 ```bash
 cat > .env << 'EOF'
-PORT=3002
+PORT=1033
 NODE_ENV=production
 VITE_OPENAI_API_KEY=your_real_openai_api_key_here
 
@@ -93,7 +93,7 @@ server {
 
     # API прокси к backend-серверу
     location /api {
-        proxy_pass http://localhost:3002;
+        proxy_pass http://localhost:1033;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -197,7 +197,7 @@ pm2 restart psycholog-api
 ### Backend не отвечает
 ```bash
 # Проверить, слушает ли порт
-netstat -tlnp | grep 3002
+netstat -tlnp | grep 1033
 
 # Перезапустить
 pm2 restart psycholog-api

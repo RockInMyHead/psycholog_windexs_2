@@ -46,7 +46,7 @@ cp env-example.txt .env
 VITE_OPENAI_API_KEY=ваш_openai_api_key
 
 # Server Configuration
-PORT=3002
+PORT=1033
 NODE_ENV=development
 
 # Proxy Configuration (если используется)
@@ -107,9 +107,9 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # Прокси для API (Express сервер на localhost:3002)
+    # Прокси для API (Express сервер на localhost:1033)
     location /api {
-        proxy_pass http://localhost:3002;
+        proxy_pass http://localhost:1033;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -118,7 +118,7 @@ server {
 
     # Альтернатива: если API на другом сервере
     # location /api {
-    #     proxy_pass https://psycholog.windexs.ru:3002;
+    #     proxy_pass https://psycholog.windexs.ru:1033;
     # }
 
     # SSL настройки (добавьте свои сертификаты)

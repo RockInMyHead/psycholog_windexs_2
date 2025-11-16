@@ -2,7 +2,7 @@
 VITE_OPENAI_API_KEY=your_openai_api_key_here
 
 # Server Configuration
-PORT=3002
+PORT=1033
 NODE_ENV=production
 
 # Proxy Configuration (optional, for accessing OpenAI through proxy)
