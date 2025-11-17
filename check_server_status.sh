@@ -35,5 +35,35 @@ fi
 echo ""
 echo "📋 РЕЗУЛЬТАТЫ ДИАГНОСТИКИ"
 echo "========================"
-echo "Если есть проблемы - следуйте инструкциям выше!"
-EOF && chmod +x check_server_status.sh
+echo "Если есть проблемы - следуйте инструкциям ниже!"
+
+echo ""
+echo "🔧 Быстрое исправление проблем:"
+echo "================================="
+
+echo ""
+echo "1. Проверьте переменные окружения:"
+echo "   sudo nano /opt/psycholog-backend/.env"
+echo ""
+echo "   Убедитесь что есть:"
+echo "   VITE_OPENAI_API_KEY=ваш_реальный_ключ_openai"
+echo "   PORT=1033"
+echo "   NODE_ENV=production"
+
+echo ""
+echo "2. Перезапустите сервис:"
+echo "   sudo systemctl restart psycholog-api"
+echo "   sudo systemctl status psycholog-api"
+
+echo ""
+echo "3. Проверьте логи:"
+echo "   sudo journalctl -u psycholog-api -f --no-pager | tail -50"
+
+echo ""
+echo "4. Перезагрузите Nginx:"
+echo "   sudo nginx -t"
+echo "   sudo systemctl reload nginx"
+
+echo ""
+echo "5. Проверьте что порт 1033 открыт:"
+echo "   sudo netstat -tlnp | grep :1033"
