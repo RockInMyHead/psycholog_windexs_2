@@ -3,10 +3,13 @@ const API_FALLBACK_ORIGIN =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_ORIGIN) ||
   'https://psycholog.windexs.ru';
 
-const hasHttpOrigin =
-  typeof window !== 'undefined' &&
-  typeof window.location?.origin === 'string' &&
-  window.location.origin.startsWith('http');
+// Always use relative paths when in browser - Vite proxy will handle it
+const isDevelopment = typeof window !== 'undefined';
+
+// Debug logs for development
+if (typeof window !== 'undefined') {
+  console.log('API Service: Using local proxy for API calls');
+}
 
 const API_BASE = '/api';
 
@@ -16,6 +19,12 @@ function buildApiUrl(endpoint: string) {
   }
 
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  // In development (browser), use relative paths to leverage Vite proxy
+  // In production (server-side), use full URL
+  if (isDevelopment) {
+    return `/api${normalizedEndpoint}`;
+  }
 
   // Always use full URL for consistency and to avoid URL parsing issues
   return `${API_FALLBACK_ORIGIN}/api${normalizedEndpoint}`;
@@ -31,6 +40,16 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
     },
     ...options,
   };
+
+  // Ensure body is properly serialized if it's an object
+  if (config.body && typeof config.body === 'object' && !(config.body instanceof FormData)) {
+    try {
+      config.body = JSON.stringify(config.body);
+    } catch (error) {
+      console.error('Failed to serialize request body:', error);
+      throw new Error('Cannot serialize request body - contains circular references');
+    }
+  }
 
   try {
     const response = await fetch(url, config);

@@ -158,7 +158,15 @@ const app = express();
 const PORT = process.env.PORT || 1033;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'https://psycholog.windexs.ru',
+    'https://localhost:5173'
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // Proxy configuration
@@ -579,6 +587,30 @@ app.post('/api/users/:userId/record-audio-session', async (req, res) => {
     console.error('Error recording audio session:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Psycholog API Server',
+    status: 'running',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      openai: {
+        chat: 'POST /api/chat/completions',
+        transcription: 'POST /api/audio/transcriptions',
+        speech: 'POST /api/audio/speech',
+        models: 'GET /api/models'
+      },
+      users: 'GET /api/users/:userId',
+      chat: 'POST /api/chat/sessions',
+      audioCalls: 'POST /api/audio-calls',
+      meditations: 'POST /api/meditations',
+      quotes: 'GET /api/quotes',
+      subscriptions: 'POST /api/subscriptions'
+    }
+  });
 });
 
 // Health check

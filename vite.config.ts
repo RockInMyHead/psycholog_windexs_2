@@ -17,6 +17,14 @@ export default defineConfig({
   // Отключаем HMR для production сборки
   server: {
     hmr: false,
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:1033',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   define: {
     // Полностью отключаем development режим

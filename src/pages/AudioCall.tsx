@@ -49,23 +49,42 @@ const AudioCall = () => {
 
   const MAX_CALL_DURATION_SECONDS = 40 * 60;
   const CALL_LIMIT_WARNING_SECONDS = MAX_CALL_DURATION_SECONDS - 5 * 60;
-  const VOICE_DETECTION_THRESHOLD = 20; // Уменьшили порог с 30 до 20 для более быстрого прерывания
+  const VOICE_DETECTION_THRESHOLD = 35; // Увеличили порог до 35, чтобы TTS не прерывалось собственным звуком
 
-  const initializeAudioContext = () => {
+  const createAudioContext = () => {
     if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
-    }
-    if (!speakerGainRef.current && audioContextRef.current) {
-      const gainNode = audioContextRef.current.createGain();
-      gainNode.gain.value = isSpeakerOnRef.current ? 1 : 0;
-      gainNode.connect(audioContextRef.current.destination);
-      speakerGainRef.current = gainNode;
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      audioContextRef.current = new AudioContextClass();
     }
     return audioContextRef.current;
   };
 
+  const initializeAudioContext = async () => {
+    const audioContext = createAudioContext();
+
+    if (!speakerGainRef.current && audioContext) {
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = isSpeakerOnRef.current ? 1 : 0;
+      gainNode.connect(audioContext.destination);
+      speakerGainRef.current = gainNode;
+    }
+
+    // На мобильных устройствах AudioContext может быть suspended
+    if (audioContext && audioContext.state === 'suspended') {
+      console.log("[AudioCall] AudioContext is suspended, attempting to resume...");
+      try {
+        await audioContext.resume();
+        console.log("[AudioCall] AudioContext resumed successfully");
+      } catch (error) {
+        console.warn("[AudioCall] Failed to resume AudioContext:", error);
+      }
+    }
+
+    return audioContext;
+  };
+
   const getAudioOutputNode = () => {
-    const audioContext = initializeAudioContext();
+    const audioContext = createAudioContext();
     if (!audioContext) {
       return null;
     }
@@ -80,7 +99,7 @@ const AudioCall = () => {
 
   const playBeepSound = async (frequency: number = 800, duration: number = 200) => {
     try {
-      const audioContext = initializeAudioContext();
+      const audioContext = await initializeAudioContext();
       const outputNode = getAudioOutputNode();
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
@@ -214,13 +233,7 @@ const AudioCall = () => {
       return;
     }
 
-    if (!audioContextRef.current) {
-      console.log("[AudioCall] Creating AudioContext");
-      const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
-      audioContextRef.current = new AudioContextConstructor();
-    }
-
-    const audioContext = audioContextRef.current;
+    const audioContext = await initializeAudioContext();
     if (!audioContext) {
       console.warn("[AudioCall] AudioContext unavailable.");
       audioQueueRef.current = [];
@@ -240,8 +253,27 @@ const AudioCall = () => {
         if (!buffer) continue;
 
         console.log("[AudioCall] Decoding audio data...");
-        const decoded = await audioContext.decodeAudioData(buffer.slice(0));
-        console.log("[AudioCall] Audio decoded, duration:", decoded.duration);
+        const bufferCopy = buffer.slice(0);
+        console.log("[AudioCall] Buffer size:", bufferCopy.byteLength, "bytes");
+
+        if (bufferCopy.byteLength === 0) {
+          console.warn("[AudioCall] Empty buffer received, skipping");
+          continue;
+        }
+
+        let decoded: AudioBuffer;
+        try {
+          decoded = await audioContext.decodeAudioData(bufferCopy);
+          console.log("[AudioCall] Audio decoded successfully, duration:", decoded.duration, "sampleRate:", decoded.sampleRate);
+
+          if (decoded.duration === 0) {
+            console.warn("[AudioCall] Decoded audio has zero duration, skipping");
+            continue;
+          }
+        } catch (decodeError) {
+          console.error("[AudioCall] Failed to decode audio data:", decodeError);
+          continue; // Пропускаем этот буфер и переходим к следующему
+        }
 
         await new Promise<void>((resolve) => {
           console.log("[AudioCall] Creating and starting audio source");
@@ -251,11 +283,11 @@ const AudioCall = () => {
           currentSpeechSourceRef.current = source;
           source.onended = () => {
             console.log("[AudioCall] Audio source ended");
+            currentSpeechSourceRef.current = null;
             resolve();
           };
           source.start(0);
         });
-        currentSpeechSourceRef.current = null;
       }
     } catch (error) {
       console.error("[AudioCall] Error during audio playback:", error);
@@ -277,11 +309,25 @@ const AudioCall = () => {
     try {
       console.log("[AudioCall] Starting parallel TTS synthesis for", sentences.length, "sentences");
 
+      // Определяем настройки TTS в зависимости от устройства
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const ttsOptions = isMobile ? {
+        model: "tts-1", // На мобильных используем базовую модель
+        voice: "onyx",
+        format: "mp3"
+      } : {
+        model: "tts-1-hd", // На десктопе используем HD модель
+        voice: "onyx",
+        format: "wav"
+      };
+
+      console.log("[AudioCall] TTS options for device:", isMobile ? "mobile" : "desktop", ttsOptions);
+
       // Параллельная обработка TTS для ускорения
       const audioBuffers = await Promise.all(
         sentences.map(async (sentence) => {
           try {
-            return await psychologistAI.synthesizeSpeech(sentence);
+            return await psychologistAI.synthesizeSpeech(sentence, ttsOptions);
           } catch (error) {
             console.warn("[AudioCall] Failed to synthesize sentence:", sentence, error);
             return null; // Пропускаем неудачные синтезы
@@ -318,9 +364,9 @@ const AudioCall = () => {
     isPlayingAudioRef.current = false;
   };
 
-  const startVolumeMonitoring = (stream: MediaStream) => {
+  const startVolumeMonitoring = async (stream: MediaStream) => {
     try {
-      const audioContext = initializeAudioContext();
+      const audioContext = await initializeAudioContext();
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
@@ -678,10 +724,7 @@ const AudioCall = () => {
         stopAssistantSpeech();
       };
 
-      recognition.onaudiostart = () => {
-        console.log("[AudioCall] Audio started - stopping assistant speech");
-        stopAssistantSpeech();
-      };
+      // Убрали onaudiostart, так как он срабатывает на любой звук, включая TTS
 
       recognition.onerror = (event: any) => {
         console.error("[AudioCall] Speech recognition error:", event);
@@ -714,13 +757,23 @@ const AudioCall = () => {
       console.log("[AudioCall] Recognition создан и настроен");
 
       // Запускаем мониторинг громкости для прерывания Марка
-      startVolumeMonitoring(stream);
+      await startVolumeMonitoring(stream);
       console.log("[AudioCall] Мониторинг громкости запущен");
 
       try {
-        console.log("[AudioCall] Запускаем speech recognition...");
-        recognition.start();
-        console.log("[AudioCall] Speech recognition запущен успешно");
+        // Небольшая задержка перед запуском speech recognition, чтобы TTS успел начать
+        setTimeout(() => {
+          console.log("[AudioCall] Запускаем speech recognition...");
+          try {
+            recognition.start();
+            console.log("[AudioCall] Speech recognition запущен успешно");
+          } catch (recognitionError) {
+            console.error("[AudioCall] Failed to start speech recognition:", recognitionError);
+            setAudioError("Не удалось запустить распознавание речи.");
+            stopRecognition();
+            cleanupRecording();
+          }
+        }, 500); // 500ms задержка
       } catch (error) {
         console.error("[AudioCall] Failed to start speech recognition:", error);
         setAudioError("Не удалось запустить распознавание речи.");
@@ -801,7 +854,13 @@ const AudioCall = () => {
       }
 
       const durationToSave = overrideDuration ?? callDuration;
-      await audioCallApi.endAudioCall(currentCallId, durationToSave);
+      console.log(`[AudioCall] Ending call ${currentCallId} with duration ${durationToSave} seconds`);
+
+      // Ensure duration is a plain number, not an object with circular refs
+      const cleanDuration = typeof durationToSave === 'number' ? durationToSave : Number(durationToSave) || 0;
+      console.log(`[AudioCall] Using clean duration: ${cleanDuration}`);
+
+      await audioCallApi.endAudioCall(currentCallId, cleanDuration);
 
       if (user && durationToSave > 0 && subscriptionInfo?.plan === 'premium' && subscriptionInfo.status === 'active') {
         const result = await subscriptionApi.recordAudioSession(user.id);
@@ -827,6 +886,14 @@ const AudioCall = () => {
       callLimitReachedRef.current = false;
       callLimitWarningSentRef.current = false;
       memoryRef.current = "";
+
+      // Clear any remaining refs
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current = null;
+      }
     }
   };
 

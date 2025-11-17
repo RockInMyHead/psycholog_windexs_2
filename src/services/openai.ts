@@ -6,8 +6,10 @@ if (!apiKey) {
   console.warn('OpenAI API key is not defined. Please set VITE_OPENAI_API_KEY in your environment.');
 }
 
-// API endpoint
-const baseURL = 'https://psycholog.windexs.ru/api';
+// API endpoint - use full URL for OpenAI client
+const baseURL = typeof window !== 'undefined'
+  ? `${window.location.protocol}//${window.location.host}/api`
+  : 'https://psycholog.windexs.ru/api';
 
 console.log(`OpenAI client initialized - using ${baseURL}`);
 
@@ -295,21 +297,68 @@ class PsychologistAI {
     }
   }
 
-  async synthesizeSpeech(text: string): Promise<ArrayBuffer> {
-    try {
-      const speech = await openai.audio.speech.create({
-        model: "tts-1",
-        voice: "onyx",
-        input: text,
-        response_format: "mp3",
-        speed: 1.0, // Установлена нормальная скорость речи (x1)
-      });
+  async synthesizeSpeech(text: string, options: { model?: string; voice?: string; format?: string } = {}): Promise<ArrayBuffer> {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-      return await speech.arrayBuffer();
-    } catch (error) {
-      console.error("Error synthesizing speech:", error);
-      throw error;
+    // На мобильных устройствах используем более надежные настройки
+    const defaultOptions = {
+      model: isMobile ? "tts-1" : "tts-1-hd", // tts-1-hd лучше, но может не работать на мобильных
+      voice: "onyx",
+      response_format: isMobile ? "mp3" : "wav", // WAV более надежен, но больше по размеру
+      speed: isMobile ? 1.1 : 1.0, // Немного быстрее на мобильных для лучшего UX
+    };
+
+    const finalOptions = { ...defaultOptions, ...options };
+
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries) {
+      try {
+        console.log(`[TTS] Attempt ${retryCount + 1}/${maxRetries} - Synthesizing speech for text:`, text.substring(0, 50) + (text.length > 50 ? "..." : ""));
+        console.log(`[TTS] Using options:`, finalOptions);
+
+        const speech = await openai.audio.speech.create({
+          model: finalOptions.model,
+          voice: finalOptions.voice,
+          input: text,
+          response_format: finalOptions.response_format as any,
+          speed: finalOptions.speed,
+        });
+
+        const arrayBuffer = await speech.arrayBuffer();
+        console.log(`[TTS] Speech synthesized successfully, buffer size: ${arrayBuffer.byteLength} bytes, format: ${finalOptions.response_format}`);
+
+        // Проверяем, что буфер не пустой
+        if (arrayBuffer.byteLength === 0) {
+          throw new Error("Received empty audio buffer");
+        }
+
+        return arrayBuffer;
+      } catch (error) {
+        console.error(`[TTS] Error synthesizing speech (attempt ${retryCount + 1}):`, error);
+
+        retryCount++;
+
+        // Если это последняя попытка, пробуем fallback настройки
+        if (retryCount === maxRetries - 1) {
+          console.log("[TTS] Trying fallback settings...");
+          finalOptions.model = "tts-1"; // Переключаемся на базовую модель
+          finalOptions.response_format = "mp3"; // Переключаемся на MP3
+          finalOptions.speed = 1.0;
+        }
+
+        // Если все попытки исчерпаны, бросаем ошибку
+        if (retryCount >= maxRetries) {
+          throw new Error(`TTS synthesis failed after ${maxRetries} attempts: ${error}`);
+        }
+
+        // Ждем перед следующей попыткой
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+      }
     }
+
+    throw new Error("TTS synthesis failed");
   }
 }
 
