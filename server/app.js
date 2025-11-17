@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const https = require('https');
-const httpsProxyAgent = require('https-proxy-agent');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const multer = require('multer');
 require('dotenv').config();
 
@@ -173,7 +173,7 @@ const useProxy = process.env.USE_PROXY === 'true';
 
 // Create axios instance with proxy
 const createAxiosInstance = () => {
-  const agent = useProxy ? new httpsProxyAgent({
+  const agent = useProxy ? new HttpsProxyAgent({
     host: proxyConfig.host,
     port: proxyConfig.port,
     auth: `${proxyConfig.username}:${proxyConfig.password}`

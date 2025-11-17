@@ -19,7 +19,6 @@ const AudioCall = () => {
   const [audioError, setAudioError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [fastMode, setFastMode] = useState(false); // Быстрый режим для ускорения
-  const [callType, setCallType] = useState<'psychologist' | 'teacher'>('psychologist'); // Тип звонка
   const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' } | null>(null);
 
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -423,7 +422,7 @@ const AudioCall = () => {
       // Начинаем звуковые сигналы во время генерации ответа
       startProcessingSound();
 
-      const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current, memoryRef.current, fastMode, callType === 'teacher');
+      const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current, memoryRef.current, fastMode);
       conversationRef.current.push({ role: "assistant", content: assistantReply });
 
       // Останавливаем сигналы и начинаем TTS
@@ -733,9 +732,7 @@ const AudioCall = () => {
       }
 
       console.log("[AudioCall] Проигрываем приветствие...");
-      const greeting = callType === 'psychologist'
-        ? "Здравствуйте. Я Марк, психолог. Расскажите, что вас сейчас больше всего беспокоит?"
-        : "Привет! Я Алексей, твой учитель физики. Расскажи, с чем тебе нужна помощь по физике?";
+      const greeting = "Здравствуйте. Я Марк, психолог. Расскажите, что вас сейчас больше всего беспокоит?";
       conversationRef.current.push({ role: "assistant", content: greeting });
       await enqueueSpeechPlayback(greeting);
       console.log("[AudioCall] Приветствие проиграно");
@@ -846,39 +843,8 @@ const AudioCall = () => {
       <div className="pt-24 pb-8 px-4">
         <div className="container mx-auto max-w-2xl">
           <div className="text-center mb-8 animate-fade-in">
-            <h1 className="text-4xl font-bold text-foreground mb-3">
-              🤖 {callType === 'psychologist' ? 'Голосовой звонок с ИИ' : '📞 Звонок с учителем'}
-            </h1>
-            <p className="text-muted-foreground">
-              {callType === 'psychologist' ? 'Голосовая сессия с ИИ-психологом' : 'Помощь с домашними заданиями'}
-            </p>
-
-            {callType === 'teacher' && (
-              <div className="mt-6 p-4 bg-muted/50 rounded-lg">
-                <h3 className="text-lg font-semibold text-foreground mb-2">Текущий урок: Физика для 6 класса</h3>
-                <p className="text-sm text-muted-foreground">
-                  Курс физики для шестиклассников с углублением в механику, изучение работы, энергии, простых механизмов и тепловых явлений. Развитие навыков решения задач и понимания физических законов.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Выбор типа звонка */}
-          <div className="flex justify-center gap-4 mb-6">
-            <Button
-              onClick={() => setCallType('psychologist')}
-              variant={callType === 'psychologist' ? 'default' : 'outline'}
-              className={`px-6 py-2 ${callType === 'psychologist' ? 'bg-hero-gradient text-white' : ''}`}
-            >
-              🤖 Психолог
-            </Button>
-            <Button
-              onClick={() => setCallType('teacher')}
-              variant={callType === 'teacher' ? 'default' : 'outline'}
-              className={`px-6 py-2 ${callType === 'teacher' ? 'bg-blue-500 text-white' : ''}`}
-            >
-              📞 Учитель
-            </Button>
+            <h1 className="text-4xl font-bold text-foreground mb-3">Аудио звонок</h1>
+            <p className="text-muted-foreground">Голосовая сессия с ИИ-психологом</p>
           </div>
 
           <Card className="bg-card-gradient border-2 border-border shadow-strong p-8 md:p-12 text-center animate-scale-in">
@@ -890,13 +856,10 @@ const AudioCall = () => {
                 
                 <div>
                   <h2 className="text-2xl font-bold text-foreground mb-2">
-                    {callType === 'psychologist' ? 'Начать звонок с психологом' : 'Начать звонок с учителем'}
+                    Начать звонок с психологом
                   </h2>
                   <p className="text-muted-foreground">
-                    {callType === 'psychologist'
-                      ? 'Нажмите кнопку ниже, чтобы начать голосовую сессию'
-                      : 'Нажмите кнопку ниже, чтобы получить помощь с уроками'
-                    }
+                    Нажмите кнопку ниже, чтобы начать голосовую сессию
                   </p>
                   {subscriptionInfo && subscriptionInfo.plan === 'premium' ? (
                     <p className="mt-3 text-sm text-primary font-medium">
@@ -931,19 +894,14 @@ const AudioCall = () => {
               </div>
             ) : (
               <div className="space-y-8">
-                <div className="w-40 h-40 mx-auto rounded-full bg-green-500/20 border-4 border-green-500 flex items-center justify-center shadow-strong animate-pulse">
-                  <div className="w-32 h-32 rounded-full bg-green-500 flex items-center justify-center">
-                    <PhoneOff className="w-16 h-16 text-white animate-pulse" />
-                  </div>
+                <div className="w-40 h-40 mx-auto rounded-full bg-hero-gradient text-white flex items-center justify-center shadow-strong animate-float">
+                  <Volume2 className="w-20 h-20  animate-pulse" />
                 </div>
 
                 <div>
                   <h2 className="text-2xl font-bold text-foreground mb-2">
-                    {callType === 'psychologist' ? 'Слушаю вас...' : 'Готов помочь с уроком!'}
+                    Звонок идет
                   </h2>
-                  <p className="text-muted-foreground">
-                    {callType === 'psychologist' ? 'Завершить звонок' : 'Завершить урок'}
-                  </p>
                 </div>
 
                 <div className="flex justify-center gap-4">
