@@ -173,11 +173,13 @@ const useProxy = process.env.USE_PROXY === 'true';
 
 // Create axios instance with proxy
 const createAxiosInstance = () => {
-  const agent = useProxy ? new HttpsProxyAgent({
-    host: proxyConfig.host,
-    port: proxyConfig.port,
-    auth: `${proxyConfig.username}:${proxyConfig.password}`
-  }) : undefined;
+  let agent = undefined;
+  
+  if (useProxy) {
+    // HttpsProxyAgent requires a full URL string with authentication
+    const proxyUrl = `http://${encodeURIComponent(proxyConfig.username)}:${encodeURIComponent(proxyConfig.password)}@${proxyConfig.host}:${proxyConfig.port}`;
+    agent = new HttpsProxyAgent(proxyUrl);
+  }
 
   return axios.create({
     httpsAgent: agent,
