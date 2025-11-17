@@ -894,14 +894,17 @@ const AudioCall = () => {
               </div>
             ) : (
               <div className="space-y-8">
-                <div className="w-40 h-40 mx-auto rounded-full bg-hero-gradient text-white flex items-center justify-center shadow-strong animate-float">
-                  <Volume2 className="w-20 h-20  animate-pulse" />
+                <div className="w-40 h-40 mx-auto rounded-full bg-green-500/20 border-4 border-green-500 flex items-center justify-center shadow-strong animate-pulse">
+                  <div className="w-32 h-32 rounded-full bg-green-500 flex items-center justify-center">
+                    <PhoneOff className="w-16 h-16 text-white animate-pulse" />
+                  </div>
                 </div>
 
                 <div>
                   <h2 className="text-2xl font-bold text-foreground mb-2">
-                    Звонок идет
+                    Слушаю вас...
                   </h2>
+                  <p className="text-muted-foreground">Завершить звонок</p>
                 </div>
 
                 <div className="flex justify-center gap-4">
