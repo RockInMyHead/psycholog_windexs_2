@@ -237,14 +237,26 @@ class PsychologistAI {
 
   async transcribeAudio(audioBlob: Blob): Promise<string> {
     try {
-      const { blob, base64 } = await this.convertBlobToWav(audioBlob);
-      const file = new File([blob], "voice-message.wav", { type: "audio/wav" });
+      // Determine appropriate extension based on MIME type
+      let extension = 'webm';
+      if (audioBlob.type.includes('mp4') || audioBlob.type.includes('aac') || audioBlob.type.includes('m4a')) {
+        extension = 'm4a';
+      } else if (audioBlob.type.includes('wav')) {
+        extension = 'wav';
+      } else if (audioBlob.type.includes('mpeg') || audioBlob.type.includes('mp3')) {
+          extension = 'mp3';
+      } else if (audioBlob.type.includes('ogg')) {
+          extension = 'ogg';
+      }
 
-      console.debug("[OpenAI] Отправляется аудио на транскрибацию (wav, base64 length =", base64.length, ")");
+      // Create a File object from the Blob
+      const file = new File([audioBlob], `voice-message.${extension}`, { type: audioBlob.type });
+
+      console.debug(`[OpenAI] Отправляется аудио на транскрибацию (${file.type}, size: ${file.size})`);
 
       const transcription = await openai.audio.transcriptions.create({
         file,
-        model: "gpt-5.1-transcribe",
+        model: "whisper-1",
         response_format: "text",
         language: "ru",
       });
@@ -279,7 +291,7 @@ class PsychologistAI {
       ];
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-5.1",
+        model: "gpt-4o",
         messages: conversation,
         max_completion_tokens: fastMode ? 200 : 300, // Быстрый режим: 200 токенов, обычный: 300
         temperature: fastMode ? 0.5 : 0.6, // Быстрый режим: более детерминированные ответы
@@ -300,12 +312,12 @@ class PsychologistAI {
   async synthesizeSpeech(text: string, options: { model?: string; voice?: string; format?: string } = {}): Promise<ArrayBuffer> {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-    // На мобильных устройствах используем более надежные настройки
+    // Используем MP3 для всех устройств для лучшей совместимости и меньшего размера (меньше задержек)
     const defaultOptions = {
-      model: isMobile ? "tts-1" : "tts-1-hd", // tts-1-hd лучше, но может не работать на мобильных
+      model: "tts-1", // tts-1 быстрее и стабильнее для реального времени
       voice: "onyx",
-      response_format: isMobile ? "mp3" : "wav", // WAV более надежен, но больше по размеру
-      speed: isMobile ? 1.1 : 1.0, // Немного быстрее на мобильных для лучшего UX
+      response_format: "mp3", 
+      speed: 1.0, 
     };
 
     const finalOptions = { ...defaultOptions, ...options };

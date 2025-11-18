@@ -15,11 +15,33 @@ export interface UseAudioRecorderResult {
 export const useAudioRecorder = (
   options?: UseAudioRecorderOptions
 ): UseAudioRecorderResult => {
-  const mimeType = options?.mimeType ?? "audio/webm";
+  const [mimeType, setMimeType] = useState<string>("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
+
+  const getBestMimeType = useCallback(() => {
+    if (options?.mimeType) return options.mimeType;
+    
+    if (typeof MediaRecorder === "undefined") return "audio/webm";
+
+    const types = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/mp4", 
+      "audio/aac",
+      "audio/ogg",
+    ];
+    
+    for (const type of types) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        console.log("Using mime type:", type);
+        return type;
+      }
+    }
+    return ""; // Let browser choose
+  }, [options?.mimeType]);
 
   const requestPermission = useCallback(async () => {
     try {
@@ -42,7 +64,12 @@ export const useAudioRecorder = (
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     chunksRef.current = [];
-    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+    
+    const selectedMimeType = getBestMimeType();
+    setMimeType(selectedMimeType);
+    
+    const options = selectedMimeType ? { mimeType: selectedMimeType } : undefined;
+    const mediaRecorder = new MediaRecorder(stream, options);
     mediaRecorderRef.current = mediaRecorder;
 
     mediaRecorder.addEventListener("dataavailable", (event) => {
@@ -53,7 +80,7 @@ export const useAudioRecorder = (
 
     mediaRecorder.start();
     setIsRecording(true);
-  }, [hasPermission, mimeType, requestPermission]);
+  }, [hasPermission, getBestMimeType, requestPermission]);
 
   const stopRecording = useCallback(async (): Promise<Blob | null> => {
     const mediaRecorder = mediaRecorderRef.current;
@@ -66,7 +93,9 @@ export const useAudioRecorder = (
       mediaRecorder.addEventListener(
         "stop",
         () => {
-          const blob = new Blob(chunksRef.current, { type: mimeType });
+          // Use the actual mime type from the recorder if available, or the selected one
+          const finalMimeType = mediaRecorder.mimeType || mimeType || "audio/webm";
+          const blob = new Blob(chunksRef.current, { type: finalMimeType });
           mediaRecorder.stream
             .getTracks()
             .forEach((track) => track.stop());

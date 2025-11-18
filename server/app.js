@@ -4,7 +4,11 @@ const axios = require('axios');
 const https = require('https');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const multer = require('multer');
+const FormData = require('form-data');
 require('dotenv').config();
+
+// Configure Multer for memory storage
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Import database services
 const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, accessService, db, schema, sqlite } = require('./database');
@@ -247,10 +251,40 @@ app.post('/api/chat/completions', async (req, res) => {
 });
 
 // Audio transcription endpoint
-app.post('/api/audio/transcriptions', async (req, res) => {
+app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) => {
   try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
     const axiosInstance = createAxiosInstance();
-    const response = await axiosInstance.post('https://api.openai.com/v1/audio/transcriptions', req.body);
+    const formData = new FormData();
+    
+    // Add the file to form data
+    formData.append('file', req.file.buffer, {
+      filename: req.file.originalname || 'audio.wav',
+      contentType: req.file.mimetype
+    });
+    
+    // Force whisper-1 model as it's the only one for transcription
+    formData.append('model', 'whisper-1');
+    
+    // Pass other parameters if present
+    if (req.body.language) formData.append('language', req.body.language);
+    if (req.body.response_format) formData.append('response_format', req.body.response_format);
+    if (req.body.prompt) formData.append('prompt', req.body.prompt);
+
+    console.log(`Sending transcription request to OpenAI: ${req.file.originalname}, size: ${req.file.size}`);
+
+    const response = await axiosInstance.post('https://api.openai.com/v1/audio/transcriptions', formData, {
+      headers: {
+        ...formData.getHeaders(),
+        // We don't need to set Authorization here as it's set in createAxiosInstance, 
+        // but createAxiosInstance sets Content-Type: application/json which we need to override
+        'Content-Type': undefined // Let axios/form-data set the correct Content-Type with boundary
+      }
+    });
+    
     res.json(response.data);
   } catch (error) {
     console.error('Transcription error:', error.response?.data || error.message);

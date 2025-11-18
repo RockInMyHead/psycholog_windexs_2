@@ -13,7 +13,7 @@ const AudioCall = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
-  const [user, setUser] = useState<UserType | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
   const [transcriptionStatus, setTranscriptionStatus] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
@@ -33,6 +33,7 @@ const AudioCall = () => {
   const isPlayingAudioRef = useRef(false);
   const currentSpeechSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const processingSoundIntervalRef = useRef<number | null>(null);
+  const generationIdRef = useRef(0); // Для отмены генерации речи при прерывании
   const audioContextRef = useRef<AudioContext | null>(null);
   const speakerGainRef = useRef<GainNode | null>(null);
   const callLimitReachedRef = useRef(false);
@@ -158,17 +159,16 @@ const AudioCall = () => {
   };
 
   const playQueuedAudio = async () => {
-    // Защита от конкурентного доступа и поврежденных данных
     if (!Array.isArray(audioQueueRef.current)) {
-      console.error("[AudioCall] audioQueueRef.current is not an array, resetting:", audioQueueRef.current);
+      console.error("[AudioCall] audioQueueRef.current is not an array, resetting");
       audioQueueRef.current = [];
     }
 
-    const currentQueue = [...audioQueueRef.current]; // Создаем копию для безопасной работы
-    console.log("[AudioCall] playQueuedAudio called, queue length:", currentQueue.length);
+    if (isPlayingAudioRef.current) {
+      return;
+    }
 
-    if (isPlayingAudioRef.current || currentQueue.length === 0) {
-      console.log("[AudioCall] Already playing or queue empty, skipping");
+    if (audioQueueRef.current.length === 0) {
       return;
     }
 
@@ -180,143 +180,78 @@ const AudioCall = () => {
     }
 
     const outputNode = getAudioOutputNode();
-    console.log("[AudioCall] Output node:", outputNode);
-
     isPlayingAudioRef.current = true;
-    console.log("[AudioCall] Starting audio playback, queue has", currentQueue.length, "items");
 
     try {
-      // Очищаем оригинальную очередь, так как мы работаем с копией
-      audioQueueRef.current = [];
-
-      while (currentQueue.length > 0) {
-        const buffer = currentQueue.shift();
-        console.log("[AudioCall] Processing buffer, remaining in current batch:", currentQueue.length);
-        if (!buffer || !(buffer instanceof ArrayBuffer)) {
-          console.warn("[AudioCall] Invalid buffer received, skipping:", typeof buffer, buffer);
-          continue;
-        }
-
-        console.log("[AudioCall] Decoding audio data...");
-        const bufferCopy = buffer.slice(0);
-        console.log("[AudioCall] Buffer size:", bufferCopy.byteLength, "bytes");
-
-        if (bufferCopy.byteLength === 0) {
-          console.warn("[AudioCall] Empty buffer received, skipping");
-          continue;
-        }
+      while (audioQueueRef.current.length > 0) {
+        const buffer = audioQueueRef.current.shift();
+        if (!buffer || !(buffer instanceof ArrayBuffer) || buffer.byteLength === 0) continue;
 
         let decoded: AudioBuffer;
         try {
-          decoded = await audioContext.decodeAudioData(bufferCopy);
-          console.log("[AudioCall] Audio decoded successfully, duration:", decoded.duration, "sampleRate:", decoded.sampleRate);
-
-          if (decoded.duration === 0) {
-            console.warn("[AudioCall] Decoded audio has zero duration, skipping");
-            continue;
-          }
+          decoded = await audioContext.decodeAudioData(buffer.slice(0));
         } catch (decodeError) {
           console.error("[AudioCall] Failed to decode audio data:", decodeError);
-          continue; // Пропускаем этот буфер и переходим к следующему
+          continue;
         }
 
         await new Promise<void>((resolve) => {
-          console.log("[AudioCall] Creating and starting audio source");
           const source = audioContext.createBufferSource();
           source.buffer = decoded;
           source.connect(outputNode ?? audioContext.destination);
           currentSpeechSourceRef.current = source;
+          
           source.onended = () => {
-            console.log("[AudioCall] Audio source ended");
             currentSpeechSourceRef.current = null;
             resolve();
           };
+          
           source.start(0);
         });
       }
     } catch (error) {
       console.error("[AudioCall] Error during audio playback:", error);
-      // В случае ошибки очищаем очередь
       audioQueueRef.current = [];
     } finally {
       isPlayingAudioRef.current = false;
-      console.log("[AudioCall] Audio playback finished");
+      if (audioQueueRef.current.length > 0) {
+        void playQueuedAudio();
+      }
     }
   };
 
   const enqueueSpeechPlayback = async (text: string) => {
     console.log("[AudioCall] enqueueSpeechPlayback called with text:", text);
     const sentences = splitIntoSentences(text);
-    console.log("[AudioCall] Split into sentences:", sentences);
-    if (sentences.length === 0) {
-      console.log("[AudioCall] No sentences to speak");
-      return;
-    }
+    if (sentences.length === 0) return;
 
-    try {
-      console.log("[AudioCall] Starting parallel TTS synthesis for", sentences.length, "sentences");
+    const myGenId = generationIdRef.current;
 
-      // Определяем настройки TTS в зависимости от устройства
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      const ttsOptions = isMobile ? {
-        model: "tts-1", // На мобильных используем базовую модель
-        voice: "onyx",
-        format: "mp3"
-      } : {
-        model: "tts-1-hd", // На десктопе используем HD модель
-        voice: "onyx",
-        format: "wav"
-      };
-
-      console.log("[AudioCall] TTS options for device:", isMobile ? "mobile" : "desktop", ttsOptions);
-
-      // Параллельная обработка TTS для ускорения
-      const audioBuffers = await Promise.all(
-        sentences.map(async (sentence) => {
-          try {
-            return await psychologistAI.synthesizeSpeech(sentence, ttsOptions);
-          } catch (error) {
-            console.warn("[AudioCall] Failed to synthesize sentence:", sentence, error);
-            return null; // Пропускаем неудачные синтезы
-          }
-        })
-      );
-
-      // Фильтруем и валидируем буферы
-      const validBuffers = audioBuffers.filter(buffer => {
-        if (buffer === null) return false;
-        if (!(buffer instanceof ArrayBuffer)) {
-          console.warn("[AudioCall] Invalid buffer type:", typeof buffer, buffer);
-          return false;
-        }
-        if (buffer.byteLength === 0) {
-          console.warn("[AudioCall] Empty buffer received from TTS");
-          return false;
-        }
-        return true;
-      });
-
-      console.log("[AudioCall] TTS completed, enqueuing", validBuffers.length, "valid audio buffers");
-
-      if (validBuffers.length > 0) {
-        // Защищаем от конкурентного доступа
-        if (!Array.isArray(audioQueueRef.current)) {
-          console.error("[AudioCall] audioQueueRef.current corrupted, resetting");
-          audioQueueRef.current = [];
-        }
-
-        audioQueueRef.current.push(...validBuffers);
-        console.log("[AudioCall] Total queue length after enqueue:", audioQueueRef.current.length);
-        void playQueuedAudio();
-        console.log("[AudioCall] Audio queued and playback started");
+    for (const sentence of sentences) {
+      if (generationIdRef.current !== myGenId) {
+        console.log("[AudioCall] Generation cancelled");
+        break;
       }
-    } catch (error) {
-      console.error("[AudioCall] Error synthesizing speech:", error);
-      setAudioError("Не удалось озвучить ответ. Попробуйте ещё раз.");
+
+      try {
+        const audioBuffer = await psychologistAI.synthesizeSpeech(sentence);
+        
+        if (generationIdRef.current !== myGenId) break;
+
+        if (audioBuffer && audioBuffer.byteLength > 0) {
+          audioQueueRef.current.push(audioBuffer);
+          if (!isPlayingAudioRef.current) {
+            void playQueuedAudio();
+          }
+        }
+      } catch (error) {
+        console.warn("[AudioCall] Failed to synthesize sentence:", sentence, error);
+      }
     }
   };
 
   const stopAssistantSpeech = () => {
+    generationIdRef.current += 1;
     audioQueueRef.current = [];
     if (currentSpeechSourceRef.current) {
       try {
@@ -351,7 +286,6 @@ const AudioCall = () => {
         }
         const average = sum / dataArray.length;
         
-        // Если обнаружен звук и Марк говорит - прерываем его
         if (average > VOICE_DETECTION_THRESHOLD && isPlayingAudioRef.current) {
           console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)}), прерываем Марка`);
           stopAssistantSpeech();
@@ -425,19 +359,28 @@ const AudioCall = () => {
       return;
     }
 
+    // Capture generation ID before async ops to detect interruptions
+    const startGenId = generationIdRef.current;
+
     console.info("[AudioCall] Распознанный текст пользователя:", text);
     setTranscriptionStatus("Марк обдумывает ответ...");
 
     conversationRef.current.push({ role: "user", content: text });
 
     try {
-      // Начинаем звуковые сигналы во время генерации ответа
       startProcessingSound();
 
       const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current, memoryRef.current, fastMode);
+      
+      // Check if interrupted
+      if (generationIdRef.current !== startGenId) {
+        console.log("[AudioCall] Response generation interrupted/cancelled");
+        stopProcessingSound();
+        return;
+      }
+
       conversationRef.current.push({ role: "assistant", content: assistantReply });
 
-      // Останавливаем сигналы и начинаем TTS
       stopProcessingSound();
       setTranscriptionStatus("Озвучиваю ответ...");
 
@@ -446,7 +389,7 @@ const AudioCall = () => {
       await updateConversationMemory(text, assistantReply);
     } catch (error) {
       console.error("Error generating assistant response:", error);
-      stopProcessingSound(); // Останавливаем сигналы при ошибке
+      stopProcessingSound();
       setAudioError("Не удалось озвучить ответ. Попробуйте ещё раз.");
       setTranscriptionStatus("");
     }
@@ -484,8 +427,7 @@ const AudioCall = () => {
       window.clearTimeout(pendingProcessTimeoutRef.current);
     }
 
-    // 5 секунд задержки перед отправкой в LLM (пользователь может продолжить говорить)
-    const timeoutDelay = 5000; // 5 секунд
+    const timeoutDelay = 5000; 
     pendingProcessTimeoutRef.current = window.setTimeout(() => {
       pendingProcessTimeoutRef.current = null;
       console.log("[AudioCall] Timeout reached (5 seconds), flushing pending transcript");
@@ -499,7 +441,6 @@ const AudioCall = () => {
     }
 
     try {
-      // Сохраняем в БД с sessionId и обновляем локальную память
       const updatedMemory = await memoryApi.appendMemory(
         user.id, 
         "audio", 
@@ -521,7 +462,6 @@ const AudioCall = () => {
     return { email, name };
   };
 
-  // Default user ID for demo purposes
   useEffect(() => {
     initializeUser();
   }, [authUser]);
@@ -555,7 +495,6 @@ const AudioCall = () => {
       try {
         recognitionRef.current.start();
       } catch (error) {
-        // Распознавание могло уже работать – игнорируем ошибку состояния
         if (error instanceof DOMException && error.name === "InvalidStateError") {
           return;
         }
@@ -576,7 +515,7 @@ const AudioCall = () => {
   useEffect(() => {
     return () => {
       cleanupRecording();
-      stopProcessingSound(); // Останавливаем звуковые сигналы при размонтировании
+      stopProcessingSound();
       if (callTimerRef.current) {
         clearInterval(callTimerRef.current);
       }
@@ -609,7 +548,6 @@ const AudioCall = () => {
       return;
     }
 
-    // Проверяем доступ к аудио сессиям
     try {
       const accessCheck = await subscriptionApi.checkAudioAccess(user.id);
       console.log("[AudioCall] Access check result:", accessCheck);
@@ -625,7 +563,6 @@ const AudioCall = () => {
         return;
       }
 
-      // Используем сессию
       const sessionUsed = await subscriptionApi.useAudioSession(user.id);
       if (!sessionUsed) {
         setAudioError("Не удалось активировать аудио сессию. Попробуйте еще раз.");
@@ -723,8 +660,6 @@ const AudioCall = () => {
         stopAssistantSpeech();
       };
 
-      // Убрали onaudiostart, так как он срабатывает на любой звук, включая TTS
-
       recognition.onerror = (event: any) => {
         console.error("[AudioCall] Speech recognition error:", event);
         if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
@@ -755,12 +690,10 @@ const AudioCall = () => {
       recognitionActiveRef.current = true;
       console.log("[AudioCall] Recognition создан и настроен");
 
-      // Запускаем мониторинг громкости для прерывания Марка
       await startVolumeMonitoring(stream);
       console.log("[AudioCall] Мониторинг громкости запущен");
 
       try {
-        // Небольшая задержка перед запуском speech recognition, чтобы TTS успел начать
         setTimeout(() => {
           console.log("[AudioCall] Запускаем speech recognition...");
           try {
@@ -772,7 +705,7 @@ const AudioCall = () => {
             stopRecognition();
             cleanupRecording();
           }
-        }, 500); // 500ms задержка
+        }, 500);
       } catch (error) {
         console.error("[AudioCall] Failed to start speech recognition:", error);
         setAudioError("Не удалось запустить распознавание речи.");
@@ -797,18 +730,15 @@ const AudioCall = () => {
         setCallDuration((prev) => {
           const next = prev + 1;
           
-          // Предупреждение за 5 минут до конца 30-минутной сессии
           if (!callLimitWarningSentRef.current && next >= SESSION_WARNING_SECONDS && next < SESSION_DURATION_SECONDS) {
             callLimitWarningSentRef.current = true;
             
-            // Генерируем сообщение с подведением итогов и предложением темы на следующую встречу
             responseQueueRef.current = responseQueueRef.current
               .catch((error) => console.error("Previous voice response error:", error))
               .then(async () => {
                 try {
                   setTranscriptionStatus("Марк подводит итоги сессии...");
                   
-                  // Формируем контекст для генерации итогов
                   const summaryPrompt = `У нас осталось около пяти минут до конца нашей тридцатиминутной сессии. 
                   
 Задача:
@@ -834,7 +764,6 @@ const AudioCall = () => {
                   
                 } catch (error) {
                   console.error("Error generating session summary:", error);
-                  // Fallback сообщение
                   const fallbackMessage = "У нас осталось около пяти минут. Давайте коротко подведем итоги нашей беседы и я предложу тему для следующей встречи";
                   conversationRef.current.push({ role: "assistant", content: fallbackMessage });
                   await enqueueSpeechPlayback(fallbackMessage);
@@ -844,7 +773,6 @@ const AudioCall = () => {
               });
           }
           
-          // Автоматическое завершение через 30 минут
           if (next >= SESSION_DURATION_SECONDS && !callLimitReachedRef.current) {
             callLimitReachedRef.current = true;
             window.setTimeout(() => {
@@ -854,7 +782,6 @@ const AudioCall = () => {
             return SESSION_DURATION_SECONDS;
           }
           
-          // Абсолютный максимум (подстраховка)
           if (next >= MAX_CALL_DURATION_SECONDS) {
             return MAX_CALL_DURATION_SECONDS;
           }
@@ -880,7 +807,7 @@ const AudioCall = () => {
 
     try {
       cleanupRecording();
-      stopProcessingSound(); // Останавливаем звуковые сигналы
+      stopProcessingSound();
 
       if (callTimerRef.current) {
         clearInterval(callTimerRef.current);
@@ -890,7 +817,6 @@ const AudioCall = () => {
       const durationToSave = overrideDuration ?? callDuration;
       console.log(`[AudioCall] Ending call ${currentCallId} with duration ${durationToSave} seconds`);
 
-      // Ensure duration is a plain number, not an object with circular refs
       const cleanDuration = typeof durationToSave === 'number' ? durationToSave : Number(durationToSave) || 0;
       console.log(`[AudioCall] Using clean duration: ${cleanDuration}`);
 
@@ -919,7 +845,6 @@ const AudioCall = () => {
       callLimitWarningSentRef.current = false;
       memoryRef.current = "";
 
-      // Clear any remaining refs
       if (mediaStreamRef.current) {
         mediaStreamRef.current = null;
       }
