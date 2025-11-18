@@ -956,7 +956,7 @@ const memoryService = {
 
 // Обновленная логика для проверки доступа к функциям
 const accessService = {
-  async checkAudioSessionAccess(userId) {
+  checkAudioSessionAccess: async function(userId) {
     const subscription = await subscriptionService.getActiveUserSubscription(userId);
     if (!subscription) return { hasAccess: false, reason: 'no_subscription' };
 
@@ -978,7 +978,7 @@ const accessService = {
     return { hasAccess: false, reason: 'no_sessions_left' };
   },
 
-  async checkMeditationAccess(userId) {
+  checkMeditationAccess: async function(userId) {
     const subscription = await subscriptionService.getActiveUserSubscription(userId);
     if (!subscription) return { hasAccess: false, reason: 'no_subscription' };
 
@@ -989,7 +989,7 @@ const accessService = {
     return { hasAccess: false, reason: 'no_meditation_access' };
   },
 
-  async useAudioSession(userId) {
+  useAudioSession: async function(userId) {
     const subscription = await subscriptionService.getActiveUserSubscription(userId);
     if (!subscription) return false;
 
