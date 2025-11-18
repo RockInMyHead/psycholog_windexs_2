@@ -293,7 +293,7 @@ class PsychologistAI {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: conversation,
-        max_completion_tokens: fastMode ? 200 : 300, // Быстрый режим: 200 токенов, обычный: 300
+        max_completion_tokens: fastMode ? 300 : 500, // Быстрый режим: 300 токенов, обычный: 500
         temperature: fastMode ? 0.5 : 0.6, // Быстрый режим: более детерминированные ответы
       });
 
