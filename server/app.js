@@ -7,7 +7,7 @@ const multer = require('multer');
 require('dotenv').config();
 
 // Import database services
-const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, db, schema, sqlite } = require('./database');
+const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, accessService, db, schema, sqlite } = require('./database');
 
 // Initialize database function
 async function initializeDatabase() {
@@ -130,6 +130,10 @@ async function initializeDatabase() {
         created_at INTEGER NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
       );
+
+      -- Добавляем новые поля в таблицу subscriptions, если они не существуют
+      ALTER TABLE subscriptions ADD COLUMN meditation_access INTEGER DEFAULT 0;
+      ALTER TABLE subscriptions ADD COLUMN free_sessions_remaining INTEGER DEFAULT 0;
     `;
 
     // Execute the SQL to create tables
@@ -632,6 +636,140 @@ app.delete('/api/memory/:userId/:type', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error clearing memory:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Payment endpoints
+app.post('/api/payments/create', async (req, res) => {
+  try {
+    const { amount, currency, description, metadata, shopId } = req.body;
+
+    // Создаем платеж в ЮKassa через API
+    const yookassaResponse = await fetch('https://api.yookassa.ru/v3/payments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${Buffer.from(`${shopId}:live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg`).toString('base64')}`,
+      },
+      body: JSON.stringify({
+        amount: {
+          value: amount.value,
+          currency: currency || 'RUB',
+        },
+        capture: true,
+        confirmation: {
+          type: 'redirect',
+          return_url: amount.return_url || `${req.protocol}://${req.get('host')}/subscription?payment=success`,
+        },
+        description: description || 'Оплата психологических услуг',
+        metadata: metadata || {},
+      }),
+    });
+
+    if (!yookassaResponse.ok) {
+      const error = await yookassaResponse.text();
+      console.error('Yookassa API error:', error);
+      throw new Error('Ошибка при создании платежа');
+    }
+
+    const paymentData = await yookassaResponse.json();
+    console.log('Payment created in Yookassa:', paymentData.id);
+
+    res.json({
+      id: paymentData.id,
+      status: paymentData.status,
+      confirmation: paymentData.confirmation,
+    });
+
+  } catch (error) {
+    console.error('Payment creation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/payments/verify/:paymentId', async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+
+    // Проверяем статус платежа в ЮKassa
+    const yookassaResponse = await fetch(`https://api.yookassa.ru/v3/payments/${paymentId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Basic ${Buffer.from(`1183996:live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg`).toString('base64')}`,
+      },
+    });
+
+    if (!yookassaResponse.ok) {
+      throw new Error('Ошибка при проверке платежа');
+    }
+
+    const paymentData = await yookassaResponse.json();
+
+    // Создаем подписку при успешной оплате
+    if (paymentData.status === 'succeeded' && paymentData.metadata?.userId) {
+      const subscriptionId = await subscriptionService.createSubscription(
+        paymentData.metadata.userId,
+        paymentData.metadata.plan,
+        paymentId
+      );
+      console.log('Subscription created:', subscriptionId);
+    }
+
+    res.json(paymentData);
+
+  } catch (error) {
+    console.error('Payment verification error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Access control endpoints
+app.get('/api/users/:userId/audio-access', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const access = await accessService.checkAudioSessionAccess(userId);
+    res.json(access);
+  } catch (error) {
+    console.error('Error checking audio access:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/users/:userId/meditation-access', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const access = await accessService.checkMeditationAccess(userId);
+    res.json(access);
+  } catch (error) {
+    console.error('Error checking meditation access:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users/:userId/use-audio-session', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const success = await accessService.useAudioSession(userId);
+    res.json({ success });
+  } catch (error) {
+    console.error('Error using audio session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users/:userId/create-free-trial', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const subscriptionId = await subscriptionService.createFreeTrialForNewUser(userId);
+
+    if (subscriptionId) {
+      res.json({ success: true, subscriptionId });
+    } else {
+      res.json({ success: false, reason: 'already_has_subscription' });
+    }
+  } catch (error) {
+    console.error('Error creating free trial:', error);
     res.status(500).json({ error: error.message });
   }
 });

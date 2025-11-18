@@ -9,10 +9,10 @@ interface YookassaConfig {
 }
 
 const YOOKASSA_CONFIG: YookassaConfig = {
-  shopId: '123456', // Test shop ID
-  secretKey: 'test_secret_key', // Test secret key
+  shopId: '1183996', // Real shop ID
+  secretKey: 'live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg', // Real secret key
   returnUrl: `${window.location.origin}/subscription?payment=success`,
-  testMode: true,
+  testMode: false,
 };
 
 export interface PaymentData {
@@ -20,7 +20,7 @@ export interface PaymentData {
   currency: string;
   description: string;
   userId: string;
-  plan: 'premium';
+  plan: 'single_session' | 'four_sessions' | 'meditation_monthly';
 }
 
 export interface YookassaPaymentResponse {
@@ -41,24 +41,62 @@ class PaymentService {
 
   async createPayment(paymentData: PaymentData): Promise<YookassaPaymentResponse> {
     try {
-      // In a real implementation, this would make an API call to Yookassa
-      // For demo purposes, we'll simulate a successful payment creation
-
-      const paymentId = `payment_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-      // Simulate API response
-      const response: YookassaPaymentResponse = {
-        id: paymentId,
-        status: 'pending',
+      // Create payment request for Yookassa API
+      const yookassaPayload = {
+        amount: {
+          value: paymentData.amount.toFixed(2),
+          currency: paymentData.currency,
+        },
+        capture: true,
         confirmation: {
           type: 'redirect',
-          confirmation_url: `${this.config.returnUrl}&payment_id=${paymentId}&user_id=${paymentData.userId}`,
+          return_url: this.config.returnUrl,
+        },
+        description: paymentData.description,
+        metadata: {
+          userId: paymentData.userId,
+          plan: paymentData.plan,
+        },
+        receipt: {
+          customer: {
+            email: paymentData.userId, // Пока используем userId, позже можно добавить email
+          },
+          items: [
+            {
+              description: paymentData.description,
+              quantity: 1,
+              amount: {
+                value: paymentData.amount.toFixed(2),
+                currency: paymentData.currency,
+              },
+              vat_code: 1, // НДС 20%
+            },
+          ],
         },
       };
 
-      console.log('Yookassa payment created (simulated):', response);
+      // In production, this would make a real API call to Yookassa
+      // For now, we'll use the proxy through our server
+      const response = await fetch('/api/payments/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...yookassaPayload,
+          shopId: this.config.shopId,
+        }),
+      });
 
-      return response;
+      if (!response.ok) {
+        throw new Error(`Payment creation failed: ${response.status}`);
+      }
+
+      const paymentResponse = await response.json();
+
+      console.log('Yookassa payment created:', paymentResponse);
+
+      return paymentResponse;
     } catch (error) {
       console.error('Payment creation error:', error);
       throw new Error('Не удалось создать платеж');
@@ -67,17 +105,25 @@ class PaymentService {
 
   async processPaymentSuccess(paymentId: string, userId: string): Promise<boolean> {
     try {
-      // In a real implementation, you would verify the payment with Yookassa API
-      // For demo purposes, we'll simulate successful payment processing
+      // Verify payment with Yookassa API through our server
+      const response = await fetch(`/api/payments/verify/${paymentId}`, {
+        method: 'GET',
+      });
 
-      console.log('Processing payment success:', { paymentId, userId });
+      if (!response.ok) {
+        console.error('Payment verification failed');
+        return false;
+      }
 
-      // Here you would typically:
-      // 1. Verify payment status with Yookassa
-      // 2. Create subscription in database
-      // 3. Send confirmation email
+      const paymentData = await response.json();
 
-      // For demo, we'll just return success
+      if (paymentData.status !== 'succeeded') {
+        console.error('Payment not succeeded:', paymentData.status);
+        return false;
+      }
+
+      console.log('Payment verified successfully:', { paymentId, userId, plan: paymentData.metadata?.plan });
+
       return true;
     } catch (error) {
       console.error('Payment processing error:', error);

@@ -811,6 +811,37 @@ const AudioCall = () => {
       return;
     }
 
+    // Проверяем доступ к аудио сессиям
+    try {
+      const accessCheck = await subscriptionApi.checkAudioAccess(user.id);
+      console.log("[AudioCall] Access check result:", accessCheck);
+
+      if (!accessCheck.hasAccess) {
+        if (accessCheck.reason === 'no_subscription') {
+          setAudioError("У вас нет активной подписки. Оформите подписку для доступа к аудио сессиям.");
+        } else if (accessCheck.reason === 'no_sessions_left') {
+          setAudioError("У вас закончились аудио сессии. Оформите дополнительную подписку.");
+        } else {
+          setAudioError("Доступ к аудио сессиям ограничен.");
+        }
+        return;
+      }
+
+      // Используем сессию
+      const sessionUsed = await subscriptionApi.useAudioSession(user.id);
+      if (!sessionUsed) {
+        setAudioError("Не удалось активировать аудио сессию. Попробуйте еще раз.");
+        return;
+      }
+
+      console.log("[AudioCall] Audio session activated successfully");
+
+    } catch (error) {
+      console.error("[AudioCall] Error checking access:", error);
+      setAudioError("Ошибка при проверке доступа к аудио сессиям.");
+      return;
+    }
+
     if (typeof navigator === "undefined" || !navigator.mediaDevices) {
       console.error("[AudioCall] Браузер не поддерживает mediaDevices");
       setAudioError("Ваш браузер не поддерживает запись аудио.");

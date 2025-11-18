@@ -241,6 +241,34 @@ export const subscriptionApi = {
       method: 'POST',
     });
   },
+
+  async getMeditationAccess(userId: string) {
+    return await apiCall(`/users/${userId}/meditation-access`);
+  },
+
+  async getFreeSessionsInfo(userId: string) {
+    return await apiCall(`/users/${userId}/free-sessions`);
+  },
+
+  async checkAudioAccess(userId: string) {
+    return await apiCall(`/users/${userId}/audio-access`);
+  },
+
+  async checkMeditationAccess(userId: string) {
+    return await apiCall(`/users/${userId}/meditation-access`);
+  },
+
+  async useAudioSession(userId: string) {
+    return await apiCall(`/users/${userId}/use-audio-session`, {
+      method: 'POST',
+    });
+  },
+
+  async createFreeTrial(userId: string) {
+    return await apiCall(`/users/${userId}/create-free-trial`, {
+      method: 'POST',
+    });
+  },
 };
 
 // Memory service - работает с историей диалогов в БД

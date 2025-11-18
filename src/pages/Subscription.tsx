@@ -20,6 +20,9 @@ const Subscription = () => {
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [currentSubscription, setCurrentSubscription] = useState<any>(null);
+  const [audioAccess, setAudioAccess] = useState<any>(null);
+  const [meditationAccess, setMeditationAccess] = useState<any>(null);
+  const [activePlans, setActivePlans] = useState<string[]>([]);
 
   // Check for payment result on page load
   useEffect(() => {
@@ -30,9 +33,10 @@ const Subscription = () => {
       handlePaymentSuccess(paymentId, user.id);
     }
 
-    // Load current subscription
+    // Load current subscription and access info
     if (user) {
       loadCurrentSubscription();
+      loadAccessInfo();
     }
   }, [searchParams, user]);
 
@@ -47,6 +51,43 @@ const Subscription = () => {
     }
   };
 
+  const loadAccessInfo = async () => {
+    if (!user) return;
+
+    try {
+      const [audioAccessResult, meditationAccessResult] = await Promise.all([
+        subscriptionApi.checkAudioAccess(user.id),
+        subscriptionApi.checkMeditationAccess(user.id)
+      ]);
+
+      setAudioAccess(audioAccessResult);
+      setMeditationAccess(meditationAccessResult);
+
+      // Определяем активные планы
+      const plans: string[] = ['chat']; // Чат всегда доступен
+
+      if (audioAccessResult?.hasAccess) {
+        if (audioAccessResult.type === 'free_trial') {
+          plans.push('free_trial');
+        } else if (audioAccessResult.type === 'paid') {
+          if (audioAccessResult.total === 1) {
+            plans.push('single_session');
+          } else if (audioAccessResult.total === 4) {
+            plans.push('four_sessions');
+          }
+        }
+      }
+
+      if (meditationAccessResult?.hasAccess) {
+        plans.push('meditation_monthly');
+      }
+
+      setActivePlans(plans);
+    } catch (error) {
+      console.error('Error loading access info:', error);
+    }
+  };
+
   const handlePaymentSuccess = async (paymentId: string, userId: string) => {
     try {
       setPaymentProcessing(true);
@@ -55,10 +96,10 @@ const Subscription = () => {
       const success = await paymentService.processPaymentSuccess(paymentId, userId);
 
       if (success) {
-        // Create premium subscription
-        await subscriptionApi.createSubscription(userId, 'premium', paymentId);
+        // Подписка создается автоматически в API при проверке платежа
         setPaymentSuccess(true);
         await loadCurrentSubscription();
+        await loadAccessInfo();
       } else {
         setPaymentError('Не удалось обработать платеж');
       }
@@ -70,9 +111,67 @@ const Subscription = () => {
     }
   };
 
-  const handleSubscribe = () => {
+  const handleSubscribe = (planId: string) => {
+    if (!user) return;
+
+    // Определяем стоимость плана
+    const planPrices = {
+      single_session: 250,
+      four_sessions: 900,
+      meditation_monthly: 100,
+    };
+
+    const amount = planPrices[planId as keyof typeof planPrices] || 0;
+
+    if (amount === 0) {
+      setPaymentError('Неизвестный план подписки');
+      return;
+    }
+
+    // Создаем платеж
+    const paymentData = {
+      amount,
+      currency: 'RUB',
+      description: getPlanDescription(planId),
+      userId: user.id,
+      plan: planId as 'single_session' | 'four_sessions' | 'meditation_monthly',
+    };
+
     setShowPaymentDialog(true);
     setPaymentError(null);
+
+    // Начинаем процесс оплаты
+    handlePaymentProcess(planId, paymentData);
+  };
+
+  const getPlanDescription = (planId: string): string => {
+    const descriptions = {
+      single_session: '1 аудио сессия с психологом Марком',
+      four_sessions: '4 аудио сессии с психологом Марком',
+      meditation_monthly: 'Медитации - подписка на месяц',
+    };
+    return descriptions[planId as keyof typeof descriptions] || 'Подписка на психологическую поддержку';
+  };
+
+  const handlePaymentProcess = async (planId: string, paymentData: any) => {
+    try {
+      setPaymentProcessing(true);
+      setPaymentError(null);
+
+      const response = await paymentService.createPayment(paymentData);
+
+      if (response.confirmation?.confirmation_url) {
+        // Перенаправляем на ЮKassa
+        window.location.href = response.confirmation.confirmation_url;
+      } else {
+        setPaymentError('Не удалось получить ссылку на оплату');
+      }
+    } catch (error: any) {
+      console.error('Payment creation error:', error);
+      setPaymentError(error.message || 'Ошибка при создании платежа');
+    } finally {
+      setPaymentProcessing(false);
+    }
   };
 
   const handleTestPayment = async (action: string) => {
@@ -97,120 +196,240 @@ const Subscription = () => {
     }
   };
 
-  const features = {
-    free: [
-      { icon: MessageCircle, text: "Безлимитный чат с AI-психологом" },
-      { icon: Lightbulb, text: "Доступ к мудрым фразам" },
-      { icon: PlayCircle, text: "Базовые медитации" },
-    ],
-    premium: [
-      { icon: MessageCircle, text: "Безлимитный чат с AI-психологом" },
-      { icon: Phone, text: "4 аудио сессии в месяц" },
-      { icon: Lightbulb, text: "Расширенная коллекция мудрых фраз" },
-      { icon: PlayCircle, text: "Полная библиотека медитаций" },
-      { icon: Heart, text: "Персонализированные рекомендации" },
-      { icon: Star, text: "Приоритетная поддержка" },
-      { icon: Sparkles, text: "Эксклюзивный контент" },
-    ]
-  };
+  const pricingPlans = [
+    {
+      id: 'chat',
+      name: 'Чат с психологом',
+      price: 0,
+      period: '',
+      description: 'Безлимитный чат с AI-психологом Марком',
+      features: [
+        { icon: MessageCircle, text: "Безлимитный чат с AI-психологом" },
+        { icon: Lightbulb, text: "Доступ к мудрым фразам" },
+        { icon: Heart, text: "Поддержка в трудные моменты" },
+      ],
+      buttonText: 'Бесплатно',
+      buttonVariant: 'outline' as const,
+      popular: false,
+    },
+    {
+      id: 'single_session',
+      name: '1 аудио сессия',
+      price: 250,
+      period: 'разово',
+      description: 'Одна 30-минутная аудио сессия с психологом',
+      features: [
+        { icon: Phone, text: "30-минутная аудио сессия" },
+        { icon: MessageCircle, text: "Безлимитный чат включен" },
+        { icon: Lightbulb, text: "Персонализированные рекомендации" },
+        { icon: Heart, text: "Полная поддержка психолога" },
+      ],
+      buttonText: 'Купить за 250 ₽',
+      buttonVariant: 'default' as const,
+      popular: false,
+    },
+    {
+      id: 'four_sessions',
+      name: '4 аудио сессии',
+      price: 900,
+      period: 'пакет',
+      description: 'Четыре 30-минутные сессии с экономией 10%',
+      features: [
+        { icon: Phone, text: "4 аудио сессии по 30 минут" },
+        { icon: MessageCircle, text: "Безлимитный чат включен" },
+        { icon: Lightbulb, text: "Расширенная коллекция мудрых фраз" },
+        { icon: Heart, text: "Глубокая проработка тем" },
+        { icon: Star, text: "Экономия 100 ₽" },
+      ],
+      buttonText: 'Купить за 900 ₽',
+      buttonVariant: 'default' as const,
+      popular: true,
+    },
+    {
+      id: 'meditation_monthly',
+      name: 'Медитации',
+      price: 100,
+      period: 'в месяц',
+      description: 'Полный доступ к библиотеке медитаций',
+      features: [
+        { icon: PlayCircle, text: "Полная библиотека медитаций" },
+        { icon: MessageCircle, text: "Безлимитный чат включен" },
+        { icon: Lightbulb, text: "Медитации для разных ситуаций" },
+        { icon: Heart, text: "Улучшение благополучия" },
+        { icon: Sparkles, text: "Новые медитации ежемесячно" },
+      ],
+      buttonText: 'Купить за 100 ₽/мес',
+      buttonVariant: 'default' as const,
+      popular: false,
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-calm-gradient">
       <Navigation />
 
       <div className="pt-24 pb-12 px-4">
-        <div className="container mx-auto max-w-6xl">
+        <div className="container mx-auto max-w-7xl">
           <div className="text-center mb-12 animate-fade-in">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 text-white mb-4">
-              <Crown className="w-4 h-4" />
-              <span className="text-sm font-medium">Премиум</span>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white mb-4">
+              <Sparkles className="w-4 h-4" />
+              <span className="text-sm font-medium">Тарифы</span>
             </div>
             <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-3">
-              Разблокируйте свой потенциал
+              Выберите свой путь
             </h1>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Получите полный доступ ко всем возможностям психологической поддержки с персональным сопровождением
+              Начните с бесплатного чата или выберите удобный тариф для глубокого сопровождения
             </p>
+            {user && audioAccess && (
+              <div className="mt-4 space-y-3 max-w-md mx-auto">
+                {/* Информация о бесплатных сессиях для новых пользователей */}
+                {audioAccess.type === 'free_trial' && audioAccess.remaining > 0 && (
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                    <p className="text-green-700 dark:text-green-300 text-sm">
+                      🎁 <strong>Бесплатные сессии:</strong> {audioAccess.remaining} из 3 доступно
+                    </p>
+                  </div>
+                )}
+
+                {/* Информация о платных сессиях */}
+                {audioAccess.type === 'paid' && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <p className="text-blue-700 dark:text-blue-300 text-sm">
+                      🎧 <strong>Аудио сессии:</strong> {audioAccess.remaining} из {audioAccess.total} доступно
+                    </p>
+                  </div>
+                )}
+
+                {/* Информация об отсутствии доступа */}
+                {!audioAccess.hasAccess && audioAccess.reason === 'no_subscription' && (
+                  <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                    <p className="text-orange-700 dark:text-orange-300 text-sm">
+                      ⚠️ <strong>Нет активных сессий:</strong> Оформите подписку для доступа к аудио звонкам
+                    </p>
+                  </div>
+                )}
+
+                {/* Информация о медитациях */}
+                {meditationAccess && meditationAccess.hasAccess && (
+                  <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                    <p className="text-purple-700 dark:text-purple-300 text-sm">
+                      🧘 <strong>Медитации:</strong> Доступ открыт
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Активные подписки */}
+            {activePlans.length > 0 && (
+              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 max-w-md mx-auto">
+                <p className="text-blue-700 dark:text-blue-300 text-sm font-medium mb-2">
+                  ✅ Ваши активные подписки:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {activePlans.map(planId => {
+                    const planName = pricingPlans.find(p => p.id === planId)?.name || planId;
+                    return (
+                      <Badge key={planId} variant="secondary" className="text-xs">
+                        {planName}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
-            {/* Free Plan */}
-            <Card className="p-8 bg-card border-2 border-border shadow-medium animate-scale-in">
-              <div className="text-center mb-6">
-                <Badge variant="outline" className="mb-4">
-                  Бесплатный план
-                </Badge>
-                <h2 className="text-3xl font-bold text-foreground mb-2">Бесплатно</h2>
-                <p className="text-muted-foreground">Начните свой путь к благополучию</p>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            {pricingPlans.map((plan, index) => {
+              const isPopular = plan.popular;
+              const isFree = plan.price === 0;
 
-              <div className="space-y-4 mb-8">
-                {features.free.map((feature, index) => {
-                  const Icon = feature.icon;
-                  return (
-                    <div key={index} className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <Icon className="w-4 h-4 text-primary" />
-                      </div>
-                      <span className="text-foreground">{feature.text}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <Button variant="outline" className="w-full" disabled>
-                <Check className="w-4 h-4 mr-2" />
-                Текущий план
-              </Button>
-            </Card>
-
-            {/* Premium Plan */}
-            <Card className="p-8 bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border-2 border-yellow-300 dark:border-yellow-600 shadow-strong animate-scale-in" style={{ animationDelay: "200ms" }}>
-              <div className="text-center mb-6">
-                <Badge className="mb-4 bg-gradient-to-r from-yellow-400 to-orange-500 text-white">
-                  <Crown className="w-3 h-3 mr-1" />
-                  Премиум план
-                </Badge>
-                <div className="mb-2">
-                  <span className="text-4xl font-bold text-foreground">799</span>
-                  <span className="text-muted-foreground"> ₽/мес</span>
-                </div>
-                <p className="text-muted-foreground">Полный доступ ко всем возможностям</p>
-              </div>
-
-              <div className="space-y-4 mb-8">
-                {features.premium.map((feature, index) => {
-                  const Icon = feature.icon;
-                  return (
-                    <div key={index} className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center flex-shrink-0">
-                        <Icon className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
-                      </div>
-                      <span className="text-foreground font-medium">{feature.text}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {currentSubscription?.plan === 'premium' && currentSubscription?.status === 'active' ? (
-                <Button variant="outline" className="w-full" disabled>
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Премиум активен
-                </Button>
-              ) : (
-                <Button
-                  className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:from-yellow-500 hover:to-orange-600 shadow-lg"
-                  onClick={handleSubscribe}
+              return (
+                <Card
+                  key={plan.id}
+                  className={`relative p-6 animate-scale-in ${
+                    isPopular
+                      ? 'bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border-2 border-yellow-300 dark:border-yellow-600 shadow-strong ring-2 ring-yellow-400/20'
+                      : isFree
+                      ? 'bg-card border-2 border-border shadow-medium'
+                      : 'bg-card border-2 border-border shadow-medium hover:shadow-strong transition-shadow'
+                  }`}
+                  style={{ animationDelay: `${index * 100}ms` }}
                 >
-                  <Crown className="w-4 h-4 mr-2" />
-                  Оформить подписку
-                </Button>
-              )}
+                  {isPopular && (
+                    <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                      <Badge className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-3 py-1">
+                        <Star className="w-3 h-3 mr-1" />
+                        Популярный
+                      </Badge>
+                    </div>
+                  )}
 
-              <p className="text-xs text-muted-foreground text-center mt-4">
-                Отмена в любое время • Без скрытых платежей
-              </p>
-            </Card>
+                  <div className="text-center mb-6">
+                    <h3 className="text-xl font-bold text-foreground mb-2">{plan.name}</h3>
+                    <div className="mb-2">
+                      {isFree ? (
+                        <span className="text-3xl font-bold text-foreground">Бесплатно</span>
+                      ) : (
+                        <>
+                          <span className="text-3xl font-bold text-foreground">{plan.price}</span>
+                          <span className="text-muted-foreground"> ₽</span>
+                          {plan.period && (
+                            <span className="text-sm text-muted-foreground">/{plan.period}</span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    <p className="text-muted-foreground text-sm">{plan.description}</p>
+                  </div>
+
+                  <div className="space-y-3 mb-6">
+                    {plan.features.map((feature, featureIndex) => {
+                      const Icon = feature.icon;
+                      return (
+                        <div key={featureIndex} className="flex items-center gap-3">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            isPopular ? 'bg-yellow-100 dark:bg-yellow-900/30' : 'bg-primary/10'
+                          }`}>
+                            <Icon className={`w-3 h-3 ${
+                              isPopular ? 'text-yellow-600 dark:text-yellow-400' : 'text-primary'
+                            }`} />
+                          </div>
+                          <span className="text-foreground text-sm">{feature.text}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {activePlans.includes(plan.id) ? (
+                    <Button variant="outline" className="w-full" disabled>
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Активен
+                    </Button>
+                  ) : plan.id === 'chat' ? (
+                    <Button variant={plan.buttonVariant} className="w-full" disabled>
+                      <Check className="w-4 h-4 mr-2" />
+                      {plan.buttonText}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant={plan.buttonVariant}
+                      className={`w-full ${
+                        isPopular
+                          ? 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white'
+                          : ''
+                      }`}
+                      onClick={() => handleSubscribe(plan.id)}
+                    >
+                      <CreditCard className="w-4 h-4 mr-2" />
+                      {plan.buttonText}
+                    </Button>
+                  )}
+                </Card>
+              );
+            })}
           </div>
 
           {/* Benefits Section */}

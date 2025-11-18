@@ -230,7 +230,20 @@ const userService = {
     let user = await this.getUserByEmail(email);
     if (user) return user;
 
-    return await this.createUser(email, name);
+    // Создаем пользователя
+    user = await this.createUser(email, name);
+
+    // Создаем бесплатную подписку для нового пользователя
+    try {
+      const subscriptionId = await subscriptionService.createFreeTrialForNewUser(user.id);
+      if (subscriptionId) {
+        console.log('Free trial subscription created for new user:', user.id);
+      }
+    } catch (error) {
+      console.error('Error creating free trial for new user:', error);
+    }
+
+    return user;
   },
 };
 
@@ -665,39 +678,74 @@ const subscriptionService = {
   async createSubscription(userId, plan, yookassaPaymentId) {
     const subscriptionId = `sub_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
-    const expiresAt = plan === 'premium' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : undefined;
+
+    // Определяем параметры подписки в зависимости от плана
+    let subscriptionData = {
+      audioSessionsLimit: 0,
+      meditationAccess: 0,
+      freeSessionsRemaining: 0,
+      expiresAt: undefined,
+      status: 'active',
+    };
+
+    switch (plan) {
+      case 'single_session':
+        subscriptionData.audioSessionsLimit = 1;
+        subscriptionData.status = 'active'; // Доступен сразу после оплаты
+        break;
+      case 'four_sessions':
+        subscriptionData.audioSessionsLimit = 4;
+        subscriptionData.status = 'active'; // Доступен сразу после оплаты
+        break;
+      case 'meditation_monthly':
+        subscriptionData.meditationAccess = 1;
+        subscriptionData.expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 дней
+        break;
+      case 'free_trial':
+        // Бесплатные сессии для новых пользователей
+        subscriptionData.freeSessionsRemaining = 3;
+        subscriptionData.audioSessionsLimit = 3;
+        subscriptionData.status = 'active';
+        break;
+      default:
+        throw new Error(`Unknown subscription plan: ${plan}`);
+    }
 
     await db.insert(schema.subscriptions).values({
       id: subscriptionId,
       userId,
       plan,
-      status: 'active',
+      status: subscriptionData.status,
       yookassaPaymentId,
       startedAt: toTimestamp(now),
-      expiresAt: expiresAt ? toTimestamp(expiresAt) : undefined,
-      autoRenew: 1,
+      expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : undefined,
+      autoRenew: plan === 'meditation_monthly' ? 1 : 0, // Автопродление только для месячных подписок
       createdAt: toTimestamp(now),
       updatedAt: toTimestamp(now),
-      audioSessionsLimit: plan === 'premium' ? 4 : 0,
+      audioSessionsLimit: subscriptionData.audioSessionsLimit,
       audioSessionsUsed: 0,
+      meditationAccess: subscriptionData.meditationAccess,
+      freeSessionsRemaining: subscriptionData.freeSessionsRemaining,
       lastAudioResetAt: toTimestamp(now),
     });
 
-    return {
-      id: subscriptionId,
-      userId,
-      plan,
-      status: 'active',
-      yookassaPaymentId,
-      startedAt: now,
-      expiresAt,
-      autoRenew: true,
-      createdAt: now,
-      updatedAt: now,
-      audioSessionsLimit: plan === 'premium' ? 4 : 0,
-      audioSessionsUsed: 0,
-      lastAudioResetAt: now,
-    };
+    return subscriptionId;
+  },
+
+  async createFreeTrialForNewUser(userId) {
+    // Проверяем, есть ли уже подписка у пользователя
+    const existingSubscriptions = await db
+      .select()
+      .from(schema.subscriptions)
+      .where(eq(schema.subscriptions.userId, userId))
+      .limit(1);
+
+    if (existingSubscriptions.length > 0) {
+      return null; // У пользователя уже есть подписка
+    }
+
+    // Создаем бесплатную подписку
+    return await this.createSubscription(userId, 'free_trial', null);
   },
 
   async updateSubscriptionStatus(subscriptionId, status) {
@@ -916,7 +964,73 @@ module.exports = {
   subscriptionService,
   memoryService,
   conversationHistoryService,
+  accessService,
   db,
   schema,
   sqlite,
+};
+
+// Обновленная логика для проверки доступа к функциям
+const accessService = {
+  async checkAudioSessionAccess(userId) {
+    const subscription = await subscriptionService.getActiveUserSubscription(userId);
+    if (!subscription) return { hasAccess: false, reason: 'no_subscription' };
+
+    // Проверяем бесплатные сессии
+    if (subscription.freeSessionsRemaining > 0) {
+      return { hasAccess: true, type: 'free_trial', remaining: subscription.freeSessionsRemaining };
+    }
+
+    // Проверяем платные сессии
+    if (subscription.audioSessionsLimit > subscription.audioSessionsUsed) {
+      return {
+        hasAccess: true,
+        type: 'paid',
+        remaining: subscription.audioSessionsLimit - subscription.audioSessionsUsed,
+        total: subscription.audioSessionsLimit
+      };
+    }
+
+    return { hasAccess: false, reason: 'no_sessions_left' };
+  },
+
+  async checkMeditationAccess(userId) {
+    const subscription = await subscriptionService.getActiveUserSubscription(userId);
+    if (!subscription) return { hasAccess: false, reason: 'no_subscription' };
+
+    if (subscription.meditationAccess === 1) {
+      return { hasAccess: true, type: 'paid' };
+    }
+
+    return { hasAccess: false, reason: 'no_meditation_access' };
+  },
+
+  async useAudioSession(userId) {
+    const subscription = await subscriptionService.getActiveUserSubscription(userId);
+    if (!subscription) return false;
+
+    // Используем бесплатную сессию
+    if (subscription.freeSessionsRemaining > 0) {
+      await db.update(schema.subscriptions)
+        .set({
+          freeSessionsRemaining: subscription.freeSessionsRemaining - 1,
+          updatedAt: toTimestamp(new Date())
+        })
+        .where(eq(schema.subscriptions.id, subscription.id));
+      return true;
+    }
+
+    // Используем платную сессию
+    if (subscription.audioSessionsLimit > subscription.audioSessionsUsed) {
+      await db.update(schema.subscriptions)
+        .set({
+          audioSessionsUsed: subscription.audioSessionsUsed + 1,
+          updatedAt: toTimestamp(new Date())
+        })
+        .where(eq(schema.subscriptions.id, subscription.id));
+      return true;
+    }
+
+    return false;
+  },
 };

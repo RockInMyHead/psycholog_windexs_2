@@ -91,17 +91,21 @@ export const userStats = sqliteTable('user_stats', {
 export const subscriptions = sqliteTable('subscriptions', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id').notNull().references(() => users.id),
-  plan: text('plan').notNull(), // 'free' or 'premium'
-  status: text('status').notNull().default('active'), // 'active', 'inactive', 'cancelled'
+  plan: text('plan').notNull(), // 'free', 'single_session', 'four_sessions', 'meditation_monthly'
+  status: text('status').notNull().default('active'), // 'active', 'inactive', 'cancelled', 'used'
   yookassaPaymentId: text('yookassa_payment_id'),
   startedAt: integer('started_at').notNull(),
-  expiresAt: integer('expires_at'),
+  expiresAt: integer('expires_at'), // For monthly subscriptions
   autoRenew: integer('auto_renew').notNull().default(1), // 0 or 1
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
+  // Audio sessions (for single_session and four_sessions plans)
   audioSessionsLimit: integer('audio_sessions_limit'),
   audioSessionsUsed: integer('audio_sessions_used').default(0),
-  lastAudioResetAt: integer('last_audio_reset_at'),
+  // Meditation access (for meditation_monthly plan)
+  meditationAccess: integer('meditation_access').default(0), // 0 or 1
+  // Free sessions for new users
+  freeSessionsRemaining: integer('free_sessions_remaining').default(0),
 });
 
 // Export types
