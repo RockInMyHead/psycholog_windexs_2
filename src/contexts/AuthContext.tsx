@@ -44,22 +44,51 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const checkAuth = async () => {
       try {
         const savedUser = localStorage.getItem('auth_user');
+        console.log('[AuthContext] Checking saved user:', savedUser ? 'exists' : 'not found');
+        
         if (savedUser) {
           const userData = JSON.parse(savedUser);
-          // Verify user still exists in database
-          const dbUser = await userApi.getUser(userData.id);
-          if (dbUser) {
-            setUser(dbUser);
-            // Load user subscription
-            const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
-            setSubscription(userSubscription);
-          } else {
-            localStorage.removeItem('auth_user');
+          console.log('[AuthContext] Restored user from localStorage:', userData.email);
+          
+          try {
+            // Verify user still exists in database
+            const dbUser = await userApi.getUser(userData.id);
+            if (dbUser) {
+              console.log('[AuthContext] User verified in database:', dbUser.email);
+              setUser(dbUser);
+              
+              // Load user subscription
+              try {
+                const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
+                setSubscription(userSubscription);
+                console.log('[AuthContext] User subscription loaded');
+              } catch (subError) {
+                console.error('[AuthContext] Error loading subscription:', subError);
+                // Don't remove user if only subscription loading failed
+              }
+            } else {
+              console.warn('[AuthContext] User not found in database, clearing localStorage');
+              localStorage.removeItem('auth_user');
+            }
+          } catch (apiError: any) {
+            // Don't clear localStorage if it's just a network error
+            if (apiError?.status === 404) {
+              console.warn('[AuthContext] User not found (404), clearing localStorage');
+              localStorage.removeItem('auth_user');
+            } else {
+              console.error('[AuthContext] API error, keeping user in localStorage:', apiError);
+              // Keep user logged in even if API is temporarily unavailable
+              setUser(userData);
+            }
           }
         }
       } catch (error) {
-        console.error('Auth check error:', error);
-        localStorage.removeItem('auth_user');
+        console.error('[AuthContext] Auth check error:', error);
+        // Only remove if there's a parsing error or critical issue
+        if (error instanceof SyntaxError) {
+          console.warn('[AuthContext] Invalid localStorage data, clearing');
+          localStorage.removeItem('auth_user');
+        }
       } finally {
         setLoading(false);
       }
@@ -70,63 +99,85 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
+      console.log('[AuthContext] Login attempt for:', email);
       // In a real app, you'd validate password hash
       // For demo purposes, we'll just check if user exists
       const dbUser = await userApi.getUserByEmail(email);
       if (dbUser) {
+        console.log('[AuthContext] User found, logging in:', dbUser.email);
         setUser(dbUser);
         localStorage.setItem('auth_user', JSON.stringify(dbUser));
+        console.log('[AuthContext] User saved to localStorage');
+        
         // Load user subscription
-        const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
-        setSubscription(userSubscription);
+        try {
+          const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
+          setSubscription(userSubscription);
+          console.log('[AuthContext] User subscription loaded');
+        } catch (subError) {
+          console.error('[AuthContext] Error loading subscription during login:', subError);
+          // Don't fail login if subscription loading fails
+        }
         return true;
       }
+      console.warn('[AuthContext] User not found for email:', email);
       return false;
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('[AuthContext] Login error:', error);
       return false;
     }
   };
 
   const register = async (email: string, password: string, name: string): Promise<boolean> => {
     try {
+      console.log('[AuthContext] Registration attempt for:', email, name);
       // Check if user already exists
       let existingUser = null;
       try {
         existingUser = await userApi.getUserByEmail(email);
       } catch (error) {
-        console.error('Error checking existing user:', error);
+        console.error('[AuthContext] Error checking existing user:', error);
         // If there's an error other than 404, stop registration
         return false;
       }
 
       if (existingUser) {
-        console.log('User already exists:', existingUser);
+        console.log('[AuthContext] User already exists:', existingUser.email);
         return false;
       }
 
-      console.log('Creating new user:', { email, name });
+      console.log('[AuthContext] Creating new user:', { email, name });
 
       // Create new user
       const newUser = await userApi.getOrCreateUser(email, name);
-      console.log('User created successfully:', newUser);
+      console.log('[AuthContext] User created successfully:', newUser.email);
       
       setUser(newUser);
       localStorage.setItem('auth_user', JSON.stringify(newUser));
+      console.log('[AuthContext] User saved to localStorage');
+      
       // Load user subscription (new users start with free plan)
-      const userSubscription = await subscriptionApi.getUserSubscription(newUser.id);
-      setSubscription(userSubscription);
+      try {
+        const userSubscription = await subscriptionApi.getUserSubscription(newUser.id);
+        setSubscription(userSubscription);
+        console.log('[AuthContext] User subscription loaded');
+      } catch (subError) {
+        console.error('[AuthContext] Error loading subscription during registration:', subError);
+        // Don't fail registration if subscription loading fails
+      }
       return true;
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('[AuthContext] Registration error:', error);
       return false;
     }
   };
 
   const logout = () => {
+    console.log('[AuthContext] Logging out user');
     setUser(null);
     setSubscription(null);
     localStorage.removeItem('auth_user');
+    console.log('[AuthContext] User logged out, localStorage cleared');
   };
 
   const value: AuthContextType = {

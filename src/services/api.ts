@@ -8,7 +8,8 @@ const isDevelopment = typeof window !== 'undefined';
 
 // Debug logs for development
 if (typeof window !== 'undefined') {
-  console.log('API Service: Using local proxy for API calls');
+  console.log('[API Service] Using local proxy for API calls');
+  console.log('[API Service] Fallback origin:', API_FALLBACK_ORIGIN);
 }
 
 const API_BASE = '/api';
@@ -52,6 +53,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
   }
 
   try {
+    console.log('[API] Request:', config.method || 'GET', url);
     const response = await fetch(url, config);
     if (!response.ok) {
       const error: any = new Error(
@@ -60,14 +62,18 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
       error.status = response.status;
       error.statusText = response.statusText;
       error.body = await response.text().catch(() => undefined);
+      console.error('[API] Error response:', error.status, error.statusText, error.body);
       throw error;
     }
     if (response.status === 204) {
+      console.log('[API] Success (204):', url);
       return null;
     }
-    return await response.json();
+    const result = await response.json();
+    console.log('[API] Success:', url, result);
+    return result;
   } catch (error) {
-    console.error('API call error:', error);
+    console.error('[API] Request failed:', url, error);
     throw error;
   }
 }
