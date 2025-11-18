@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX, Music, MusicOff } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { userApi, audioCallApi, memoryApi, subscriptionApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +20,7 @@ const AudioCall = () => {
   const [loading, setLoading] = useState(true);
   const [fastMode, setFastMode] = useState(false); // Быстрый режим для ускорения
   const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' } | null>(null);
+  const [isMusicOn, setIsMusicOn] = useState(false); // Управление фоновой музыкой
 
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callTimerRef = useRef<number | null>(null);
@@ -43,6 +44,8 @@ const AudioCall = () => {
   const pendingProcessTimeoutRef = useRef<number | null>(null);
   const audioAnalyserRef = useRef<AnalyserNode | null>(null);
   const volumeMonitorRef = useRef<number | null>(null);
+  const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
+  const musicGainRef = useRef<GainNode | null>(null);
 
   const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут на сессию
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // Предупреждение за 5 минут
@@ -241,10 +244,10 @@ const AudioCall = () => {
         if (audioBuffer && audioBuffer.byteLength > 0) {
           audioQueueRef.current.push(audioBuffer);
           if (!isPlayingAudioRef.current) {
-            void playQueuedAudio();
+        void playQueuedAudio();
           }
-        }
-      } catch (error) {
+      }
+    } catch (error) {
         console.warn("[AudioCall] Failed to synthesize sentence:", sentence, error);
       }
     }
@@ -263,6 +266,70 @@ const AudioCall = () => {
       currentSpeechSourceRef.current = null;
     }
     isPlayingAudioRef.current = false;
+  };
+
+  const initializeBackgroundMusic = async () => {
+    if (!backgroundMusicRef.current) {
+      try {
+        // Используем спокойную музыку из public папки
+        const musicUrl = '/de144d31b1f3b3f.mp3'; // Файл из public папки
+
+        backgroundMusicRef.current = new Audio(musicUrl);
+        backgroundMusicRef.current.loop = true;
+        backgroundMusicRef.current.volume = 0.1; // Очень тихая музыка (10% громкости)
+
+        // Подключаем к Web Audio API для дополнительного контроля громкости
+        const audioContext = await initializeAudioContext();
+        if (audioContext && backgroundMusicRef.current) {
+          const source = audioContext.createMediaElementSource(backgroundMusicRef.current);
+          const gainNode = audioContext.createGain();
+          gainNode.gain.value = 0.05; // Дополнительное понижение громкости
+
+          source.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+
+          musicGainRef.current = gainNode;
+        }
+      } catch (error) {
+        console.warn('Error initializing background music:', error);
+      }
+    }
+  };
+
+  const playBackgroundMusic = async () => {
+    if (backgroundMusicRef.current) {
+      try {
+        await backgroundMusicRef.current.play();
+        if (musicGainRef.current) {
+          musicGainRef.current.gain.setValueAtTime(0.05, musicGainRef.current.context.currentTime);
+        }
+      } catch (error) {
+        console.warn('Error playing background music:', error);
+      }
+    }
+  };
+
+  const pauseBackgroundMusic = () => {
+    if (backgroundMusicRef.current) {
+      backgroundMusicRef.current.pause();
+      if (musicGainRef.current) {
+        musicGainRef.current.gain.setValueAtTime(0, musicGainRef.current.context.currentTime);
+      }
+    }
+  };
+
+  const toggleBackgroundMusic = async () => {
+    if (!backgroundMusicRef.current) {
+      await initializeBackgroundMusic();
+    }
+
+    if (isMusicOn) {
+      pauseBackgroundMusic();
+      setIsMusicOn(false);
+    } else {
+      await playBackgroundMusic();
+      setIsMusicOn(true);
+    }
   };
 
   const startVolumeMonitoring = async (stream: MediaStream) => {
@@ -835,6 +902,8 @@ const AudioCall = () => {
       setAudioError("Не удалось корректно завершить звонок.");
     } finally {
       stopAssistantSpeech();
+      pauseBackgroundMusic(); // Останавливаем фоновую музыку
+      setIsMusicOn(false); // Сбрасываем состояние музыки
       setIsCallActive(false);
       setCallDuration(0);
       setIsMuted(false);
@@ -978,6 +1047,16 @@ const AudioCall = () => {
                   </Button>
 
                   <Button
+                    onClick={toggleBackgroundMusic}
+                    size="lg"
+                    variant={isMusicOn ? "default" : "outline"}
+                    className="rounded-full w-16 h-16 p-0"
+                    title={isMusicOn ? "Выключить фоновую музыку" : "Включить фоновую музыку"}
+                  >
+                    {isMusicOn ? <Music className="w-6 h-6" /> : <MusicOff className="w-6 h-6" />}
+                  </Button>
+
+                  <Button
                     onClick={endCall}
                     size="lg"
                     variant="destructive"
@@ -990,6 +1069,7 @@ const AudioCall = () => {
                 <div className="text-center text-sm text-muted-foreground">
                   {!isSpeakerOn && <p>Звук выключен</p>}
                   {fastMode && <p className="text-primary font-medium">⚡ Быстрый режим активен</p>}
+                  {isMusicOn && <p className="text-green-500 font-medium">🎵 Фоновая музыка играет</p>}
                 </div>
 
                 {subscriptionInfo && (
