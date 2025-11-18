@@ -204,8 +204,8 @@ const Subscription = () => {
       period: '',
       description: 'Безлимитный чат с AI-психологом Марком',
       features: [
-        { icon: MessageCircle, text: "Безлимитный чат с AI-психологом" },
-        { icon: Lightbulb, text: "Доступ к мудрым фразам" },
+      { icon: MessageCircle, text: "Безлимитный чат с AI-психологом" },
+      { icon: Lightbulb, text: "Доступ к мудрым фразам" },
         { icon: Heart, text: "Поддержка в трудные моменты" },
       ],
       buttonText: 'Бесплатно',
@@ -237,7 +237,7 @@ const Subscription = () => {
       features: [
         { icon: Phone, text: "4 аудио сессии по 30 минут" },
         { icon: MessageCircle, text: "Безлимитный чат включен" },
-        { icon: Lightbulb, text: "Расширенная коллекция мудрых фраз" },
+      { icon: Lightbulb, text: "Расширенная коллекция мудрых фраз" },
         { icon: Heart, text: "Глубокая проработка тем" },
         { icon: Star, text: "Экономия 100 ₽" },
       ],
@@ -252,7 +252,7 @@ const Subscription = () => {
       period: 'в месяц',
       description: 'Полный доступ к библиотеке медитаций',
       features: [
-        { icon: PlayCircle, text: "Полная библиотека медитаций" },
+      { icon: PlayCircle, text: "Полная библиотека медитаций" },
         { icon: MessageCircle, text: "Безлимитный чат включен" },
         { icon: Lightbulb, text: "Медитации для разных ситуаций" },
         { icon: Heart, text: "Улучшение благополучия" },
@@ -288,8 +288,8 @@ const Subscription = () => {
                   <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                     <p className="text-green-700 dark:text-green-300 text-sm">
                       🎁 <strong>Бесплатные сессии:</strong> {audioAccess.remaining} из 3 доступно
-                    </p>
-                  </div>
+            </p>
+          </div>
                 )}
 
                 {/* Информация о платных сессиях */}
@@ -298,7 +298,7 @@ const Subscription = () => {
                     <p className="text-blue-700 dark:text-blue-300 text-sm">
                       🎧 <strong>Аудио сессии:</strong> {audioAccess.remaining} из {audioAccess.total} доступно
                     </p>
-                  </div>
+              </div>
                 )}
 
                 {/* Информация об отсутствии доступа */}
@@ -307,7 +307,7 @@ const Subscription = () => {
                     <p className="text-orange-700 dark:text-orange-300 text-sm">
                       ⚠️ <strong>Нет активных сессий:</strong> Оформите подписку для доступа к аудио звонкам
                     </p>
-                  </div>
+                      </div>
                 )}
 
                 {/* Информация о медитациях */}
@@ -316,7 +316,7 @@ const Subscription = () => {
                     <p className="text-purple-700 dark:text-purple-300 text-sm">
                       🧘 <strong>Медитации:</strong> Доступ открыт
                     </p>
-                  </div>
+                    </div>
                 )}
               </div>
             )}
@@ -333,7 +333,7 @@ const Subscription = () => {
                     return (
                       <Badge key={planId} variant="secondary" className="text-xs">
                         {planName}
-                      </Badge>
+                </Badge>
                     );
                   })}
                 </div>
@@ -346,7 +346,7 @@ const Subscription = () => {
               const isPopular = plan.popular;
               const isFree = plan.price === 0;
 
-              return (
+                  return (
                 <Card
                   key={plan.id}
                   className={`relative p-6 animate-scale-in ${
@@ -364,7 +364,7 @@ const Subscription = () => {
                         <Star className="w-3 h-3 mr-1" />
                         Популярный
                       </Badge>
-                    </div>
+                      </div>
                   )}
 
                   <div className="text-center mb-6">
@@ -398,23 +398,23 @@ const Subscription = () => {
                             }`} />
                           </div>
                           <span className="text-foreground text-sm">{feature.text}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                    </div>
+                  );
+                })}
+              </div>
 
                   {activePlans.includes(plan.id) ? (
-                    <Button variant="outline" className="w-full" disabled>
-                      <CheckCircle className="w-4 h-4 mr-2" />
+                <Button variant="outline" className="w-full" disabled>
+                  <CheckCircle className="w-4 h-4 mr-2" />
                       Активен
                     </Button>
                   ) : plan.id === 'chat' ? (
                     <Button variant={plan.buttonVariant} className="w-full" disabled>
                       <Check className="w-4 h-4 mr-2" />
                       {plan.buttonText}
-                    </Button>
-                  ) : (
-                    <Button
+                </Button>
+              ) : (
+                <Button
                       variant={plan.buttonVariant}
                       className={`w-full ${
                         isPopular
@@ -425,9 +425,9 @@ const Subscription = () => {
                     >
                       <CreditCard className="w-4 h-4 mr-2" />
                       {plan.buttonText}
-                    </Button>
-                  )}
-                </Card>
+                </Button>
+              )}
+            </Card>
               );
             })}
           </div>

@@ -131,13 +131,29 @@ async function initializeDatabase() {
         FOREIGN KEY (user_id) REFERENCES users(id)
       );
 
-      -- Добавляем новые поля в таблицу subscriptions, если они не существуют
-      ALTER TABLE subscriptions ADD COLUMN meditation_access INTEGER DEFAULT 0;
-      ALTER TABLE subscriptions ADD COLUMN free_sessions_remaining INTEGER DEFAULT 0;
     `;
 
     // Execute the SQL to create tables
     sqlite.exec(createTablesSQL);
+
+    // Добавляем новые поля в таблицу subscriptions, если они не существуют
+    try {
+      sqlite.exec('ALTER TABLE subscriptions ADD COLUMN meditation_access INTEGER DEFAULT 0;');
+    } catch (error) {
+      // Игнорируем ошибку, если колонка уже существует
+      if (!error.message.includes('duplicate column name')) {
+        throw error;
+      }
+    }
+
+    try {
+      sqlite.exec('ALTER TABLE subscriptions ADD COLUMN free_sessions_remaining INTEGER DEFAULT 0;');
+    } catch (error) {
+      // Игнорируем ошибку, если колонка уже существует
+      if (!error.message.includes('duplicate column name')) {
+        throw error;
+      }
+    }
 
     console.log('Database tables created successfully!');
 
@@ -294,20 +310,6 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-app.get('/api/users/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const user = await userService.getUserById(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    res.json(user);
-  } catch (error) {
-    console.error('Error getting user:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 app.get('/api/users/by-email', async (req, res) => {
   try {
     const email = req.query.email;
@@ -323,6 +325,20 @@ app.get('/api/users/by-email', async (req, res) => {
     res.json(user);
   } catch (error) {
     console.error('Error getting user by email:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/users/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await userService.getUserById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Error getting user:', error);
     res.status(500).json({ error: error.message });
   }
 });

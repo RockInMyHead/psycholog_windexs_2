@@ -954,22 +954,6 @@ const memoryService = {
   },
 };
 
-module.exports = {
-  userService,
-  chatService,
-  audioCallService,
-  meditationService,
-  quoteService,
-  userStatsService,
-  subscriptionService,
-  memoryService,
-  conversationHistoryService,
-  accessService,
-  db,
-  schema,
-  sqlite,
-};
-
 // Обновленная логика для проверки доступа к функциям
 const accessService = {
   async checkAudioSessionAccess(userId) {
@@ -1033,4 +1017,20 @@ const accessService = {
 
     return false;
   },
+};
+
+module.exports = {
+  userService,
+  chatService,
+  audioCallService,
+  meditationService,
+  quoteService,
+  userStatsService,
+  subscriptionService,
+  memoryService,
+  conversationHistoryService,
+  accessService,
+  db,
+  schema,
+  sqlite,
 };

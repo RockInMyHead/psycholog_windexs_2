@@ -51,22 +51,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           console.log('[AuthContext] Restored user from localStorage:', userData.email);
           
           try {
-            // Verify user still exists in database
-            const dbUser = await userApi.getUser(userData.id);
-            if (dbUser) {
+          // Verify user still exists in database
+          const dbUser = await userApi.getUser(userData.id);
+          if (dbUser) {
               console.log('[AuthContext] User verified in database:', dbUser.email);
-              setUser(dbUser);
+            setUser(dbUser);
               
-              // Load user subscription
+            // Load user subscription
               try {
-                const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
-                setSubscription(userSubscription);
+            const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
+            setSubscription(userSubscription);
                 console.log('[AuthContext] User subscription loaded');
               } catch (subError) {
                 console.error('[AuthContext] Error loading subscription:', subError);
                 // Don't remove user if only subscription loading failed
               }
-            } else {
+          } else {
               console.warn('[AuthContext] User not found in database, clearing localStorage');
               localStorage.removeItem('auth_user');
             }
@@ -74,7 +74,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             // Don't clear localStorage if it's just a network error
             if (apiError?.status === 404) {
               console.warn('[AuthContext] User not found (404), clearing localStorage');
-              localStorage.removeItem('auth_user');
+            localStorage.removeItem('auth_user');
             } else {
               console.error('[AuthContext] API error, keeping user in localStorage:', apiError);
               // Keep user logged in even if API is temporarily unavailable
@@ -87,7 +87,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         // Only remove if there's a parsing error or critical issue
         if (error instanceof SyntaxError) {
           console.warn('[AuthContext] Invalid localStorage data, clearing');
-          localStorage.removeItem('auth_user');
+        localStorage.removeItem('auth_user');
         }
       } finally {
         setLoading(false);
@@ -111,8 +111,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         
         // Load user subscription
         try {
-          const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
-          setSubscription(userSubscription);
+        const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
+        setSubscription(userSubscription);
           console.log('[AuthContext] User subscription loaded');
         } catch (subError) {
           console.error('[AuthContext] Error loading subscription during login:', subError);
@@ -135,7 +135,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       // Check if user already exists
       // getUserByEmail returns null if user not found (404), or throws on other errors
       const existingUser = await userApi.getUserByEmail(email);
-      
+
       if (existingUser) {
         console.log('[AuthContext] User already exists:', existingUser.email);
         return false;
@@ -153,8 +153,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       
       // Load user subscription (new users start with free plan)
       try {
-        const userSubscription = await subscriptionApi.getUserSubscription(newUser.id);
-        setSubscription(userSubscription);
+      const userSubscription = await subscriptionApi.getUserSubscription(newUser.id);
+      setSubscription(userSubscription);
         console.log('[AuthContext] User subscription loaded');
       } catch (subError) {
         console.error('[AuthContext] Error loading subscription during registration:', subError);
