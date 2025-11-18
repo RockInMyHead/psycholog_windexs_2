@@ -989,8 +989,16 @@ const accessService = {
   },
 
   checkMeditationAccess: async function(userId) {
-    const subscription = await subscriptionService.getActiveUserSubscription(userId);
+    const subscription = await subscriptionService.getUserSubscription(userId);
     if (!subscription) return { hasAccess: false, reason: 'no_subscription' };
+
+    if (subscription.status !== 'active') {
+      return { hasAccess: false, reason: 'subscription_inactive' };
+    }
+
+    if (subscription.expiresAt && new Date(subscription.expiresAt) < new Date()) {
+      return { hasAccess: false, reason: 'subscription_expired' };
+    }
 
     if (subscription.meditationAccess === 1) {
       return { hasAccess: true, type: 'paid' };
@@ -1000,8 +1008,11 @@ const accessService = {
   },
 
   useAudioSession: async function(userId) {
-    const subscription = await subscriptionService.getActiveUserSubscription(userId);
+    const subscription = await subscriptionService.getUserSubscription(userId);
     if (!subscription) return false;
+
+    if (subscription.status !== 'active') return false;
+    if (subscription.expiresAt && new Date(subscription.expiresAt) < new Date()) return false;
 
     // Используем бесплатную сессию
     if (subscription.freeSessionsRemaining > 0) {
