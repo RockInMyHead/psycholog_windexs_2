@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Send, Mic, Square, Loader2 } from "lucide-react";
+import { Send, Mic, Square, Loader2, Volume2, VolumeX } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { userApi, chatApi, memoryApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,6 +28,7 @@ const Chat = () => {
   const [audioError, setAudioError] = useState<string | null>(null);
   const [sessionDuration, setSessionDuration] = useState(0);
   const [sessionWarningShown, setSessionWarningShown] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const memoryRef = useRef<string>("");
   const sessionTimerRef = useRef<number | null>(null);
@@ -366,6 +367,48 @@ const Chat = () => {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const speakMessage = async (messageId: string, text: string) => {
+    if (speakingMessageId === messageId) {
+      // Если уже озвучиваем это сообщение, остановим озвучку
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    try {
+      setSpeakingMessageId(messageId);
+
+      // Получаем аудио буфер от TTS
+      const audioBuffer = await psychologistAI.synthesizeSpeech(text);
+
+      // Создаем аудио контекст для воспроизведения
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+      // Декодируем аудио данные
+      const decodedBuffer = await audioContext.decodeAudioData(audioBuffer.slice(0));
+
+      // Создаем источник и воспроизводим
+      const source = audioContext.createBufferSource();
+      source.buffer = decodedBuffer;
+
+      // Подключаем к выходу
+      source.connect(audioContext.destination);
+
+      // Обещание для ожидания окончания воспроизведения
+      await new Promise<void>((resolve) => {
+        source.onended = () => {
+          setSpeakingMessageId(null);
+          audioContext.close();
+          resolve();
+        };
+        source.start(0);
+      });
+
+    } catch (error) {
+      console.error('Error speaking message:', error);
+      setSpeakingMessageId(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-calm-gradient">
       <Navigation />
@@ -430,13 +473,34 @@ const Chat = () => {
                             : "bg-hero-gradient text-white shadow-soft"
                         }`}
                       >
-                        <p className="text-sm md:text-base leading-relaxed">{message.text}</p>
-                        <span className="text-xs opacity-70 mt-2 block">
-                          {new Date(message.timestamp).toLocaleTimeString("ru-RU", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex-1">
+                            <p className="text-sm md:text-base leading-relaxed">{message.text}</p>
+                            <span className="text-xs opacity-70 mt-2 block">
+                              {new Date(message.timestamp).toLocaleTimeString("ru-RU", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                          {message.sender === "assistant" && (
+                            <Button
+                              onClick={() => speakMessage(message.id, message.text)}
+                              size="sm"
+                              variant="ghost"
+                              className={`shrink-0 h-8 w-8 p-0 hover:bg-muted ${
+                                speakingMessageId === message.id ? 'text-blue-500' : 'text-muted-foreground'
+                              }`}
+                              title={speakingMessageId === message.id ? "Остановить озвучку" : "Озвучить сообщение"}
+                            >
+                              {speakingMessageId === message.id ? (
+                                <VolumeX className="w-4 h-4" />
+                              ) : (
+                                <Volume2 className="w-4 h-4" />
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
