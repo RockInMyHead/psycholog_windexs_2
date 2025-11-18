@@ -49,8 +49,9 @@ const AudioCall = () => {
   const audioAnalyserRef = useRef<AnalyserNode | null>(null);
   const volumeMonitorRef = useRef<number | null>(null);
 
-  const MAX_CALL_DURATION_SECONDS = 40 * 60;
-  const CALL_LIMIT_WARNING_SECONDS = MAX_CALL_DURATION_SECONDS - 5 * 60;
+  const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут на сессию
+  const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // Предупреждение за 5 минут
+  const MAX_CALL_DURATION_SECONDS = 40 * 60; // Абсолютный максимум (для подстраховки)
   const VOICE_DETECTION_THRESHOLD = 35; // Увеличили порог до 35, чтобы TTS не прерывалось собственным звуком
 
   const createAudioContext = () => {
@@ -966,32 +967,70 @@ const AudioCall = () => {
       callTimerRef.current = window.setInterval(() => {
         setCallDuration((prev) => {
           const next = prev + 1;
-          if (!callLimitWarningSentRef.current && next >= CALL_LIMIT_WARNING_SECONDS && next < MAX_CALL_DURATION_SECONDS) {
+          
+          // Предупреждение за 5 минут до конца 30-минутной сессии
+          if (!callLimitWarningSentRef.current && next >= SESSION_WARNING_SECONDS && next < SESSION_DURATION_SECONDS) {
             callLimitWarningSentRef.current = true;
-            const warningMessage = "У нас осталось около пяти минут. Давайте коротко вспомним, что вы успели проговорить и что хотите забрать с собой";
-            conversationRef.current.push({ role: "assistant", content: warningMessage });
+            
+            // Генерируем сообщение с подведением итогов и предложением темы на следующую встречу
             responseQueueRef.current = responseQueueRef.current
               .catch((error) => console.error("Previous voice response error:", error))
               .then(async () => {
                 try {
-                  setTranscriptionStatus("Озвучиваю напоминание...");
-                  await enqueueSpeechPlayback(warningMessage);
+                  setTranscriptionStatus("Марк подводит итоги сессии...");
+                  
+                  // Формируем контекст для генерации итогов
+                  const summaryPrompt = `У нас осталось около пяти минут до конца нашей тридцатиминутной сессии. 
+                  
+Задача:
+1. Кратко подведи итоги: что мы обсудили, какие важные моменты всплыли
+2. Отметь, что важного клиент для себя понял или осознал
+3. Предложи конкретную тему для следующей встречи, основываясь на том, что осталось недообсужденным или требует более глубокой проработки
+
+Говори от первого лица, естественно и по-человечески. Максимум три-четыре предложения.`;
+
+                  const conversationForSummary = [
+                    ...conversationRef.current,
+                    { role: "user" as const, content: summaryPrompt }
+                  ];
+                  
+                  const summaryResponse = await psychologistAI.getVoiceResponse(
+                    conversationForSummary, 
+                    memoryRef.current, 
+                    false
+                  );
+                  
+                  conversationRef.current.push({ role: "assistant", content: summaryResponse });
+                  await enqueueSpeechPlayback(summaryResponse);
+                  
                 } catch (error) {
-                  console.error("Error playing limit warning:", error);
+                  console.error("Error generating session summary:", error);
+                  // Fallback сообщение
+                  const fallbackMessage = "У нас осталось около пяти минут. Давайте коротко подведем итоги нашей беседы и я предложу тему для следующей встречи";
+                  conversationRef.current.push({ role: "assistant", content: fallbackMessage });
+                  await enqueueSpeechPlayback(fallbackMessage);
                 } finally {
                   setTranscriptionStatus("");
                 }
               });
           }
-          if (next >= MAX_CALL_DURATION_SECONDS && !callLimitReachedRef.current) {
+          
+          // Автоматическое завершение через 30 минут
+          if (next >= SESSION_DURATION_SECONDS && !callLimitReachedRef.current) {
             callLimitReachedRef.current = true;
             window.setTimeout(() => {
-              setAudioError("Звонок автоматически завершён: достигнут лимит 40 минут.");
+              setAudioError("Сессия завершена: прошло 30 минут. Спасибо за доверие!");
               endCall(next).catch((error) => console.error("Error auto-ending call", error));
             }, 0);
+            return SESSION_DURATION_SECONDS;
+          }
+          
+          // Абсолютный максимум (подстраховка)
+          if (next >= MAX_CALL_DURATION_SECONDS) {
             return MAX_CALL_DURATION_SECONDS;
           }
-          return Math.min(next, MAX_CALL_DURATION_SECONDS);
+          
+          return next;
         });
       }, 1000);
 
@@ -1138,6 +1177,26 @@ const AudioCall = () => {
                   <h2 className="text-2xl font-bold text-foreground mb-2">
                     Звонок идет
                   </h2>
+                  <div className="text-center mt-4">
+                    <div className="text-lg font-medium text-primary">
+                      {formatDuration(callDuration)}
+                    </div>
+                    {callDuration >= SESSION_WARNING_SECONDS && callDuration < SESSION_DURATION_SECONDS && (
+                      <div className="mt-2 text-sm text-orange-500 animate-pulse font-medium">
+                        Осталось ~{Math.ceil((SESSION_DURATION_SECONDS - callDuration) / 60)} минут
+                      </div>
+                    )}
+                    <div className="mt-3 w-48 mx-auto h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-1000 ${
+                          callDuration >= SESSION_WARNING_SECONDS 
+                            ? 'bg-orange-500' 
+                            : 'bg-blue-500'
+                        }`}
+                        style={{ width: `${Math.min((callDuration / SESSION_DURATION_SECONDS) * 100, 100)}%` }}
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex justify-center gap-4">

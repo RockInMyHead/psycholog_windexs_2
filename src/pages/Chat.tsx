@@ -26,8 +26,14 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [sessionDuration, setSessionDuration] = useState(0);
+  const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const messagesRef = useRef<Message[]>([]);
   const memoryRef = useRef<string>("");
+  const sessionTimerRef = useRef<number | null>(null);
+  
+  const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут
+  const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // За 5 минут
   const {
     isRecording,
     startRecording,
@@ -73,6 +79,9 @@ const Chat = () => {
 
       // Load messages for this session
       await loadMessages(session.id);
+      
+      // Запускаем таймер сессии
+      startSessionTimer();
 
     } catch (error) {
       console.error('Error initializing chat:', error);
@@ -80,6 +89,112 @@ const Chat = () => {
       setLoading(false);
     }
   };
+  
+  const startSessionTimer = () => {
+    if (sessionTimerRef.current) {
+      clearInterval(sessionTimerRef.current);
+    }
+    
+    setSessionDuration(0);
+    setSessionWarningShown(false);
+    
+    sessionTimerRef.current = window.setInterval(() => {
+      setSessionDuration((prev) => {
+        const next = prev + 1;
+        
+        // Предупреждение за 5 минут до конца
+        if (!sessionWarningShown && next >= SESSION_WARNING_SECONDS) {
+          setSessionWarningShown(true);
+          generateSessionSummary();
+        }
+        
+        // Завершение сессии через 30 минут
+        if (next >= SESSION_DURATION_SECONDS) {
+          endChatSession();
+          return SESSION_DURATION_SECONDS;
+        }
+        
+        return next;
+      });
+    }, 1000);
+  };
+  
+  const generateSessionSummary = async () => {
+    if (!user || !currentSessionId) return;
+    
+    try {
+      setIsTyping(true);
+      
+      const summaryPrompt = `У нас осталось около пяти минут до конца нашей тридцатиминутной сессии. 
+      
+Задача:
+1. Кратко подведи итоги: что мы обсудили, какие важные моменты всплыли
+2. Отметь, что важного клиент для себя понял или осознал
+3. Предложи конкретную тему для следующей встречи, основываясь на том, что осталось недообсужденным или требует более глубокой проработки
+
+Говори от первого лица, естественно и по-человечески. Максимум три-четыре предложения.`;
+
+      const conversationForSummary = [
+        ...messagesRef.current.map(msg => ({
+          role: msg.sender as 'user' | 'assistant',
+          content: msg.text
+        })),
+        { role: 'user' as const, content: summaryPrompt }
+      ];
+      
+      const summaryResponse = await psychologistAI.getResponse(conversationForSummary, memoryRef.current);
+      
+      // Сохраняем в БД
+      await chatApi.addChatMessage(currentSessionId, user.id, summaryResponse, "assistant");
+      
+      const botMessage: Message = {
+        id: Date.now().toString(),
+        text: summaryResponse,
+        sender: "assistant",
+        timestamp: new Date(),
+      };
+      
+      setMessages((prev) => [...prev, botMessage]);
+      
+    } catch (error) {
+      console.error('Error generating session summary:', error);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+  
+  const endChatSession = async () => {
+    if (sessionTimerRef.current) {
+      clearInterval(sessionTimerRef.current);
+      sessionTimerRef.current = null;
+    }
+    
+    if (currentSessionId) {
+      try {
+        await chatApi.endChatSession(currentSessionId);
+      } catch (error) {
+        console.error('Error ending chat session:', error);
+      }
+    }
+    
+    // Показываем сообщение о завершении сессии
+    const endMessage: Message = {
+      id: Date.now().toString(),
+      text: "Наша сессия завершена (прошло 30 минут). Спасибо за доверие! Вы можете начать новую сессию в любое время.",
+      sender: "assistant",
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, endMessage]);
+  };
+  
+  // Очистка таймера при размонтировании
+  useEffect(() => {
+    return () => {
+      if (sessionTimerRef.current) {
+        clearInterval(sessionTimerRef.current);
+      }
+    };
+  }, []);
 
   const loadMessages = async (sessionId: string) => {
     try {
@@ -245,6 +360,12 @@ const Chat = () => {
     }
   };
 
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
   return (
     <div className="min-h-screen bg-calm-gradient">
       <Navigation />
@@ -253,6 +374,31 @@ const Chat = () => {
         <div className="w-full max-w-5xl mx-auto">
           <Card className="bg-card border-0 shadow-none animate-scale-in rounded-3xl">
             <div className="min-h-[calc(100vh-8rem)] flex flex-col">
+              {/* Таймер сессии */}
+              {!loading && sessionDuration > 0 && (
+                <div className="px-6 pt-4 pb-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      Время сессии: {formatDuration(sessionDuration)}
+                    </span>
+                    {sessionDuration >= SESSION_WARNING_SECONDS && (
+                      <span className="text-orange-500 font-medium animate-pulse">
+                        Осталось ~{Math.ceil((SESSION_DURATION_SECONDS - sessionDuration) / 60)} мин
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 h-1 bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-1000 ${
+                        sessionDuration >= SESSION_WARNING_SECONDS 
+                          ? 'bg-orange-500' 
+                          : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${(sessionDuration / SESSION_DURATION_SECONDS) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {loading ? (
