@@ -35,12 +35,6 @@ const AudioCall = () => {
   const processingSoundIntervalRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const speakerGainRef = useRef<GainNode | null>(null);
-  const backgroundMusicRef = useRef<{
-    audioElement?: HTMLAudioElement;
-    isPlaying: boolean;
-    oscillators?: OscillatorNode[];
-    gainNode?: GainNode;
-  }>({ isPlaying: false });
   const callLimitReachedRef = useRef(false);
   const callLimitWarningSentRef = useRef(false);
   const memoryRef = useRef<string>("");
@@ -141,190 +135,6 @@ const AudioCall = () => {
     if (processingSoundIntervalRef.current) {
       clearInterval(processingSoundIntervalRef.current);
       processingSoundIntervalRef.current = null;
-    }
-  };
-
-  const startBackgroundMusic = async () => {
-    if (backgroundMusicRef.current.isPlaying) {
-      return; // Уже играет
-    }
-
-    try {
-      const audioElement = new Audio('/de144d31b1f3b3f.mp3');
-
-      // Настраиваем аудио
-      audioElement.loop = true; // Зацикливаем музыку
-      audioElement.volume = 0.1; // Тихая громкость (10%)
-      audioElement.muted = !isSpeakerOnRef.current;
-      audioElement.preload = 'auto';
-
-      // Обработчики событий
-      audioElement.addEventListener('canplaythrough', () => {
-        console.log('[AudioCall] Background music loaded successfully, starting playback');
-        audioElement.play().catch(error => {
-          console.warn('[AudioCall] Could not play background music:', error);
-          backgroundMusicRef.current.isPlaying = false;
-        });
-      });
-
-      audioElement.addEventListener('error', (error) => {
-        console.warn('[AudioCall] Background music loading error:', error);
-        backgroundMusicRef.current.isPlaying = false;
-        // Попробуем создать генеративную фоновую музыку
-        startGenerativeBackgroundMusic();
-      });
-
-      audioElement.addEventListener('play', () => {
-        console.log('[AudioCall] Background music started playing');
-      });
-
-      backgroundMusicRef.current = {
-        audioElement,
-        isPlaying: true,
-      };
-
-      console.log('[AudioCall] Background music element created, waiting for load...');
-
-    } catch (error) {
-      console.warn('[AudioCall] Could not start background music:', error);
-      // Попробуем создать генеративную фоновую музыку как fallback
-      startGenerativeBackgroundMusic();
-    }
-  };
-
-  const startGenerativeBackgroundMusic = async () => {
-    if (backgroundMusicRef.current.isPlaying) {
-      return; // Уже играет
-    }
-
-    try {
-      console.log('[AudioCall] Starting generative background music as fallback');
-      const audioContext = await initializeAudioContext();
-      if (!audioContext) {
-        console.warn('[AudioCall] Cannot start generative music - no AudioContext');
-        return;
-      }
-
-      const outputNode = getAudioOutputNode();
-
-      // Создаем простую атмосферную музыку с помощью генераторов
-      const createAmbientSound = () => {
-        const oscillator1 = audioContext.createOscillator();
-        const oscillator2 = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        const filter = audioContext.createBiquadFilter();
-
-        // Настраиваем фильтр для мягкого звучания
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(800, audioContext.currentTime);
-        filter.Q.setValueAtTime(1, audioContext.currentTime);
-
-        // Первый осциллятор - основной тон
-        oscillator1.frequency.setValueAtTime(220, audioContext.currentTime); // A3
-        oscillator1.type = 'sine';
-
-        // Второй осциллятор - гармоника
-        oscillator2.frequency.setValueAtTime(330, audioContext.currentTime); // E4
-        oscillator2.type = 'sine';
-
-        // Подключаем цепочку
-        oscillator1.connect(filter);
-        oscillator2.connect(filter);
-        filter.connect(gainNode);
-        gainNode.connect(outputNode ?? audioContext.destination);
-
-        // Тихая громкость
-        gainNode.gain.setValueAtTime(0.02, audioContext.currentTime);
-
-        // Запускаем осцилляторы
-        oscillator1.start(audioContext.currentTime);
-        oscillator2.start(audioContext.currentTime);
-
-        // Медленно меняем частоты для создания атмосферы
-        const changeFrequency = () => {
-          if (!backgroundMusicRef.current.isPlaying) {
-            oscillator1.stop();
-            oscillator2.stop();
-            return;
-          }
-
-          const time = audioContext.currentTime;
-          const baseFreq1 = 200 + Math.sin(time * 0.1) * 50; // Медленное изменение
-          const baseFreq2 = 300 + Math.sin(time * 0.15) * 75;
-
-          oscillator1.frequency.setValueAtTime(baseFreq1, time);
-          oscillator2.frequency.setValueAtTime(baseFreq2, time);
-
-          setTimeout(changeFrequency, 2000); // Меняем каждые 2 секунды
-        };
-        changeFrequency();
-
-        backgroundMusicRef.current = {
-          audioElement: null,
-          isPlaying: true,
-          oscillators: [oscillator1, oscillator2],
-          gainNode,
-        };
-      };
-
-      createAmbientSound();
-      console.log('[AudioCall] Generative background music started');
-
-    } catch (error) {
-      console.warn('[AudioCall] Could not start generative background music:', error);
-    }
-  };
-
-  const stopBackgroundMusic = () => {
-    if (!backgroundMusicRef.current.isPlaying) {
-      return;
-    }
-
-    try {
-      const { audioElement, oscillators, gainNode } = backgroundMusicRef.current;
-
-      if (audioElement) {
-        // Останавливаем обычную музыку
-        const fadeOut = () => {
-          if (audioElement.volume > 0.01) {
-            audioElement.volume -= 0.01;
-            setTimeout(fadeOut, 50);
-          } else {
-            audioElement.pause();
-            audioElement.currentTime = 0;
-            backgroundMusicRef.current.isPlaying = false;
-          }
-        };
-        fadeOut();
-      } else if (oscillators && gainNode) {
-        // Останавливаем генеративную музыку
-        const fadeOutGenerative = () => {
-          if (gainNode.gain.value > 0.001) {
-            gainNode.gain.value *= 0.95; // Экспоненциальное затухание
-            setTimeout(fadeOutGenerative, 50);
-          } else {
-            oscillators.forEach(osc => {
-              try {
-                osc.stop();
-              } catch (error) {
-                console.warn('Error stopping oscillator:', error);
-              }
-            });
-            backgroundMusicRef.current.isPlaying = false;
-            backgroundMusicRef.current.oscillators = undefined;
-            backgroundMusicRef.current.gainNode = undefined;
-          }
-        };
-        fadeOutGenerative();
-      } else {
-        backgroundMusicRef.current.isPlaying = false;
-      }
-
-    } catch (error) {
-      console.warn('[AudioCall] Could not stop background music:', error);
-      backgroundMusicRef.current.isPlaying = false;
-      backgroundMusicRef.current.oscillators = undefined;
-      backgroundMusicRef.current.gainNode = undefined;
     }
   };
 
@@ -761,24 +571,12 @@ const AudioCall = () => {
       const gain = speakerGainRef.current.gain;
       gain.setValueAtTime(isSpeakerOn ? 1 : 0, audioContextRef.current.currentTime ?? 0);
     }
-
-    if (backgroundMusicRef.current.audioElement) {
-      backgroundMusicRef.current.audioElement.muted = !isSpeakerOn;
-    } else if (backgroundMusicRef.current.gainNode) {
-      // Управляем громкостью генеративной музыки
-      backgroundMusicRef.current.gainNode.gain.setValueAtTime(
-        isSpeakerOn ? 0.02 : 0,
-        audioContextRef.current?.currentTime ?? 0
-      );
-    }
   }, [isSpeakerOn]);
 
   useEffect(() => {
     return () => {
       cleanupRecording();
       stopProcessingSound(); // Останавливаем звуковые сигналы при размонтировании
-      // Останавливаем фоновую музыку при размонтировании
-      stopBackgroundMusic();
       if (callTimerRef.current) {
         clearInterval(callTimerRef.current);
       }
@@ -1067,9 +865,6 @@ const AudioCall = () => {
 
       setTranscriptionStatus("");
       setIsCallActive(true);
-
-      // Запускаем фоновую музыку из файла
-      startBackgroundMusic();
     } catch (error) {
       console.error("Error starting call:", error);
       setAudioError("Не удалось получить доступ к микрофону. Проверьте настройки и попробуйте снова.");
@@ -1113,8 +908,6 @@ const AudioCall = () => {
       console.error("Error ending call:", error);
       setAudioError("Не удалось корректно завершить звонок.");
     } finally {
-      // Останавливаем фоновую музыку
-      stopBackgroundMusic();
       stopAssistantSpeech();
       setIsCallActive(false);
       setCallDuration(0);
