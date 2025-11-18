@@ -957,8 +957,18 @@ const memoryService = {
 // Обновленная логика для проверки доступа к функциям
 const accessService = {
   checkAudioSessionAccess: async function(userId) {
-    const subscription = await subscriptionService.getActiveUserSubscription(userId);
+    const subscription = await subscriptionService.getUserSubscription(userId);
     if (!subscription) return { hasAccess: false, reason: 'no_subscription' };
+
+    // Проверяем, активная ли подписка
+    if (subscription.status !== 'active') {
+      return { hasAccess: false, reason: 'subscription_inactive' };
+    }
+
+    // Проверяем срок действия подписки
+    if (subscription.expiresAt && new Date(subscription.expiresAt) < new Date()) {
+      return { hasAccess: false, reason: 'subscription_expired' };
+    }
 
     // Проверяем бесплатные сессии
     if (subscription.freeSessionsRemaining > 0) {
