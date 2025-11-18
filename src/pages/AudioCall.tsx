@@ -673,23 +673,31 @@ const AudioCall = () => {
       window.clearTimeout(pendingProcessTimeoutRef.current);
     }
 
-    const timeoutDelay = fastMode ? 50 : 100; // В быстром режиме - 50мс, в обычном - 100мс
+    // 5 секунд задержки перед отправкой в LLM (пользователь может продолжить говорить)
+    const timeoutDelay = 5000; // 5 секунд
     pendingProcessTimeoutRef.current = window.setTimeout(() => {
       pendingProcessTimeoutRef.current = null;
-      console.log("[AudioCall] Timeout reached, flushing pending transcript");
+      console.log("[AudioCall] Timeout reached (5 seconds), flushing pending transcript");
       flushPendingTranscript();
     }, timeoutDelay);
   };
 
   const updateConversationMemory = async (userText: string, assistantText: string) => {
-    if (!user) {
+    if (!user || !currentCallId) {
       return;
     }
 
-    const entry = `Клиент: ${userText}\nМарк: ${assistantText}`;
     try {
-      const updatedMemory = await memoryApi.appendMemory(user.id, "audio", entry);
+      // Сохраняем в БД с sessionId и обновляем локальную память
+      const updatedMemory = await memoryApi.appendMemory(
+        user.id, 
+        "audio", 
+        currentCallId, 
+        userText, 
+        assistantText
+      );
       memoryRef.current = updatedMemory;
+      console.log("[AudioCall] Memory updated and saved to DB");
     } catch (error) {
       console.error("Error updating audio memory:", error);
     }

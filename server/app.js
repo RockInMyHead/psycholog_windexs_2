@@ -118,6 +118,18 @@ async function initializeDatabase() {
         last_audio_reset_at INTEGER,
         FOREIGN KEY (user_id) REFERENCES users(id)
       );
+
+      CREATE TABLE IF NOT EXISTS conversation_history (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        session_id TEXT,
+        session_type TEXT NOT NULL,
+        user_message TEXT NOT NULL,
+        assistant_message TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      );
     `;
 
     // Execute the SQL to create tables
@@ -585,6 +597,41 @@ app.post('/api/users/:userId/record-audio-session', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error recording audio session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Memory endpoints
+app.get('/api/memory/:userId/:type', async (req, res) => {
+  try {
+    const { userId, type } = req.params;
+    const memory = await memoryService.getMemory(userId, type);
+    res.json({ memory });
+  } catch (error) {
+    console.error('Error getting memory:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/memory/:userId/:type/append', async (req, res) => {
+  try {
+    const { userId, type } = req.params;
+    const { sessionId, userMessage, assistantMessage } = req.body;
+    const updatedMemory = await memoryService.appendMemory(userId, type, sessionId, userMessage, assistantMessage);
+    res.json({ memory: updatedMemory });
+  } catch (error) {
+    console.error('Error appending memory:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/memory/:userId/:type', async (req, res) => {
+  try {
+    const { userId, type } = req.params;
+    await memoryService.clearMemory(userId, type);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error clearing memory:', error);
     res.status(500).json({ error: error.message });
   }
 });

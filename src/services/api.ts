@@ -243,24 +243,43 @@ export const subscriptionApi = {
   },
 };
 
-// Memory service - for now, this is a simple implementation
+// Memory service - работает с историей диалогов в БД
 export const memoryApi = {
-  async getMemory(userId: string, type: string) {
-    // Memory is derived from chat messages, so we don't store it separately
-    return '';
+  async getMemory(userId: string, type: string): Promise<string> {
+    try {
+      const response = await apiCall(`/memory/${userId}/${type}`);
+      return response.memory || '';
+    } catch (error) {
+      console.error('Error getting memory:', error);
+      return '';
+    }
   },
 
-  async setMemory(userId: string, type: string, content: string) {
-    // For now, memory is not persistently stored
+  async setMemory(userId: string, type: string, content: string): Promise<string> {
+    // Не используется - память сохраняется через appendMemory
     return content;
   },
 
-  async appendMemory(userId: string, type: string, entry: string, maxLength = 2000) {
-    // For now, memory is not persistently stored
-    return entry;
+  async appendMemory(userId: string, type: string, sessionId: string, userMessage: string, assistantMessage: string): Promise<string> {
+    try {
+      const response = await apiCall(`/memory/${userId}/${type}/append`, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, userMessage, assistantMessage }),
+      });
+      return response.memory || '';
+    } catch (error) {
+      console.error('Error appending memory:', error);
+      return '';
+    }
   },
 
-  async clearMemory(userId: string, type: string) {
-    // For now, memory is not persistently stored
+  async clearMemory(userId: string, type: string): Promise<void> {
+    try {
+      await apiCall(`/memory/${userId}/${type}`, {
+        method: 'DELETE',
+      });
+    } catch (error) {
+      console.error('Error clearing memory:', error);
+    }
   },
 };

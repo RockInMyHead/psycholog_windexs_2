@@ -180,14 +180,21 @@ const Chat = () => {
   };
 
   const updateConversationMemory = async (userText: string, assistantText: string) => {
-    if (!user) {
+    if (!user || !currentSessionId) {
       return;
     }
 
-    const entry = `Клиент: ${userText}\nМарк: ${assistantText}`;
     try {
-      const updatedMemory = await memoryApi.appendMemory(user.id, "chat", entry);
+      // Сохраняем в БД с sessionId и обновляем локальную память
+      const updatedMemory = await memoryApi.appendMemory(
+        user.id, 
+        "chat", 
+        currentSessionId, 
+        userText, 
+        assistantText
+      );
       memoryRef.current = updatedMemory;
+      console.log("[Chat] Memory updated and saved to DB");
     } catch (error) {
       console.error('Error updating chat memory:', error);
     }

@@ -102,6 +102,18 @@ const subscriptions = sqliteTable('subscriptions', {
   lastAudioResetAt: integer('last_audio_reset_at'),
 });
 
+// Таблица для хранения истории диалогов (контекст для психолога)
+const conversationHistory = sqliteTable('conversation_history', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  sessionId: text('session_id'), // ID сессии чата или аудио звонка
+  sessionType: text('session_type').notNull(), // 'chat' или 'audio'
+  userMessage: text('user_message').notNull(),
+  assistantMessage: text('assistant_message').notNull(),
+  timestamp: integer('timestamp').notNull(),
+  createdAt: integer('created_at').notNull(),
+});
+
 const schema = {
   users,
   chatSessions,
@@ -112,6 +124,7 @@ const schema = {
   quoteViews,
   userStats,
   subscriptions,
+  conversationHistory,
 };
 
 // Create database connection
@@ -792,35 +805,104 @@ const subscriptionService = {
   },
 };
 
-// Memory service for conversation context
-const buildMemoryKey = (userId, type) => `${type}_${userId}`;
+// Conversation History Service - для сохранения контекста психолога
+const conversationHistoryService = {
+  async addConversationEntry(userId, sessionId, sessionType, userMessage, assistantMessage) {
+    const entryId = `hist_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+    const now = new Date();
 
+    await db.insert(schema.conversationHistory).values({
+      id: entryId,
+      userId,
+      sessionId,
+      sessionType,
+      userMessage,
+      assistantMessage,
+      timestamp: toTimestamp(now),
+      createdAt: toTimestamp(now),
+    });
+
+    return entryId;
+  },
+
+  async getConversationHistory(userId, sessionType, limit = 20) {
+    const result = await db
+      .select()
+      .from(schema.conversationHistory)
+      .where(
+        and(
+          eq(schema.conversationHistory.userId, userId),
+          eq(schema.conversationHistory.sessionType, sessionType)
+        )
+      )
+      .orderBy(desc(schema.conversationHistory.timestamp))
+      .limit(limit);
+
+    return result.reverse().map(entry => ({
+      id: entry.id,
+      userId: entry.userId,
+      sessionId: entry.sessionId,
+      sessionType: entry.sessionType,
+      userMessage: entry.userMessage,
+      assistantMessage: entry.assistantMessage,
+      timestamp: toDateRequired(entry.timestamp),
+      createdAt: toDateRequired(entry.createdAt),
+    }));
+  },
+
+  async getFormattedHistory(userId, sessionType, limit = 10) {
+    const history = await this.getConversationHistory(userId, sessionType, limit);
+    
+    if (history.length === 0) {
+      return '';
+    }
+
+    // Форматируем историю для передачи в LLM
+    return history.map(entry => 
+      `Клиент: ${entry.userMessage}\nМарк: ${entry.assistantMessage}`
+    ).join('\n\n');
+  },
+
+  async clearUserHistory(userId, sessionType) {
+    await db
+      .delete(schema.conversationHistory)
+      .where(
+        and(
+          eq(schema.conversationHistory.userId, userId),
+          eq(schema.conversationHistory.sessionType, sessionType)
+        )
+      );
+  },
+};
+
+// Memory service for conversation context (обновленный с использованием БД)
 const memoryService = {
   async getMemory(userId, type) {
-    // For now, we'll use a simple in-memory approach for conversation memory
-    // In production, this could be stored in a separate table or Redis
-    const key = buildMemoryKey(userId, type);
-
-    // Since we don't have a dedicated memory table, we'll store this in a simple way
-    // For now, return empty string - memory will be built from chat messages
-    return '';
+    // Загружаем историю из БД
+    return await conversationHistoryService.getFormattedHistory(userId, type, 10);
   },
 
   async setMemory(userId, type, content) {
-    // For now, this is a no-op since we're not storing persistent memory
-    // Memory is derived from chat messages instead
+    // Не используется, так как мы сохраняем каждую запись отдельно
     return content;
   },
 
-  async appendMemory(userId, type, entry, maxLength = 2000) {
-    // For now, this is a no-op since we're not storing persistent memory
-    // Memory is derived from chat messages instead
-    return entry;
+  async appendMemory(userId, type, sessionId, userMessage, assistantMessage) {
+    // Сохраняем новую запись в историю
+    await conversationHistoryService.addConversationEntry(
+      userId, 
+      sessionId, 
+      type, 
+      userMessage, 
+      assistantMessage
+    );
+    
+    // Возвращаем обновленную историю
+    return await conversationHistoryService.getFormattedHistory(userId, type, 10);
   },
 
   async clearMemory(userId, type) {
-    // For now, this is a no-op since we're not storing persistent memory
-    // Memory is derived from chat messages instead
+    await conversationHistoryService.clearUserHistory(userId, type);
   },
 };
 
@@ -833,6 +915,7 @@ module.exports = {
   userStatsService,
   subscriptionService,
   memoryService,
+  conversationHistoryService,
   db,
   schema,
   sqlite,
