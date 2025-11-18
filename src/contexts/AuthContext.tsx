@@ -131,22 +131,17 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const register = async (email: string, password: string, name: string): Promise<boolean> => {
     try {
       console.log('[AuthContext] Registration attempt for:', email, name);
+      
       // Check if user already exists
-      let existingUser = null;
-      try {
-        existingUser = await userApi.getUserByEmail(email);
-      } catch (error) {
-        console.error('[AuthContext] Error checking existing user:', error);
-        // If there's an error other than 404, stop registration
-        return false;
-      }
-
+      // getUserByEmail returns null if user not found (404), or throws on other errors
+      const existingUser = await userApi.getUserByEmail(email);
+      
       if (existingUser) {
         console.log('[AuthContext] User already exists:', existingUser.email);
         return false;
       }
 
-      console.log('[AuthContext] Creating new user:', { email, name });
+      console.log('[AuthContext] User does not exist, creating new user');
 
       // Create new user
       const newUser = await userApi.getOrCreateUser(email, name);
