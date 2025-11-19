@@ -1042,7 +1042,7 @@ const MeditationWithMarque = () => {
 
       {/* Completion Modal */}
       <Dialog open={showCompletionModal} onOpenChange={setShowCompletionModal}>
-        <DialogContent className="sm:max-w-md mx-4">
+        <DialogContent className="sm:max-w-md mx-4 p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-center text-lg sm:text-2xl font-bold text-foreground flex items-center justify-center gap-2">
               <Heart className="w-5 h-5 sm:w-6 sm:h-6 text-red-500" />
@@ -1050,11 +1050,11 @@ const MeditationWithMarque = () => {
             </DialogTitle>
           </DialogHeader>
           <div className="text-center space-y-4">
-            <div className="text-base sm:text-lg text-muted-foreground px-2">
+            <div className="text-sm sm:text-base text-muted-foreground px-4 sm:px-6">
               Вы молодец! Вы успешно завершили медитацию.
             </div>
-            <div className="bg-muted/50 p-3 sm:p-4 rounded-lg border-l-4 border-primary mx-2">
-              <p className="text-xs sm:text-sm italic text-muted-foreground leading-relaxed break-words">
+            <div className="bg-muted/50 p-4 sm:p-6 rounded-lg border-l-4 border-primary mx-4 sm:mx-6">
+              <p className="text-sm sm:text-base italic text-muted-foreground leading-relaxed break-words">
                 "{getRandomQuote()}"
               </p>
             </div>
