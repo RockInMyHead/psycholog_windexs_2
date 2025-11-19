@@ -10,40 +10,69 @@ import { useAuth } from "@/contexts/AuthContext";
 import { subscriptionApi } from "@/services/api";
 import { paymentService, PaymentData } from "@/services/payment";
 
-// Confetti component for celebration
-const Confetti = ({ show }: { show: boolean }) => {
+// Candy Fireworks component for celebration
+const CandyFireworks = ({ show }: { show: boolean }) => {
   if (!show) return null;
 
   return (
     <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
-      {Array.from({ length: 50 }).map((_, i) => (
+      {Array.from({ length: 80 }).map((_, i) => (
         <div
           key={i}
-          className={`absolute w-2 h-2 rounded-full animate-bounce`}
+          className={`absolute w-3 h-3 rounded-full animate-bounce`}
           style={{
             left: `${Math.random() * 100}%`,
-            top: `-10px`,
-            backgroundColor: ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7', '#a29bfe', '#fd79a8', '#e17055'][Math.floor(Math.random() * 10)],
-            animationDelay: `${Math.random() * 3}s`,
-            animationDuration: `${2 + Math.random() * 2}s`,
+            top: `-15px`,
+            backgroundColor: ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7', '#a29bfe', '#fd79a8', '#e17055', '#00d2ff', '#ffd700', '#ff69b4', '#32cd32', '#ff4500'][Math.floor(Math.random() * 15)],
+            animationDelay: `${Math.random() * 4}s`,
+            animationDuration: `${2 + Math.random() * 3}s`,
+            boxShadow: `0 0 ${4 + Math.random() * 4}px currentColor`,
           }}
         />
       ))}
-      {Array.from({ length: 30 }).map((_, i) => (
-        <div
-          key={`star-${i}`}
-          className="absolute text-yellow-400 animate-spin"
-          style={{
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-            fontSize: `${12 + Math.random() * 12}px`,
-            animationDelay: `${Math.random() * 2}s`,
-            animationDuration: `${3 + Math.random() * 2}s`,
-          }}
-        >
-          ⭐
-        </div>
-      ))}
+      {Array.from({ length: 40 }).map((_, i) => {
+        const candies = ['🍬', '🍭', '🍪', '🧁', '🎂', '🍰', '🍫', '🍬', '🍭', '🍪', '🧁', '🎂', '🍰', '🍫', '🍬', '🍭'];
+        const candy = candies[Math.floor(Math.random() * candies.length)];
+        const colors = ['text-red-400', 'text-pink-400', 'text-purple-400', 'text-blue-400', 'text-green-400', 'text-yellow-400', 'text-orange-400'];
+
+        return (
+          <div
+            key={`candy-${i}`}
+            className={`absolute ${colors[Math.floor(Math.random() * colors.length)]} animate-bounce`}
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              fontSize: `${16 + Math.random() * 16}px`,
+              animationDelay: `${Math.random() * 3}s`,
+              animationDuration: `${2 + Math.random() * 2}s`,
+              transform: `rotate(${Math.random() * 360}deg)`,
+            }}
+          >
+            {candy}
+          </div>
+        );
+      })}
+      {Array.from({ length: 15 }).map((_, i) => {
+        const fireworks = ['🎆', '🎇', '✨', '💥', '🎊', '🎉', '🎈', '🎂', '🎁', '💫'];
+        const firework = fireworks[Math.floor(Math.random() * fireworks.length)];
+
+        return (
+          <div
+            key={`firework-${i}`}
+            className="absolute text-yellow-400 animate-pulse"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              fontSize: `${20 + Math.random() * 20}px`,
+              animationDelay: `${Math.random() * 4}s`,
+              animationDuration: `${1.5 + Math.random() * 2}s`,
+              transform: `scale(${0.8 + Math.random() * 0.4})`,
+            }}
+          >
+            {firework}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -354,7 +383,7 @@ const Subscription = () => {
 
   return (
     <div className="min-h-screen bg-calm-gradient">
-      <Confetti show={showConfetti} />
+      <CandyFireworks show={showConfetti} />
       <Navigation />
 
       <div className="pt-24 pb-12 px-4">
