@@ -88,33 +88,48 @@ const Subscription = () => {
 
       paymentHandledRef.current = true; // Предотвращаем повторную обработку
 
-      // Всегда обновляем данные подписки
-      loadCurrentSubscription().then(() => {
-        loadAccessInfo().then(() => {
-          console.log('[Payment] Data loaded, showing success modal');
-          console.log('[Payment] Current paymentSuccess state before setting:', paymentSuccess);
+      // Проверяем pending payment
+      if (pendingPaymentId && pendingPaymentUser === user.id) {
+        console.log('[Payment] Found pending payment, verifying:', pendingPaymentId);
 
-          // Показываем модальное окно успеха независимо от pending payment
-          console.log('[Payment] Setting paymentSuccess to true');
+        // Проверяем платеж на сервере
+        handlePaymentSuccess(pendingPaymentId, user.id).then(() => {
+          console.log('[Payment] handlePaymentSuccess completed successfully');
+          // Очищаем localStorage
+          localStorage.removeItem('pending_payment_id');
+          localStorage.removeItem('pending_payment_user');
+          localStorage.removeItem('pending_payment_plan');
+          console.log('[Payment] Cleared pending payment data after verification');
+        }).catch((error) => {
+          console.error('[Payment] handlePaymentSuccess failed:', error);
+          // Даже при ошибке верификации показываем успех пользователю
+          console.log('[Payment] Showing success modal despite verification error');
           setPaymentSuccess(true);
-          console.log('[Payment] Setting showConfetti to true');
           setShowConfetti(true);
-
-          // Проверяем состояние через timeout
-          setTimeout(() => {
-            console.log('[Payment] Confetti timeout - hiding confetti');
-            setShowConfetti(false);
-          }, 5000);
-
-          // Очищаем localStorage если есть pending payment
-          if (pendingPaymentId && pendingPaymentUser === user.id) {
-            localStorage.removeItem('pending_payment_id');
-            localStorage.removeItem('pending_payment_user');
-            localStorage.removeItem('pending_payment_plan');
-            console.log('[Payment] Cleared pending payment data');
-          }
+          setTimeout(() => setShowConfetti(false), 5000);
         });
-      });
+      } else {
+        console.log('[Payment] No pending payment found, showing success modal directly');
+        // Даже без paymentId загружаем подписку - webhook мог уже обработать платеж
+        loadCurrentSubscription().then(() => {
+          loadAccessInfo().then(() => {
+            console.log('[Payment] Data loaded, showing success modal');
+            console.log('[Payment] Current paymentSuccess state before setting:', paymentSuccess);
+
+            // Показываем модальное окно успеха независимо от pending payment
+            console.log('[Payment] Setting paymentSuccess to true');
+            setPaymentSuccess(true);
+            console.log('[Payment] Setting showConfetti to true');
+            setShowConfetti(true);
+
+            // Проверяем состояние через timeout
+            setTimeout(() => {
+              console.log('[Payment] Confetti timeout - hiding confetti');
+              setShowConfetti(false);
+            }, 5000);
+          });
+        });
+      }
 
       // Очищаем URL от параметров платежа
       window.history.replaceState({}, '', '/subscription');

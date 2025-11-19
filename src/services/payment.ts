@@ -125,28 +125,34 @@ class PaymentService {
 
   async processPaymentSuccess(paymentId: string, userId: string): Promise<boolean> {
     try {
+      console.log('[Payment] Starting verification for payment:', paymentId, 'user:', userId);
+
       // Verify payment with Yookassa API through our server
       const response = await fetch(`/api/payments/verify/${paymentId}`, {
         method: 'GET',
       });
 
+      console.log('[Payment] Verify response status:', response.status);
+
       if (!response.ok) {
-        console.error('Payment verification failed');
+        const errorText = await response.text();
+        console.error('[Payment] Payment verification failed:', response.status, errorText);
         return false;
       }
 
       const paymentData = await response.json();
+      console.log('[Payment] Payment data received:', paymentData);
 
       if (paymentData.status !== 'succeeded') {
-        console.error('Payment not succeeded:', paymentData.status);
+        console.error('[Payment] Payment not succeeded:', paymentData.status);
         return false;
       }
 
-      console.log('Payment verified successfully:', { paymentId, userId, plan: paymentData.metadata?.plan });
+      console.log('[Payment] Payment verified successfully:', { paymentId, userId, plan: paymentData.metadata?.plan });
 
       return true;
     } catch (error) {
-      console.error('Payment processing error:', error);
+      console.error('[Payment] Payment processing error:', error);
       return false;
     }
   }
