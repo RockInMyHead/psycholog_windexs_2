@@ -735,7 +735,7 @@ const subscriptionService = {
           audioSessionsLimit: newLimit,
           // Если покупаем медитации, включаем доступ и продлеваем срок
           meditationAccess: Math.max(existingSubscription.meditationAccess || 0, subscriptionData.meditationAccess || 0),
-          expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : existingSubscription.expiresAt,
+          expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : (existingSubscription.expiresAt ? toTimestamp(existingSubscription.expiresAt) : null),
         })
         .where(eq(schema.subscriptions.id, existingSubscription.id));
 
@@ -752,7 +752,7 @@ const subscriptionService = {
         status: subscriptionData.status,
         yookassaPaymentId,
         startedAt: toTimestamp(now),
-        expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : undefined,
+        expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : null,
         autoRenew: plan === 'meditation_monthly' ? 1 : 0, // Автопродление только для месячных подписок
         createdAt: toTimestamp(now),
         updatedAt: toTimestamp(now),
