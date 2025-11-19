@@ -4,11 +4,49 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Check, Crown, Star, Sparkles, MessageCircle, Phone, Lightbulb, PlayCircle, Heart, CreditCard, X, CheckCircle, AlertCircle } from "lucide-react";
+import { Check, Crown, Star, Sparkles, MessageCircle, Phone, Lightbulb, PlayCircle, Heart, CreditCard, X, CheckCircle, AlertCircle, PartyPopper } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { subscriptionApi } from "@/services/api";
 import { paymentService, PaymentData } from "@/services/payment";
+
+// Confetti component for celebration
+const Confetti = ({ show }: { show: boolean }) => {
+  if (!show) return null;
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+      {Array.from({ length: 50 }).map((_, i) => (
+        <div
+          key={i}
+          className={`absolute w-2 h-2 rounded-full animate-bounce`}
+          style={{
+            left: `${Math.random() * 100}%`,
+            top: `-10px`,
+            backgroundColor: ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7', '#a29bfe', '#fd79a8', '#e17055'][Math.floor(Math.random() * 10)],
+            animationDelay: `${Math.random() * 3}s`,
+            animationDuration: `${2 + Math.random() * 2}s`,
+          }}
+        />
+      ))}
+      {Array.from({ length: 30 }).map((_, i) => (
+        <div
+          key={`star-${i}`}
+          className="absolute text-yellow-400 animate-spin"
+          style={{
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            fontSize: `${12 + Math.random() * 12}px`,
+            animationDelay: `${Math.random() * 2}s`,
+            animationDuration: `${3 + Math.random() * 2}s`,
+          }}
+        >
+          ⭐
+        </div>
+      ))}
+    </div>
+  );
+};
 
 const Subscription = () => {
   const { user } = useAuth();
@@ -23,6 +61,7 @@ const Subscription = () => {
   const [audioAccess, setAudioAccess] = useState<any>(null);
   const [meditationAccess, setMeditationAccess] = useState<any>(null);
   const [activePlans, setActivePlans] = useState<string[]>([]);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   // Check for payment result on page load
   useEffect(() => {
@@ -98,8 +137,12 @@ const Subscription = () => {
       if (success) {
         // Подписка создается автоматически в API при проверке платежа
         setPaymentSuccess(true);
+        setShowConfetti(true);
         await loadCurrentSubscription();
         await loadAccessInfo();
+
+        // Hide confetti after 5 seconds
+        setTimeout(() => setShowConfetti(false), 5000);
       } else {
         setPaymentError('Не удалось обработать платеж');
       }
@@ -245,6 +288,7 @@ const Subscription = () => {
 
   return (
     <div className="min-h-screen bg-calm-gradient">
+      <Confetti show={showConfetti} />
       <Navigation />
 
       <div className="pt-24 pb-12 px-4">
@@ -540,33 +584,61 @@ const Subscription = () => {
 
           {/* Success Dialog */}
           <Dialog open={paymentSuccess} onOpenChange={setPaymentSuccess}>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2 text-green-700">
-                  <CheckCircle className="w-5 h-5" />
-                  Платеж успешно обработан!
+            <DialogContent className="sm:max-w-lg relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-green-400 via-blue-500 to-purple-600 opacity-10 rounded-lg" />
+
+              <DialogHeader className="relative">
+                <DialogTitle className="flex items-center gap-3 text-center justify-center text-2xl font-bold text-green-700 mb-2">
+                  <PartyPopper className="w-8 h-8 text-yellow-500 animate-bounce" />
+                  🎉 Ура! Поздравляем! 🎉
+                  <PartyPopper className="w-8 h-8 text-yellow-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
                 </DialogTitle>
-                <DialogDescription>
-                  Ваша премиум подписка активирована. Наслаждайтесь всеми преимуществами!
+                <DialogDescription className="text-center text-lg">
+                  Ваш платеж успешно обработан! Спасибо за доверие к Windexs-Психологу!
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="space-y-4">
-                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-center gap-2 text-green-700 mb-2">
-                    <Crown className="w-4 h-4" />
-                    <span className="font-medium">Премиум подписка активна</span>
+              <div className="space-y-6 relative">
+                <div className="text-center space-y-4">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-100 to-blue-100 rounded-full border-2 border-green-300">
+                    <Crown className="w-5 h-5 text-yellow-600" />
+                    <span className="font-bold text-green-700">Премиум подписка активирована!</span>
                   </div>
-                  <p className="text-sm text-green-600">
-                    Спасибо за подписку! Теперь у вас есть доступ ко всем премиум функциям.
-                  </p>
+
+                  <div className="space-y-2">
+                    <p className="text-lg font-medium text-gray-800">
+                      ✨ Спасибо за вашу поддержку! ✨
+                    </p>
+                    <p className="text-gray-600 leading-relaxed">
+                      Теперь у вас есть полный доступ ко всем возможностям нашего ИИ-психолога.
+                      Начните свой путь к внутреннему благополучию прямо сейчас!
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-r from-green-50 via-blue-50 to-purple-50 p-4 rounded-xl border border-green-200">
+                  <div className="text-center space-y-2">
+                    <div className="flex justify-center gap-1 mb-2">
+                      {['🎈', '🎊', '🎉', '✨', '🌟'].map((emoji, i) => (
+                        <span key={i} className="text-2xl animate-bounce" style={{ animationDelay: `${i * 0.1}s` }}>
+                          {emoji}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-sm font-medium text-gray-700">
+                      Наслаждайтесь персонализированной психологической поддержкой!
+                    </p>
+                  </div>
                 </div>
 
                 <Button
-                  className="w-full bg-green-600 hover:bg-green-700"
-                  onClick={() => setPaymentSuccess(false)}
+                  className="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white font-bold py-3 text-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+                  onClick={() => {
+                    setPaymentSuccess(false);
+                    setShowConfetti(false);
+                  }}
                 >
-                  Отлично!
+                  🚀 Начать пользоваться!
                 </Button>
               </div>
             </DialogContent>
