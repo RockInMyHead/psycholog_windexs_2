@@ -11,7 +11,7 @@ interface YookassaConfig {
 const YOOKASSA_CONFIG: YookassaConfig = {
   shopId: '1183996', // Real shop ID
   secretKey: 'live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg', // Real secret key
-  returnUrl: `${window.location.origin}/subscription?payment=success`,
+  returnUrl: `${window.location.origin}/subscription`,
   testMode: false,
 };
 

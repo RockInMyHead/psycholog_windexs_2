@@ -68,22 +68,68 @@ const Subscription = () => {
     const paymentStatus = searchParams.get('payment');
     const paymentId = searchParams.get('payment_id');
 
-    if (paymentStatus === 'success' && paymentId && user) {
-      handlePaymentSuccess(paymentId, user.id);
-    }
+    console.log('[Payment] URL params check:', {
+      paymentStatus,
+      paymentId,
+      user: user ? user.email : 'no user',
+      allParams: Object.fromEntries(searchParams.entries())
+    });
 
-    // Load current subscription and access info
+    if (paymentStatus === 'success' && paymentId && user) {
+      console.log('[Payment] Processing successful payment:', paymentId);
+      handlePaymentSuccess(paymentId, user.id);
+    } else if (paymentStatus || paymentId) {
+      console.log('[Payment] Payment params found but conditions not met:', {
+        hasPaymentStatus: !!paymentStatus,
+        hasPaymentId: !!paymentId,
+        hasUser: !!user
+      });
+    }
+  }, [searchParams, user]);
+
+  // Check for recent subscription on page load
+  useEffect(() => {
+    if (user && currentSubscription) {
+      const subscriptionCreated = new Date(currentSubscription.createdAt);
+      const now = new Date();
+      const minutesDiff = (now.getTime() - subscriptionCreated.getTime()) / (1000 * 60);
+
+      console.log('[Payment] Checking recent subscription:', {
+        createdAt: subscriptionCreated,
+        minutesAgo: minutesDiff,
+        subscription: currentSubscription
+      });
+
+      // If subscription was created in the last 10 minutes and we haven't shown success yet
+      if (minutesDiff <= 10 && !paymentSuccess && !paymentProcessing) {
+        console.log('[Payment] Recent subscription detected, showing success modal');
+        setPaymentSuccess(true);
+        setShowConfetti(true);
+
+        // Hide confetti after 5 seconds
+        setTimeout(() => {
+          console.log('[Payment] Hiding confetti after timeout');
+          setShowConfetti(false);
+        }, 5000);
+      }
+    }
+  }, [user, currentSubscription, paymentSuccess, paymentProcessing]);
+
+  // Load current subscription and access info
+  useEffect(() => {
     if (user) {
       loadCurrentSubscription();
       loadAccessInfo();
     }
-  }, [searchParams, user]);
+  }, [user]);
 
   const loadCurrentSubscription = async () => {
     if (!user) return;
 
     try {
+      console.log('[Payment] Loading subscription for user:', user.id);
       const subscription = await subscriptionApi.getUserSubscription(user.id);
+      console.log('[Payment] Subscription loaded:', subscription);
       setCurrentSubscription(subscription);
     } catch (error) {
       console.error('Error loading subscription:', error);
@@ -128,29 +174,42 @@ const Subscription = () => {
   };
 
   const handlePaymentSuccess = async (paymentId: string, userId: string) => {
+    console.log('[Payment] handlePaymentSuccess called:', { paymentId, userId });
+
     try {
       setPaymentProcessing(true);
+      console.log('[Payment] Setting payment processing to true');
 
       // Process payment and create subscription
+      console.log('[Payment] Calling paymentService.processPaymentSuccess...');
       const success = await paymentService.processPaymentSuccess(paymentId, userId);
+      console.log('[Payment] Payment service result:', success);
 
       if (success) {
+        console.log('[Payment] Payment successful, showing success modal');
         // Подписка создается автоматически в API при проверке платежа
         setPaymentSuccess(true);
         setShowConfetti(true);
+        console.log('[Payment] Success modal and confetti set to true');
+
         await loadCurrentSubscription();
         await loadAccessInfo();
 
         // Hide confetti after 5 seconds
-        setTimeout(() => setShowConfetti(false), 5000);
+        setTimeout(() => {
+          console.log('[Payment] Hiding confetti');
+          setShowConfetti(false);
+        }, 5000);
       } else {
+        console.log('[Payment] Payment processing failed');
         setPaymentError('Не удалось обработать платеж');
       }
     } catch (error) {
-      console.error('Payment processing error:', error);
+      console.error('[Payment] Payment processing error:', error);
       setPaymentError('Произошла ошибка при обработке платежа');
     } finally {
       setPaymentProcessing(false);
+      console.log('[Payment] Setting payment processing to false');
     }
   };
 
