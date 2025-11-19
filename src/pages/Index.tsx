@@ -271,20 +271,20 @@ const Index = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
             {steps.map((step, index) => (
               <Card
                 key={index}
-                className="p-8 text-center bg-card-gradient border-2 border-border shadow-soft hover:shadow-medium transition-all animate-fade-in relative overflow-hidden group"
+                className="p-6 md:p-8 text-center bg-card-gradient border-2 border-border shadow-soft hover:shadow-medium transition-all animate-fade-in relative overflow-hidden group"
                 style={{ animationDelay: `${index * 100}ms` }}
               >
                 <div className="absolute top-0 left-0 w-full h-1 bg-hero-gradient" />
-                <div className="text-6xl font-bold text-primary/20 mb-4 group-hover:scale-110 transition-transform">
+                <div className="text-4xl md:text-6xl font-bold text-primary/20 mb-3 md:mb-4 group-hover:scale-110 transition-transform">
                   {step.number}
                 </div>
-                <h3 className="text-2xl font-bold text-foreground mb-3">{step.title}</h3>
-                <p className="text-muted-foreground text-lg">{step.description}</p>
-                <CheckCircle className="w-12 h-12 text-primary/20 mx-auto mt-6 group-hover:text-primary/60 transition-colors" />
+                <h3 className="text-xl md:text-2xl font-bold text-foreground mb-2 md:mb-3">{step.title}</h3>
+                <p className="text-muted-foreground text-base md:text-lg leading-relaxed">{step.description}</p>
+                <CheckCircle className="w-10 h-10 md:w-12 md:h-12 text-primary/20 mx-auto mt-4 md:mt-6 group-hover:text-primary/60 transition-colors" />
               </Card>
             ))}
           </div>
