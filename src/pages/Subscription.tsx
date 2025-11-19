@@ -89,19 +89,36 @@ const Subscription = () => {
 
   // Check for recent subscription on page load
   useEffect(() => {
+    console.log('[Payment] Recent subscription check triggered:', {
+      hasUser: !!user,
+      hasSubscription: !!currentSubscription,
+      paymentSuccess,
+      paymentProcessing
+    });
+
     if (user && currentSubscription) {
       const subscriptionCreated = new Date(currentSubscription.createdAt);
       const now = new Date();
       const minutesDiff = (now.getTime() - subscriptionCreated.getTime()) / (1000 * 60);
 
       console.log('[Payment] Checking recent subscription:', {
-        createdAt: subscriptionCreated,
+        createdAt: subscriptionCreated.toISOString(),
+        now: now.toISOString(),
         minutesAgo: minutesDiff,
-        subscription: currentSubscription
+        subscriptionId: currentSubscription.id,
+        subscriptionPlan: currentSubscription.plan
       });
 
-      // If subscription was created in the last 10 minutes and we haven't shown success yet
-      if (minutesDiff <= 10 && !paymentSuccess && !paymentProcessing) {
+      // If subscription was created in the last 30 minutes and we haven't shown success yet
+      console.log('[Payment] Checking conditions:', {
+        minutesDiff,
+        isRecent: minutesDiff <= 30, // Increased to 30 minutes
+        paymentSuccess,
+        paymentProcessing,
+        condition: minutesDiff <= 30 && !paymentSuccess && !paymentProcessing
+      });
+
+      if (minutesDiff <= 30 && !paymentSuccess && !paymentProcessing) {
         console.log('[Payment] Recent subscription detected, showing success modal');
         setPaymentSuccess(true);
         setShowConfetti(true);
@@ -111,9 +128,19 @@ const Subscription = () => {
           console.log('[Payment] Hiding confetti after timeout');
           setShowConfetti(false);
         }, 5000);
+      } else {
+        console.log('[Payment] Conditions not met for showing success modal');
       }
     }
   }, [user, currentSubscription, paymentSuccess, paymentProcessing]);
+
+  // Debug: Add test button for success modal (only in development)
+  const showTestSuccessModal = () => {
+    console.log('[Payment] Test success modal triggered');
+    setPaymentSuccess(true);
+    setShowConfetti(true);
+    setTimeout(() => setShowConfetti(false), 5000);
+  };
 
   // Load current subscription and access info
   useEffect(() => {
@@ -704,6 +731,18 @@ const Subscription = () => {
           </Dialog>
         </div>
       </div>
+
+      {/* Debug button for testing success modal */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <button
+            onClick={showTestSuccessModal}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm"
+          >
+            Test Success Modal
+          </button>
+        </div>
+      )}
     </div>
   );
 };
