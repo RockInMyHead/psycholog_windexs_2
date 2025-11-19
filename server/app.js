@@ -690,7 +690,8 @@ app.delete('/api/memory/:userId/:type', async (req, res) => {
   }
 });
 
-// Payment endpoints
+// Payment endpoints - ЮKassa ShopAI integration
+// Shop ID: 1183996, Token: live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg
 app.post('/api/payments/create', async (req, res) => {
   try {
     const { amount, currency, description, metadata, shopId } = req.body;
@@ -700,7 +701,7 @@ app.post('/api/payments/create', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Basic ${Buffer.from(`${shopId}:live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg`).toString('base64')}`,
+        'Authorization': `Basic ${Buffer.from(`1183996:live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg`).toString('base64')}`,
       },
       body: JSON.stringify({
         amount: {
