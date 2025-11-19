@@ -634,63 +634,29 @@ const Subscription = () => {
           </Dialog>
 
           {/* Success Dialog */}
-          {console.log('[Dialog] Rendering success dialog, paymentSuccess:', paymentSuccess)}
-          <Dialog open={paymentSuccess} onOpenChange={setPaymentSuccess} modal={true}>
-            <DialogContent className="sm:max-w-lg relative overflow-hidden z-[9999] fixed inset-0 flex items-center justify-center">
-              <div className="absolute inset-0 bg-gradient-to-br from-green-400 via-blue-500 to-purple-600 opacity-10 rounded-lg" />
-
-              <DialogHeader className="relative">
-                <DialogTitle className="flex items-center gap-3 text-center justify-center text-2xl font-bold text-green-700 mb-2">
-                  <PartyPopper className="w-8 h-8 text-yellow-500 animate-bounce" />
-                  🎉 Ура! Поздравляем! 🎉
-                  <PartyPopper className="w-8 h-8 text-yellow-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
+          <Dialog open={paymentSuccess} onOpenChange={setPaymentSuccess}>
+            <DialogContent className="sm:max-w-md mx-4">
+              <DialogHeader className="text-center">
+                <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                  <CheckCircle className="w-8 h-8 text-green-600" />
+                </div>
+                <DialogTitle className="text-xl font-bold text-green-800">
+                  Оплата успешна!
                 </DialogTitle>
-                <DialogDescription className="text-center text-lg">
-                  Ваш платеж успешно обработан! Спасибо за доверие к Windexs-Психологу!
+                <DialogDescription className="text-gray-600 mt-2">
+                  Спасибо за доверие к Windexs-Психологу. Ваша подписка активирована.
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="space-y-6 relative">
-                <div className="text-center space-y-4">
-                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-100 to-blue-100 rounded-full border-2 border-green-300">
-                    <Crown className="w-5 h-5 text-yellow-600" />
-                    <span className="font-bold text-green-700">Премиум подписка активирована!</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-lg font-medium text-gray-800">
-                      ✨ Спасибо за вашу поддержку! ✨
-                    </p>
-                    <p className="text-gray-600 leading-relaxed">
-                      Теперь у вас есть полный доступ ко всем возможностям нашего ИИ-психолога.
-                      Начните свой путь к внутреннему благополучию прямо сейчас!
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-gradient-to-r from-green-50 via-blue-50 to-purple-50 p-4 rounded-xl border border-green-200">
-                  <div className="text-center space-y-2">
-                    <div className="flex justify-center gap-1 mb-2">
-                      {['🎈', '🎊', '🎉', '✨', '🌟'].map((emoji, i) => (
-                        <span key={i} className="text-2xl animate-bounce" style={{ animationDelay: `${i * 0.1}s` }}>
-                          {emoji}
-                        </span>
-                      ))}
-                    </div>
-                    <p className="text-sm font-medium text-gray-700">
-                      Наслаждайтесь персонализированной психологической поддержкой!
-                    </p>
-                  </div>
-                </div>
-
+              <div className="flex justify-center mt-6">
                 <Button
-                  className="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white font-bold py-3 text-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+                  className="bg-green-600 hover:bg-green-700 text-white px-8 py-2"
                   onClick={() => {
                     setPaymentSuccess(false);
                     setShowConfetti(false);
                   }}
                 >
-                  🚀 Начать пользоваться!
+                  Продолжить
                 </Button>
               </div>
             </DialogContent>
