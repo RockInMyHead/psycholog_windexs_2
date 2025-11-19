@@ -630,29 +630,6 @@ const Chat = () => {
                   </div>
                 )}
 
-                {/* Debug info for voice features */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="mt-2 text-xs text-muted-foreground border-t pt-2">
-                    <div>Recording: {isRecording ? 'Yes' : 'No'}</div>
-                    <div>Processing: {isProcessingAudio ? 'Yes' : 'No'}</div>
-                    <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
-                    <button
-                      onClick={async () => {
-                        try {
-                          console.log('[Debug] Testing STT with sample audio...');
-                          // Create a simple test audio blob
-                          const testAudio = new Blob(['test'], { type: 'audio/webm' });
-                          console.log('[Debug] Test blob created, size:', testAudio.size);
-                        } catch (error) {
-                          console.error('[Debug] Test failed:', error);
-                        }
-                      }}
-                      className="mt-1 px-2 py-1 bg-blue-500 text-white text-xs rounded"
-                    >
-                      Test STT
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           </Card>
