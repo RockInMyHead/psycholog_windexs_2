@@ -78,38 +78,36 @@ const Subscription = () => {
 
     if (paymentStatus === 'success' && user) {
       console.log('[Payment] Payment success detected');
-      
-      // Проверяем pending payment
-      if (pendingPaymentId && pendingPaymentUser === user.id) {
-        console.log('[Payment] Found pending payment, verifying:', pendingPaymentId);
-        
-        // Проверяем платеж на сервере
-        handlePaymentSuccess(pendingPaymentId, user.id).then(() => {
-          // Очищаем localStorage
-          localStorage.removeItem('pending_payment_id');
-          localStorage.removeItem('pending_payment_user');
-          localStorage.removeItem('pending_payment_plan');
-          
-          // Показываем модальное окно успеха
+      console.log('[Payment] Current state:', {
+        pendingPaymentId,
+        pendingPaymentUser,
+        userId: user.id
+      });
+
+      // Всегда обновляем данные подписки
+      loadCurrentSubscription().then(() => {
+        loadAccessInfo().then(() => {
+          console.log('[Payment] Data loaded, showing success modal');
+
+          // Показываем модальное окно успеха независимо от pending payment
           setPaymentSuccess(true);
           setShowConfetti(true);
           setTimeout(() => setShowConfetti(false), 5000);
+
+          // Очищаем localStorage если есть pending payment
+          if (pendingPaymentId && pendingPaymentUser === user.id) {
+            localStorage.removeItem('pending_payment_id');
+            localStorage.removeItem('pending_payment_user');
+            localStorage.removeItem('pending_payment_plan');
+            console.log('[Payment] Cleared pending payment data');
+          }
         });
-      } else {
-        // Даже без paymentId загружаем подписку - webhook мог уже обработать платеж
-        loadCurrentSubscription().then(() => {
-          loadAccessInfo().then(() => {
-            // Показываем модальное окно успеха
-            setPaymentSuccess(true);
-            setShowConfetti(true);
-            setTimeout(() => setShowConfetti(false), 5000);
-          });
-        });
-      }
-      
+      });
+
       // Очищаем URL от параметров платежа
       window.history.replaceState({}, '', '/subscription');
     } else if (user) {
+      console.log('[Payment] No payment success detected, loading normal data');
       // Load current subscription and access info
       loadCurrentSubscription();
       loadAccessInfo();
@@ -165,13 +163,16 @@ const Subscription = () => {
   };
 
   const handlePaymentSuccess = async (paymentId: string, userId: string) => {
+    console.log('[Payment] handlePaymentSuccess called with:', { paymentId, userId });
     try {
       setPaymentProcessing(true);
 
       // Process payment and create subscription
       const success = await paymentService.processPaymentSuccess(paymentId, userId);
+      console.log('[Payment] Payment verification result:', success);
 
       if (success) {
+        console.log('[Payment] Payment successful - showing success modal');
         // Подписка создается автоматически в API при проверке платежа
         setPaymentSuccess(true);
         setShowConfetti(true);
@@ -181,6 +182,7 @@ const Subscription = () => {
         // Hide confetti after 5 seconds
         setTimeout(() => setShowConfetti(false), 5000);
       } else {
+        console.log('[Payment] Payment verification failed');
         setPaymentError('Не удалось обработать платеж');
       }
     } catch (error) {

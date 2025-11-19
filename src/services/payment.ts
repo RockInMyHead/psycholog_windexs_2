@@ -42,6 +42,11 @@ class PaymentService {
 
   async createPayment(paymentData: PaymentData): Promise<YookassaPaymentResponse> {
     try {
+      // Очищаем старые данные из localStorage перед созданием нового платежа
+      localStorage.removeItem('pending_payment_id');
+      localStorage.removeItem('pending_payment_user');
+      localStorage.removeItem('pending_payment_plan');
+
       // Create payment request for Yookassa API
       const yookassaPayload = {
         amount: {
