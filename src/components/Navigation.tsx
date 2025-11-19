@@ -41,7 +41,7 @@ const Navigation = () => {
                   <Button
                     variant="ghost"
                     className={cn(
-                      "gap-2 transition-all hover:bg-primary/10",
+                      "gap-2 transition-all hover:bg-primary/10 hover:text-black",
                       isActive && "bg-primary/10 text-primary font-semibold"
                     )}
                   >
@@ -64,7 +64,7 @@ const Navigation = () => {
                 variant="ghost"
                 size="sm"
                 onClick={logout}
-                className="gap-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                className="gap-2 text-muted-foreground hover:text-black hover:bg-destructive/10"
               >
                 <LogOut className="w-4 h-4" />
                 Выйти
@@ -98,7 +98,7 @@ const Navigation = () => {
                   <Button
                     variant="ghost"
                     className={cn(
-                      "w-full justify-start gap-3 mb-1",
+                      "w-full justify-start gap-3 mb-1 hover:text-black",
                       isActive && "bg-primary/10 text-primary font-semibold"
                     )}
                   >
@@ -122,7 +122,7 @@ const Navigation = () => {
                     setIsOpen(false);
                   }}
                   variant="ghost"
-                  className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  className="w-full justify-start gap-3 text-muted-foreground hover:text-black hover:bg-destructive/10"
                 >
                   <LogOut className="w-5 h-5" />
                   Выйти
