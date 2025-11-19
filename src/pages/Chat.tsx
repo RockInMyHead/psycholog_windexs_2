@@ -236,7 +236,13 @@ const Chat = () => {
   };
 
   const sendMessage = async (content: string) => {
-    if (!content.trim() || !currentSessionId || !user) return;
+    console.log('[Chat] sendMessage called with content:', content);
+    console.log('[Chat] currentSessionId:', currentSessionId, 'user:', user);
+
+    if (!content.trim() || !currentSessionId || !user) {
+      console.log('[Chat] sendMessage blocked - missing required data');
+      return;
+    }
 
     try {
       // Save user message to database
@@ -330,35 +336,52 @@ const Chat = () => {
   const handleToggleRecording = async () => {
     try {
       setAudioError(null);
+      console.log('[Voice] Toggle recording called, isRecording:', isRecording);
 
       if (!isRecording) {
         if (!hasPermission) {
+          console.log('[Voice] Requesting microphone permission...');
           const allowed = await requestPermission();
           if (!allowed) {
+            console.log('[Voice] Microphone permission denied');
             setAudioError("Требуется доступ к микрофону.");
             return;
           }
+          console.log('[Voice] Microphone permission granted');
         }
 
+        console.log('[Voice] Starting recording...');
         await startRecording();
       } else {
         setIsProcessingAudio(true);
+        console.log('[Voice] Stopping recording and processing audio...');
+
         try {
           const audioBlob = await stopRecording();
+          console.log('[Voice] Audio blob received, size:', audioBlob?.size);
 
           if (audioBlob && audioBlob.size > 0) {
             try {
+              console.log('[Voice] Starting transcription...');
               const transcription = await psychologistAI.transcribeAudio(audioBlob);
               const text = transcription.trim();
+              console.log('[Voice] Transcription result:', text);
+
               if (text.length > 0) {
+                console.log('[Voice] Sending transcribed message:', text);
                 await sendMessage(text);
+                console.log('[Voice] Message sent successfully');
               } else {
-                setAudioError("Не удалось распознать речь. Попробуйте ещё раз.");
+                console.log('[Voice] Empty transcription result');
+                setAudioError("Не удалось распознать речь. Попробуйте ещё раз или напишите текстом.");
               }
             } catch (error) {
-              setAudioError("Ошибка при распознавании речи. Попробуйте ещё раз.");
+              console.error('[Voice] Transcription error:', error);
+              // Fallback: show error but allow text input
+              setAudioError("Голосовое распознавание временно недоступно. Напишите сообщение текстом.");
             }
           } else {
+            console.log('[Voice] Audio blob is empty or invalid');
             setAudioError("Похоже, запись не содержит звука.");
           }
         } finally {
@@ -366,7 +389,7 @@ const Chat = () => {
         }
       }
     } catch (error) {
-      console.error("Audio recording error:", error);
+      console.error("[Voice] Audio recording error:", error);
       setAudioError("Не удалось получить доступ к микрофону.");
       setIsProcessingAudio(false);
     }
@@ -604,6 +627,30 @@ const Chat = () => {
                     {isRecording && <span className="text-red-500 font-medium">Идёт запись...</span>}
                     {isProcessingAudio && <span>Обрабатываю голосовое сообщение...</span>}
                     {audioError && <span className="text-destructive">{audioError}</span>}
+                  </div>
+                )}
+
+                {/* Debug info for voice features */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="mt-2 text-xs text-muted-foreground border-t pt-2">
+                    <div>Recording: {isRecording ? 'Yes' : 'No'}</div>
+                    <div>Processing: {isProcessingAudio ? 'Yes' : 'No'}</div>
+                    <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          console.log('[Debug] Testing STT with sample audio...');
+                          // Create a simple test audio blob
+                          const testAudio = new Blob(['test'], { type: 'audio/webm' });
+                          console.log('[Debug] Test blob created, size:', testAudio.size);
+                        } catch (error) {
+                          console.error('[Debug] Test failed:', error);
+                        }
+                      }}
+                      className="mt-1 px-2 py-1 bg-blue-500 text-white text-xs rounded"
+                    >
+                      Test STT
+                    </button>
                   </div>
                 )}
               </div>
