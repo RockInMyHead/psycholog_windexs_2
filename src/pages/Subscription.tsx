@@ -319,7 +319,7 @@ const Subscription = () => {
                 {audioAccess.type === 'paid' && (
                   <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                     <p className="text-blue-700 dark:text-blue-300 text-sm">
-                      🎧 <strong>Аудио сессии:</strong> {audioAccess.remaining} из {audioAccess.total} доступно
+                      🎧 <strong>Аудио сессии:</strong> {audioAccess.remaining} доступно
                     </p>
                   </div>
                 )}
@@ -441,21 +441,9 @@ const Subscription = () => {
                         : ''
                         }`}
                       onClick={() => handleSubscribe(plan.id)}
-                      disabled={
-                        // Отключаем кнопки покупки аудио сессий, если лимит достигнут
-                        (plan.id === 'single_session' || plan.id === 'four_sessions') &&
-                        audioAccess &&
-                        audioAccess.type === 'paid' &&
-                        (audioAccess.total || 0) >= 4
-                      }
                     >
                       <CreditCard className="w-4 h-4 mr-2" />
-                      {(plan.id === 'single_session' || plan.id === 'four_sessions') &&
-                       audioAccess &&
-                       audioAccess.type === 'paid' &&
-                       (audioAccess.total || 0) >= 4
-                        ? 'Лимит достигнут'
-                        : plan.buttonText}
+                      {plan.buttonText}
                     </Button>
                   )}
                 </Card>
