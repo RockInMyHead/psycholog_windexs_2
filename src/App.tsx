@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, createBrowserRouter } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import ScrollToTop from "@/components/ScrollToTop";
 import Index from "./pages/Index";
 import Chat from "./pages/Chat";
 import AudioCall from "./pages/AudioCall";
@@ -36,6 +37,7 @@ const AppRoutes = () => {
 
   return (
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+      <ScrollToTop />
       <Routes>
         <Route path="/auth" element={isAuthenticated ? <Navigate to="/" /> : <Auth />} />
         <Route
