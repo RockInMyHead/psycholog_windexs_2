@@ -982,7 +982,7 @@ const AudioCall = () => {
           <Card className="bg-card-gradient border-2 border-border shadow-strong p-8 md:p-12 text-center animate-scale-in">
             {!isCallActive ? (
               <div className="space-y-8">
-                <div className="w-[220px] h-[220px] sm:w-[320px] sm:h-[320px] md:w-[400px] md:h-[400px] mx-auto rounded-full overflow-hidden shadow-strong">
+                <div className="w-[180px] h-[180px] sm:w-[260px] sm:h-[260px] md:w-[320px] md:h-[320px] mx-auto rounded-full overflow-hidden shadow-strong">
                   <video
                     ref={videoRef}
                     src="/Untitled Video.mp4"
