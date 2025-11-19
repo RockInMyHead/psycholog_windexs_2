@@ -795,7 +795,7 @@ app.post('/api/payments/webhook', async (req, res) => {
 app.get('/api/payments/verify/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
-    console.log('[SERVER] Verifying payment:', paymentId);
+    console.log('[VERIFY] Verifying payment:', paymentId);
 
     // Проверяем статус платежа в ЮKassa
     const yookassaResponse = await fetch(`https://api.yookassa.ru/v3/payments/${paymentId}`, {
@@ -806,31 +806,41 @@ app.get('/api/payments/verify/:paymentId', async (req, res) => {
     });
 
     if (!yookassaResponse.ok) {
-      console.error('[SERVER] Yookassa API error:', yookassaResponse.status);
+      console.error('[VERIFY] Yookassa API error:', yookassaResponse.status);
       throw new Error('Ошибка при проверке платежа');
     }
 
     const paymentData = await yookassaResponse.json();
-    console.log('[SERVER] Payment status from Yookassa:', paymentData.status);
-    console.log('[SERVER] Payment metadata:', paymentData.metadata);
+    console.log('[VERIFY] Payment status from Yookassa:', paymentData.status);
+    console.log('[VERIFY] Payment metadata:', paymentData.metadata);
+    console.log('[VERIFY] Payment amount:', paymentData.amount);
 
     // Создаем подписку при успешной оплате
     if (paymentData.status === 'succeeded' && paymentData.metadata?.userId) {
-      console.log('[SERVER] Creating subscription for user:', paymentData.metadata.userId, 'plan:', paymentData.metadata.plan);
+      console.log('[VERIFY] Payment succeeded, checking if subscription needs update for user:', paymentData.metadata.userId, 'plan:', paymentData.metadata.plan);
+
+      // Проверяем, не обрабатывали ли мы уже этот платеж
+      const existingSubscription = await subscriptionService.getUserSubscription(paymentData.metadata.userId);
+      console.log('[VERIFY] Current subscription:', existingSubscription);
+
       const subscriptionId = await subscriptionService.createSubscription(
         paymentData.metadata.userId,
         paymentData.metadata.plan,
         paymentId
       );
-      console.log('[SERVER] Subscription created with ID:', subscriptionId);
+      console.log('[VERIFY] Subscription update result:', subscriptionId);
+
+      // Проверяем результат обновления
+      const updatedSubscription = await subscriptionService.getUserSubscription(paymentData.metadata.userId);
+      console.log('[VERIFY] Updated subscription:', updatedSubscription);
     } else {
-      console.log('[SERVER] Skipping subscription creation - status:', paymentData.status, 'userId:', paymentData.metadata?.userId);
+      console.log('[VERIFY] Skipping subscription creation - status:', paymentData.status, 'userId:', paymentData.metadata?.userId, 'plan:', paymentData.metadata?.plan);
     }
 
     res.json(paymentData);
 
   } catch (error) {
-    console.error('[SERVER] Payment verification error:', error);
+    console.error('[VERIFY] Payment verification error:', error);
     res.status(500).json({ error: error.message });
   }
 });

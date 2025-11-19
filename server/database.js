@@ -679,7 +679,7 @@ const subscriptionService = {
     const subscriptionId = `sub_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
 
-    console.log('[DB] Creating subscription:', { userId, plan, yookassaPaymentId, subscriptionId });
+    console.log('[DB] Create/Update subscription called:', { userId, plan, yookassaPaymentId, subscriptionId });
 
     // Определяем параметры подписки в зависимости от плана
     let subscriptionData = {
