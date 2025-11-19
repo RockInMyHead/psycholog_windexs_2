@@ -711,25 +711,49 @@ const subscriptionService = {
         throw new Error(`Unknown subscription plan: ${plan}`);
     }
 
-    await db.insert(schema.subscriptions).values({
-      id: subscriptionId,
-      userId,
-      plan,
-      status: subscriptionData.status,
-      yookassaPaymentId,
-      startedAt: toTimestamp(now),
-      expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : undefined,
-      autoRenew: plan === 'meditation_monthly' ? 1 : 0, // Автопродление только для месячных подписок
-      createdAt: toTimestamp(now),
-      updatedAt: toTimestamp(now),
-      audioSessionsLimit: subscriptionData.audioSessionsLimit,
-      audioSessionsUsed: 0,
-      meditationAccess: subscriptionData.meditationAccess,
-      freeSessionsRemaining: subscriptionData.freeSessionsRemaining,
-      lastAudioResetAt: toTimestamp(now),
-    });
+    // Проверяем, есть ли уже активная подписка
+    const existingSubscription = await this.getUserSubscription(userId);
 
-    return subscriptionId;
+    if (existingSubscription) {
+      // Если подписка уже есть, обновляем её
+      // Добавляем новые лимиты к существующим
+      await db.update(schema.subscriptions)
+        .set({
+          plan, // Обновляем план на последний купленный
+          status: subscriptionData.status,
+          yookassaPaymentId: yookassaPaymentId || existingSubscription.yookassaPaymentId,
+          updatedAt: toTimestamp(now), // Важно: обновляем дату изменения!
+          // Если покупаем аудио сессии, добавляем их к лимиту
+          audioSessionsLimit: (existingSubscription.audioSessionsLimit || 0) + (subscriptionData.audioSessionsLimit || 0),
+          // Если покупаем медитации, включаем доступ и продлеваем срок
+          meditationAccess: Math.max(existingSubscription.meditationAccess || 0, subscriptionData.meditationAccess || 0),
+          expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : existingSubscription.expiresAt,
+        })
+        .where(eq(schema.subscriptions.id, existingSubscription.id));
+
+      return existingSubscription.id;
+    } else {
+      // Если подписки нет, создаем новую
+      await db.insert(schema.subscriptions).values({
+        id: subscriptionId,
+        userId,
+        plan,
+        status: subscriptionData.status,
+        yookassaPaymentId,
+        startedAt: toTimestamp(now),
+        expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : undefined,
+        autoRenew: plan === 'meditation_monthly' ? 1 : 0, // Автопродление только для месячных подписок
+        createdAt: toTimestamp(now),
+        updatedAt: toTimestamp(now),
+        audioSessionsLimit: subscriptionData.audioSessionsLimit,
+        audioSessionsUsed: 0,
+        meditationAccess: subscriptionData.meditationAccess,
+        freeSessionsRemaining: subscriptionData.freeSessionsRemaining,
+        lastAudioResetAt: toTimestamp(now),
+      });
+
+      return subscriptionId;
+    }
   },
 
   async createFreeTrialForNewUser(userId) {

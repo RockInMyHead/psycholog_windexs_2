@@ -97,29 +97,39 @@ const Subscription = () => {
     });
 
     if (user && currentSubscription) {
+      // Check both createdAt (for new subscriptions) and updatedAt (for updated subscriptions)
       const subscriptionCreated = new Date(currentSubscription.createdAt);
+      const subscriptionUpdated = new Date(currentSubscription.updatedAt);
       const now = new Date();
-      const minutesDiff = (now.getTime() - subscriptionCreated.getTime()) / (1000 * 60);
+
+      const createdMinutesDiff = (now.getTime() - subscriptionCreated.getTime()) / (1000 * 60);
+      const updatedMinutesDiff = (now.getTime() - subscriptionUpdated.getTime()) / (1000 * 60);
+
+      // Use the most recent time
+      const minutesDiff = Math.min(createdMinutesDiff, updatedMinutesDiff);
 
       console.log('[Payment] Checking recent subscription:', {
         createdAt: subscriptionCreated.toISOString(),
+        updatedAt: subscriptionUpdated.toISOString(),
         now: now.toISOString(),
-        minutesAgo: minutesDiff,
+        createdMinutesAgo: createdMinutesDiff,
+        updatedMinutesAgo: updatedMinutesDiff,
+        minutesDiff,
         subscriptionId: currentSubscription.id,
         subscriptionPlan: currentSubscription.plan
       });
 
-      // If subscription was created in the last 30 minutes and we haven't shown success yet
+      // If subscription was created or updated in the last 30 minutes and we haven't shown success yet
       console.log('[Payment] Checking conditions:', {
         minutesDiff,
-        isRecent: minutesDiff <= 30, // Increased to 30 minutes
+        isRecent: minutesDiff <= 30,
         paymentSuccess,
         paymentProcessing,
         condition: minutesDiff <= 30 && !paymentSuccess && !paymentProcessing
       });
 
       if (minutesDiff <= 30 && !paymentSuccess && !paymentProcessing) {
-        console.log('[Payment] Recent subscription detected, showing success modal');
+        console.log('[Payment] Recent subscription/update detected, showing success modal');
         setPaymentSuccess(true);
         setShowConfetti(true);
 
