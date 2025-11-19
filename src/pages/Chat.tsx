@@ -559,7 +559,7 @@ const Chat = () => {
               </div>
 
               {/* Input Area */}
-              <div className="border-t border-border pb-[10px]">
+              <div className="border-t border-border p-4 md:p-6">
                 <div className="flex gap-2">
                   <Input
                     value={inputValue}
