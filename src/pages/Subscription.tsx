@@ -157,33 +157,6 @@ const Subscription = () => {
   const handleSubscribe = (planId: string) => {
     if (!user) return;
 
-    // Проверяем, не достигнут ли уже лимит сессий
-    if (planId === 'single_session' || planId === 'four_sessions') {
-      if (audioAccess && audioAccess.type === 'paid') {
-        // Если у пользователя уже есть платные сессии, проверяем лимит
-        const currentRemaining = audioAccess.remaining || 0;
-        const currentTotal = audioAccess.total || 0;
-
-        if (currentTotal >= 4) {
-          // Если уже есть 4 или больше сессий, не позволяем покупать
-          setPaymentError('У вас уже максимальное количество аудио сессий (4). Дополнительные покупки временно недоступны.');
-          return;
-        }
-
-        // Для single_session проверяем, не превысит ли лимит 4 сессии
-        if (planId === 'single_session' && currentTotal + 1 > 4) {
-          setPaymentError('Покупка этой сессии превысит максимальный лимит (4 сессии).');
-          return;
-        }
-
-        // Для four_sessions проверяем, не превысит ли лимит 4 сессии
-        if (planId === 'four_sessions' && currentTotal + 4 > 4) {
-          setPaymentError('Покупка этого пакета превысит максимальный лимит (4 сессии).');
-          return;
-        }
-      }
-    }
-
     // Определяем стоимость плана
     const planPrices = {
       single_session: 1,
