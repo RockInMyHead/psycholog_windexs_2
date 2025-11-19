@@ -68,105 +68,22 @@ const Subscription = () => {
     const paymentStatus = searchParams.get('payment');
     const paymentId = searchParams.get('payment_id');
 
-    console.log('[Payment] URL params check:', {
-      paymentStatus,
-      paymentId,
-      user: user ? user.email : 'no user',
-      allParams: Object.fromEntries(searchParams.entries())
-    });
-
     if (paymentStatus === 'success' && paymentId && user) {
-      console.log('[Payment] Processing successful payment:', paymentId);
       handlePaymentSuccess(paymentId, user.id);
-    } else if (paymentStatus || paymentId) {
-      console.log('[Payment] Payment params found but conditions not met:', {
-        hasPaymentStatus: !!paymentStatus,
-        hasPaymentId: !!paymentId,
-        hasUser: !!user
-      });
     }
-  }, [searchParams, user]);
 
-  // Check for recent subscription on page load
-  useEffect(() => {
-    console.log('[Payment] Recent subscription check triggered:', {
-      hasUser: !!user,
-      hasSubscription: !!currentSubscription,
-      paymentSuccess,
-      paymentProcessing
-    });
-
-    if (user && currentSubscription) {
-      // Check both createdAt (for new subscriptions) and updatedAt (for updated subscriptions)
-      const subscriptionCreated = new Date(currentSubscription.createdAt);
-      const subscriptionUpdated = new Date(currentSubscription.updatedAt);
-      const now = new Date();
-
-      const createdMinutesDiff = (now.getTime() - subscriptionCreated.getTime()) / (1000 * 60);
-      const updatedMinutesDiff = (now.getTime() - subscriptionUpdated.getTime()) / (1000 * 60);
-
-      // Use the most recent time
-      const minutesDiff = Math.min(createdMinutesDiff, updatedMinutesDiff);
-
-      console.log('[Payment] Checking recent subscription:', {
-        createdAt: subscriptionCreated.toISOString(),
-        updatedAt: subscriptionUpdated.toISOString(),
-        now: now.toISOString(),
-        createdMinutesAgo: createdMinutesDiff,
-        updatedMinutesAgo: updatedMinutesDiff,
-        minutesDiff,
-        subscriptionId: currentSubscription.id,
-        subscriptionPlan: currentSubscription.plan
-      });
-
-      // If subscription was created or updated in the last 30 minutes and we haven't shown success yet
-      console.log('[Payment] Checking conditions:', {
-        minutesDiff,
-        isRecent: minutesDiff <= 30,
-        paymentSuccess,
-        paymentProcessing,
-        condition: minutesDiff <= 30 && !paymentSuccess && !paymentProcessing
-      });
-
-      if (minutesDiff <= 30 && !paymentSuccess && !paymentProcessing) {
-        console.log('[Payment] Recent subscription/update detected, showing success modal');
-        setPaymentSuccess(true);
-        setShowConfetti(true);
-
-        // Hide confetti after 5 seconds
-        setTimeout(() => {
-          console.log('[Payment] Hiding confetti after timeout');
-          setShowConfetti(false);
-        }, 5000);
-      } else {
-        console.log('[Payment] Conditions not met for showing success modal');
-      }
-    }
-  }, [user, currentSubscription, paymentSuccess, paymentProcessing]);
-
-  // Debug: Add test button for success modal (only in development)
-  const showTestSuccessModal = () => {
-    console.log('[Payment] Test success modal triggered');
-    setPaymentSuccess(true);
-    setShowConfetti(true);
-    setTimeout(() => setShowConfetti(false), 5000);
-  };
-
-  // Load current subscription and access info
-  useEffect(() => {
+    // Load current subscription and access info
     if (user) {
       loadCurrentSubscription();
       loadAccessInfo();
     }
-  }, [user]);
+  }, [searchParams, user]);
 
   const loadCurrentSubscription = async () => {
     if (!user) return;
 
     try {
-      console.log('[Payment] Loading subscription for user:', user.id);
       const subscription = await subscriptionApi.getUserSubscription(user.id);
-      console.log('[Payment] Subscription loaded:', subscription);
       setCurrentSubscription(subscription);
     } catch (error) {
       console.error('Error loading subscription:', error);
@@ -211,47 +128,61 @@ const Subscription = () => {
   };
 
   const handlePaymentSuccess = async (paymentId: string, userId: string) => {
-    console.log('[Payment] handlePaymentSuccess called:', { paymentId, userId });
-
     try {
       setPaymentProcessing(true);
-      console.log('[Payment] Setting payment processing to true');
 
       // Process payment and create subscription
-      console.log('[Payment] Calling paymentService.processPaymentSuccess...');
       const success = await paymentService.processPaymentSuccess(paymentId, userId);
-      console.log('[Payment] Payment service result:', success);
 
       if (success) {
-        console.log('[Payment] Payment successful, showing success modal');
         // Подписка создается автоматически в API при проверке платежа
         setPaymentSuccess(true);
         setShowConfetti(true);
-        console.log('[Payment] Success modal and confetti set to true');
-
         await loadCurrentSubscription();
         await loadAccessInfo();
 
         // Hide confetti after 5 seconds
-        setTimeout(() => {
-          console.log('[Payment] Hiding confetti');
-          setShowConfetti(false);
-        }, 5000);
+        setTimeout(() => setShowConfetti(false), 5000);
       } else {
-        console.log('[Payment] Payment processing failed');
         setPaymentError('Не удалось обработать платеж');
       }
     } catch (error) {
-      console.error('[Payment] Payment processing error:', error);
+      console.error('Payment processing error:', error);
       setPaymentError('Произошла ошибка при обработке платежа');
     } finally {
       setPaymentProcessing(false);
-      console.log('[Payment] Setting payment processing to false');
     }
   };
 
   const handleSubscribe = (planId: string) => {
     if (!user) return;
+
+    // Проверяем, не достигнут ли уже лимит сессий
+    if (planId === 'single_session' || planId === 'four_sessions') {
+      if (audioAccess && audioAccess.type === 'paid') {
+        // Если у пользователя уже есть платные сессии, проверяем лимит
+        const currentRemaining = audioAccess.remaining || 0;
+        const currentTotal = audioAccess.total || 0;
+
+        if (currentTotal >= 4) {
+          // Если уже есть 4 или больше сессий, не позволяем покупать
+          setPaymentError('У вас уже максимальное количество аудио сессий (4). Дополнительные покупки временно недоступны.');
+          return;
+        }
+
+        // Для single_session проверяем, не превысит ли лимит 4 сессии
+        if (planId === 'single_session' && currentTotal + 1 > 4) {
+          setPaymentError('Покупка этой сессии превысит максимальный лимит (4 сессии).');
+          return;
+        }
+
+        // Для four_sessions проверяем, не превысит ли лимит 4 сессии
+        if (planId === 'four_sessions' && currentTotal + 4 > 4) {
+          setPaymentError('Покупка этого пакета превысит максимальный лимит (4 сессии).');
+          return;
+        }
+      }
+    }
 
     // Определяем стоимость плана
     const planPrices = {
@@ -537,9 +468,21 @@ const Subscription = () => {
                         : ''
                         }`}
                       onClick={() => handleSubscribe(plan.id)}
+                      disabled={
+                        // Отключаем кнопки покупки аудио сессий, если лимит достигнут
+                        (plan.id === 'single_session' || plan.id === 'four_sessions') &&
+                        audioAccess &&
+                        audioAccess.type === 'paid' &&
+                        (audioAccess.total || 0) >= 4
+                      }
                     >
                       <CreditCard className="w-4 h-4 mr-2" />
-                      {plan.buttonText}
+                      {(plan.id === 'single_session' || plan.id === 'four_sessions') &&
+                       audioAccess &&
+                       audioAccess.type === 'paid' &&
+                       (audioAccess.total || 0) >= 4
+                        ? 'Лимит достигнут'
+                        : plan.buttonText}
                     </Button>
                   )}
                 </Card>
@@ -741,18 +684,6 @@ const Subscription = () => {
           </Dialog>
         </div>
       </div>
-
-      {/* Debug button for testing success modal */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed bottom-4 right-4 z-50">
-          <button
-            onClick={showTestSuccessModal}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm"
-          >
-            Test Success Modal
-          </button>
-        </div>
-      )}
     </div>
   );
 };
