@@ -101,18 +101,19 @@ const RegisterForm = () => {
           />
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-start space-x-2">
           <Checkbox
             id="terms"
             checked={acceptTerms}
             onCheckedChange={(checked) => setAcceptTerms(checked as boolean)}
+            className="mt-0.5"
           />
-          <Label htmlFor="terms" className="text-sm">
+          <Label htmlFor="terms" className="text-sm leading-relaxed cursor-pointer">
             Я принимаю{' '}
             <button
               type="button"
               onClick={() => setShowTerms(true)}
-              className="text-primary hover:underline"
+              className="text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 rounded-sm"
             >
               пользовательское соглашение
             </button>
