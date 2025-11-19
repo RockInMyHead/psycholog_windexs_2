@@ -116,9 +116,9 @@ const Subscription = () => {
 
     // Определяем стоимость плана
     const planPrices = {
-      single_session: 250,
-      four_sessions: 900,
-      meditation_monthly: 100,
+      single_session: 1,
+      four_sessions: 1,
+      meditation_monthly: 1,
     };
 
     const amount = planPrices[planId as keyof typeof planPrices] || 0;
@@ -194,7 +194,7 @@ const Subscription = () => {
     {
       id: 'single_session',
       name: '1 аудио сессия',
-      price: 250,
+      price: 1,
       period: 'разово',
       description: 'Одна 30-минутная аудио сессия с психологом',
       features: [
@@ -203,14 +203,14 @@ const Subscription = () => {
         { icon: Lightbulb, text: "Персонализированные рекомендации" },
         { icon: Heart, text: "Полная поддержка психолога" },
       ],
-      buttonText: 'Купить за 250 ₽',
+      buttonText: 'Купить за 1 ₽',
       buttonVariant: 'default' as const,
       popular: false,
     },
     {
       id: 'four_sessions',
       name: '4 аудио сессии',
-      price: 900,
+      price: 1,
       period: 'пакет',
       description: 'Четыре 30-минутные сессии с экономией 10%',
       features: [
@@ -220,14 +220,14 @@ const Subscription = () => {
         { icon: Heart, text: "Глубокая проработка тем" },
         { icon: Star, text: "Экономия 100 ₽" },
       ],
-      buttonText: 'Купить за 900 ₽',
+      buttonText: 'Купить за 1 ₽',
       buttonVariant: 'default' as const,
       popular: true,
     },
     {
       id: 'meditation_monthly',
       name: 'Медитации',
-      price: 100,
+      price: 1,
       period: 'в месяц',
       description: 'Полный доступ к библиотеке медитаций',
       features: [
@@ -237,7 +237,7 @@ const Subscription = () => {
         { icon: Heart, text: "Улучшение благополучия" },
         { icon: Sparkles, text: "Новые медитации ежемесячно" },
       ],
-      buttonText: 'Купить за 100 ₽/мес',
+      buttonText: 'Купить за 1 ₽/мес',
       buttonVariant: 'default' as const,
       popular: false,
     },
