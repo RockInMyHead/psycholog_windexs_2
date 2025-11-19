@@ -820,6 +820,9 @@ const AudioCall = () => {
         return;
       }
 
+      // Небольшая задержка, чтобы интерфейс звонка успел отрисоваться
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       console.log("[AudioCall] Проигрываем приветствие...");
       const greeting = "Здравствуйте. Я Марк, психолог. Расскажите, что вас сейчас больше всего беспокоит?";
       conversationRef.current.push({ role: "assistant", content: greeting });
