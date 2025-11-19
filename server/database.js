@@ -679,6 +679,8 @@ const subscriptionService = {
     const subscriptionId = `sub_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
 
+    console.log('[DB] Creating subscription:', { userId, plan, yookassaPaymentId, subscriptionId });
+
     // Определяем параметры подписки в зависимости от плана
     let subscriptionData = {
       audioSessionsLimit: 0,
@@ -713,8 +715,14 @@ const subscriptionService = {
 
     // Проверяем, есть ли уже активная подписка
     const existingSubscription = await this.getUserSubscription(userId);
+    console.log('[DB] Existing subscription:', existingSubscription);
 
     if (existingSubscription) {
+      console.log('[DB] Updating existing subscription');
+      const oldLimit = existingSubscription.audioSessionsLimit || 0;
+      const newLimit = (existingSubscription.audioSessionsLimit || 0) + (subscriptionData.audioSessionsLimit || 0);
+      console.log('[DB] Audio sessions: old =', oldLimit, 'new =', newLimit);
+
       // Если подписка уже есть, обновляем её
       // Добавляем новые лимиты к существующим
       await db.update(schema.subscriptions)
@@ -724,12 +732,15 @@ const subscriptionService = {
           yookassaPaymentId: yookassaPaymentId || existingSubscription.yookassaPaymentId,
           updatedAt: toTimestamp(now), // Важно: обновляем дату изменения!
           // Если покупаем аудио сессии, добавляем их к лимиту
-          audioSessionsLimit: (existingSubscription.audioSessionsLimit || 0) + (subscriptionData.audioSessionsLimit || 0),
+          audioSessionsLimit: newLimit,
           // Если покупаем медитации, включаем доступ и продлеваем срок
           meditationAccess: Math.max(existingSubscription.meditationAccess || 0, subscriptionData.meditationAccess || 0),
           expiresAt: subscriptionData.expiresAt ? toTimestamp(subscriptionData.expiresAt) : existingSubscription.expiresAt,
         })
         .where(eq(schema.subscriptions.id, existingSubscription.id));
+
+      console.log('[DB] Subscription updated successfully');
+      return existingSubscription.id;
 
       return existingSubscription.id;
     } else {

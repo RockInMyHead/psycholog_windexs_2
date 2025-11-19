@@ -760,6 +760,7 @@ app.post('/api/payments/create', async (req, res) => {
 app.get('/api/payments/verify/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
+    console.log('[SERVER] Verifying payment:', paymentId);
 
     // Проверяем статус платежа в ЮKassa
     const yookassaResponse = await fetch(`https://api.yookassa.ru/v3/payments/${paymentId}`, {
@@ -770,25 +771,31 @@ app.get('/api/payments/verify/:paymentId', async (req, res) => {
     });
 
     if (!yookassaResponse.ok) {
+      console.error('[SERVER] Yookassa API error:', yookassaResponse.status);
       throw new Error('Ошибка при проверке платежа');
     }
 
     const paymentData = await yookassaResponse.json();
+    console.log('[SERVER] Payment status from Yookassa:', paymentData.status);
+    console.log('[SERVER] Payment metadata:', paymentData.metadata);
 
     // Создаем подписку при успешной оплате
     if (paymentData.status === 'succeeded' && paymentData.metadata?.userId) {
+      console.log('[SERVER] Creating subscription for user:', paymentData.metadata.userId, 'plan:', paymentData.metadata.plan);
       const subscriptionId = await subscriptionService.createSubscription(
         paymentData.metadata.userId,
         paymentData.metadata.plan,
         paymentId
       );
-      console.log('Subscription created:', subscriptionId);
+      console.log('[SERVER] Subscription created with ID:', subscriptionId);
+    } else {
+      console.log('[SERVER] Skipping subscription creation - status:', paymentData.status, 'userId:', paymentData.metadata?.userId);
     }
 
     res.json(paymentData);
 
   } catch (error) {
-    console.error('Payment verification error:', error);
+    console.error('[SERVER] Payment verification error:', error);
     res.status(500).json({ error: error.message });
   }
 });
