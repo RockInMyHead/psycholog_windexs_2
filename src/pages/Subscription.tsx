@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ const Subscription = () => {
   const [paymentProcessing, setPaymentProcessing] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const paymentHandledRef = useRef(false); // Защита от повторной обработки
   const [currentSubscription, setCurrentSubscription] = useState<any>(null);
   const [audioAccess, setAudioAccess] = useState<any>(null);
   const [meditationAccess, setMeditationAccess] = useState<any>(null);
@@ -76,23 +77,34 @@ const Subscription = () => {
       currentUser: user?.id
     });
 
-    if (paymentStatus === 'success' && user) {
-      console.log('[Payment] Payment success detected');
+    if (paymentStatus === 'success' && user && !paymentHandledRef.current) {
+      console.log('[Payment] Payment success detected (first time)');
       console.log('[Payment] Current state:', {
         pendingPaymentId,
         pendingPaymentUser,
-        userId: user.id
+        userId: user.id,
+        paymentHandled: paymentHandledRef.current
       });
+
+      paymentHandledRef.current = true; // Предотвращаем повторную обработку
 
       // Всегда обновляем данные подписки
       loadCurrentSubscription().then(() => {
         loadAccessInfo().then(() => {
           console.log('[Payment] Data loaded, showing success modal');
+          console.log('[Payment] Current paymentSuccess state before setting:', paymentSuccess);
 
           // Показываем модальное окно успеха независимо от pending payment
+          console.log('[Payment] Setting paymentSuccess to true');
           setPaymentSuccess(true);
+          console.log('[Payment] Setting showConfetti to true');
           setShowConfetti(true);
-          setTimeout(() => setShowConfetti(false), 5000);
+
+          // Проверяем состояние через timeout
+          setTimeout(() => {
+            console.log('[Payment] Confetti timeout - hiding confetti');
+            setShowConfetti(false);
+          }, 5000);
 
           // Очищаем localStorage если есть pending payment
           if (pendingPaymentId && pendingPaymentUser === user.id) {
@@ -622,8 +634,9 @@ const Subscription = () => {
           </Dialog>
 
           {/* Success Dialog */}
-          <Dialog open={paymentSuccess} onOpenChange={setPaymentSuccess}>
-            <DialogContent className="sm:max-w-lg relative overflow-hidden">
+          {console.log('[Dialog] Rendering success dialog, paymentSuccess:', paymentSuccess)}
+          <Dialog open={paymentSuccess} onOpenChange={setPaymentSuccess} modal={true}>
+            <DialogContent className="sm:max-w-lg relative overflow-hidden z-[9999] fixed inset-0 flex items-center justify-center">
               <div className="absolute inset-0 bg-gradient-to-br from-green-400 via-blue-500 to-purple-600 opacity-10 rounded-lg" />
 
               <DialogHeader className="relative">
