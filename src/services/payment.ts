@@ -11,7 +11,7 @@ interface YookassaConfig {
 const YOOKASSA_CONFIG: YookassaConfig = {
   shopId: '1183996', // Real shop ID
   secretKey: 'live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg', // Real secret key
-  returnUrl: `${window.location.origin}/subscription`,
+  returnUrl: `${window.location.origin}/subscription?payment=success`,
   testMode: false,
 };
 
@@ -98,6 +98,18 @@ class PaymentService {
       const paymentResponse = await response.json();
 
       console.log('Yookassa payment created:', paymentResponse);
+
+      // Сохраняем paymentId в localStorage перед редиректом
+      if (paymentResponse.id) {
+        localStorage.setItem('pending_payment_id', paymentResponse.id);
+        localStorage.setItem('pending_payment_user', paymentData.userId);
+        localStorage.setItem('pending_payment_plan', paymentData.plan);
+        console.log('[Payment] Saved payment info to localStorage:', {
+          paymentId: paymentResponse.id,
+          userId: paymentData.userId,
+          plan: paymentData.plan
+        });
+      }
 
       return paymentResponse;
     } catch (error) {

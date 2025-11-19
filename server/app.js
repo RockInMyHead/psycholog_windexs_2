@@ -757,6 +757,41 @@ app.post('/api/payments/create', async (req, res) => {
   }
 });
 
+// Webhook endpoint for Yookassa payment notifications
+app.post('/api/payments/webhook', async (req, res) => {
+  try {
+    const notification = req.body;
+    console.log('[WEBHOOK] Received notification from Yookassa:', JSON.stringify(notification, null, 2));
+
+    // Verify notification is from Yookassa
+    if (notification.event === 'payment.succeeded') {
+      const payment = notification.object;
+      console.log('[WEBHOOK] Payment succeeded:', payment.id);
+      console.log('[WEBHOOK] Payment metadata:', payment.metadata);
+
+      if (payment.metadata?.userId && payment.metadata?.plan) {
+        console.log('[WEBHOOK] Creating subscription for user:', payment.metadata.userId, 'plan:', payment.metadata.plan);
+        const subscriptionId = await subscriptionService.createSubscription(
+          payment.metadata.userId,
+          payment.metadata.plan,
+          payment.id
+        );
+        console.log('[WEBHOOK] Subscription created with ID:', subscriptionId);
+      } else {
+        console.log('[WEBHOOK] Missing metadata - userId:', payment.metadata?.userId, 'plan:', payment.metadata?.plan);
+      }
+    }
+
+    // Always respond with 200 to acknowledge receipt
+    res.status(200).json({ success: true });
+
+  } catch (error) {
+    console.error('[WEBHOOK] Error processing webhook:', error);
+    // Still return 200 to avoid retries
+    res.status(200).json({ success: false, error: error.message });
+  }
+});
+
 app.get('/api/payments/verify/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;

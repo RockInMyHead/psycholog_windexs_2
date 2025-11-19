@@ -66,14 +66,51 @@ const Subscription = () => {
   // Check for payment result on page load
   useEffect(() => {
     const paymentStatus = searchParams.get('payment');
-    const paymentId = searchParams.get('payment_id');
+    const pendingPaymentId = localStorage.getItem('pending_payment_id');
+    const pendingPaymentUser = localStorage.getItem('pending_payment_user');
 
-    if (paymentStatus === 'success' && paymentId && user) {
-      handlePaymentSuccess(paymentId, user.id);
-    }
+    console.log('[Payment] Page loaded with params:', { 
+      paymentStatus, 
+      pendingPaymentId,
+      pendingPaymentUser,
+      currentUser: user?.id
+    });
 
-    // Load current subscription and access info
-    if (user) {
+    if (paymentStatus === 'success' && user) {
+      console.log('[Payment] Payment success detected');
+      
+      // Проверяем pending payment
+      if (pendingPaymentId && pendingPaymentUser === user.id) {
+        console.log('[Payment] Found pending payment, verifying:', pendingPaymentId);
+        
+        // Проверяем платеж на сервере
+        handlePaymentSuccess(pendingPaymentId, user.id).then(() => {
+          // Очищаем localStorage
+          localStorage.removeItem('pending_payment_id');
+          localStorage.removeItem('pending_payment_user');
+          localStorage.removeItem('pending_payment_plan');
+          
+          // Показываем модальное окно успеха
+          setPaymentSuccess(true);
+          setShowConfetti(true);
+          setTimeout(() => setShowConfetti(false), 5000);
+        });
+      } else {
+        // Даже без paymentId загружаем подписку - webhook мог уже обработать платеж
+        loadCurrentSubscription().then(() => {
+          loadAccessInfo().then(() => {
+            // Показываем модальное окно успеха
+            setPaymentSuccess(true);
+            setShowConfetti(true);
+            setTimeout(() => setShowConfetti(false), 5000);
+          });
+        });
+      }
+      
+      // Очищаем URL от параметров платежа
+      window.history.replaceState({}, '', '/subscription');
+    } else if (user) {
+      // Load current subscription and access info
       loadCurrentSubscription();
       loadAccessInfo();
     }
