@@ -191,18 +191,21 @@ async function initializeDatabase() {
 }
 
 const app = express();
-const PORT = process.env.PORT || 1033;
+const PORT = process.env.PORT || 1034;
 
 // Middleware
 app.use(cors({
   origin: [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
     'https://psycholog.windexs.ru',
-    'https://localhost:5173'
+    'http://localhost:5173',
+    'http://127.0.0.1:5173'
   ],
   credentials: true
 }));
+
+// Handle preflight OPTIONS requests
+app.options('*', cors());
+
 app.use(express.json());
 
 // Proxy configuration
@@ -259,16 +262,16 @@ app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) =>
 
     const axiosInstance = createAxiosInstance();
     const formData = new FormData();
-    
+
     // Add the file to form data
     formData.append('file', req.file.buffer, {
       filename: req.file.originalname || 'audio.wav',
       contentType: req.file.mimetype
     });
-    
+
     // Force whisper-1 model as it's the only one for transcription
     formData.append('model', 'whisper-1');
-    
+
     // Pass other parameters if present
     if (req.body.language) formData.append('language', req.body.language);
     if (req.body.response_format) formData.append('response_format', req.body.response_format);
@@ -284,7 +287,7 @@ app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) =>
         'Content-Type': undefined // Let axios/form-data set the correct Content-Type with boundary
       }
     });
-    
+
     res.json(response.data);
   } catch (error) {
     console.error('Transcription error:', error.response?.data || error.message);
@@ -347,18 +350,23 @@ app.post('/api/users', async (req, res) => {
 app.get('/api/users/by-email', async (req, res) => {
   try {
     const email = req.query.email;
+    console.log('[User] Getting user by email:', email);
+
     if (!email || typeof email !== 'string') {
+      console.log('[User] Invalid email parameter');
       return res.status(400).json({ error: 'Email is required' });
     }
 
     const user = await userService.getUserByEmail(email);
+    console.log('[User] User found:', user ? user.id : 'not found');
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     res.json(user);
   } catch (error) {
-    console.error('Error getting user by email:', error);
+    console.error('[User] Error getting user by email:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -694,38 +702,48 @@ app.delete('/api/memory/:userId/:type', async (req, res) => {
 // Shop ID: 1183996, Token: live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg
 app.post('/api/payments/create', async (req, res) => {
   try {
-    const { amount, currency, description, metadata, shopId } = req.body;
+    const { amount, confirmation, description, metadata, receipt } = req.body;
+
+    console.log('[Payment] Creating payment with data:', {
+      amount,
+      confirmation,
+      description,
+      metadata,
+      hasReceipt: !!receipt
+    });
+
+    const yookassaPayload = {
+      amount,
+      capture: true,
+      confirmation,
+      description: description || 'Оплата психологических услуг',
+      metadata: metadata || {},
+      receipt,
+    };
+
+    console.log('[Payment] Sending to YooKassa:', JSON.stringify(yookassaPayload, null, 2));
 
     // Создаем платеж в ЮKassa через API
     const yookassaResponse = await fetch('https://api.yookassa.ru/v3/payments', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Idempotence-Key': `${Date.now()}-${Math.random()}`,
         'Authorization': `Basic ${Buffer.from(`1183996:live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg`).toString('base64')}`,
       },
-      body: JSON.stringify({
-        amount: {
-          value: amount.value,
-          currency: currency || 'RUB',
-        },
-        capture: true,
-        confirmation: {
-          type: 'redirect',
-          return_url: amount.return_url || `${req.protocol}://${req.get('host')}/subscription?payment=success`,
-        },
-        description: description || 'Оплата психологических услуг',
-        metadata: metadata || {},
-      }),
+      body: JSON.stringify(yookassaPayload),
     });
+
+    console.log('[Payment] YooKassa response status:', yookassaResponse.status);
 
     if (!yookassaResponse.ok) {
       const error = await yookassaResponse.text();
-      console.error('Yookassa API error:', error);
-      throw new Error('Ошибка при создании платежа');
+      console.error('[Payment] Yookassa API error:', error);
+      throw new Error(`Ошибка при создании платежа: ${error}`);
     }
 
     const paymentData = await yookassaResponse.json();
-    console.log('Payment created in Yookassa:', paymentData.id);
+    console.log('[Payment] Payment created successfully:', paymentData.id);
 
     res.json({
       id: paymentData.id,
@@ -734,7 +752,7 @@ app.post('/api/payments/create', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Payment creation error:', error);
+    console.error('[Payment] Payment creation error:', error);
     res.status(500).json({ error: error.message });
   }
 });

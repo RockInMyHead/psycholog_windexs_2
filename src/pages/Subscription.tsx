@@ -134,10 +134,10 @@ const Subscription = () => {
       currency: 'RUB',
       description: getPlanDescription(planId),
       userId: user.id,
+      userEmail: user.email,
       plan: planId as 'single_session' | 'four_sessions' | 'meditation_monthly',
     };
 
-    setShowPaymentDialog(true);
     setPaymentError(null);
 
     // Начинаем процесс оплаты
@@ -157,6 +157,7 @@ const Subscription = () => {
     try {
       setPaymentProcessing(true);
       setPaymentError(null);
+      setShowPaymentDialog(true);
 
       const response = await paymentService.createPayment(paymentData);
 
@@ -165,33 +166,11 @@ const Subscription = () => {
         window.location.href = response.confirmation.confirmation_url;
       } else {
         setPaymentError('Не удалось получить ссылку на оплату');
+        setPaymentProcessing(false);
       }
     } catch (error: any) {
       console.error('Payment creation error:', error);
       setPaymentError(error.message || 'Ошибка при создании платежа');
-    } finally {
-      setPaymentProcessing(false);
-    }
-  };
-
-  const handleTestPayment = async (action: string) => {
-    if (!user) return;
-
-    try {
-      setPaymentProcessing(true);
-      setPaymentError(null);
-
-      const result = await paymentService.simulatePayment(action, user.id);
-
-      if (result.success && result.paymentId) {
-        await handlePaymentSuccess(result.paymentId, user.id);
-      } else {
-        setPaymentError('Платеж был отменен');
-      }
-    } catch (error) {
-      console.error('Test payment error:', error);
-      setPaymentError('Ошибка тестовой оплаты');
-    } finally {
       setPaymentProcessing(false);
     }
   };
@@ -204,8 +183,8 @@ const Subscription = () => {
       period: '',
       description: 'Безлимитный чат с AI-психологом Марком',
       features: [
-      { icon: MessageCircle, text: "Безлимитный чат с AI-психологом" },
-      { icon: Lightbulb, text: "Доступ к мудрым фразам" },
+        { icon: MessageCircle, text: "Безлимитный чат с AI-психологом" },
+        { icon: Lightbulb, text: "Доступ к мудрым фразам" },
         { icon: Heart, text: "Поддержка в трудные моменты" },
       ],
       buttonText: 'Бесплатно',
@@ -237,7 +216,7 @@ const Subscription = () => {
       features: [
         { icon: Phone, text: "4 аудио сессии по 30 минут" },
         { icon: MessageCircle, text: "Безлимитный чат включен" },
-      { icon: Lightbulb, text: "Расширенная коллекция мудрых фраз" },
+        { icon: Lightbulb, text: "Расширенная коллекция мудрых фраз" },
         { icon: Heart, text: "Глубокая проработка тем" },
         { icon: Star, text: "Экономия 100 ₽" },
       ],
@@ -252,7 +231,7 @@ const Subscription = () => {
       period: 'в месяц',
       description: 'Полный доступ к библиотеке медитаций',
       features: [
-      { icon: PlayCircle, text: "Полная библиотека медитаций" },
+        { icon: PlayCircle, text: "Полная библиотека медитаций" },
         { icon: MessageCircle, text: "Безлимитный чат включен" },
         { icon: Lightbulb, text: "Медитации для разных ситуаций" },
         { icon: Heart, text: "Улучшение благополучия" },
@@ -288,8 +267,8 @@ const Subscription = () => {
                   <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                     <p className="text-green-700 dark:text-green-300 text-sm">
                       🎁 <strong>Бесплатные сессии:</strong> {audioAccess.remaining} из 3 доступно
-            </p>
-          </div>
+                    </p>
+                  </div>
                 )}
 
                 {/* Информация о платных сессиях */}
@@ -298,7 +277,7 @@ const Subscription = () => {
                     <p className="text-blue-700 dark:text-blue-300 text-sm">
                       🎧 <strong>Аудио сессии:</strong> {audioAccess.remaining} из {audioAccess.total} доступно
                     </p>
-              </div>
+                  </div>
                 )}
 
                 {/* Информация об отсутствии доступа */}
@@ -307,7 +286,7 @@ const Subscription = () => {
                     <p className="text-orange-700 dark:text-orange-300 text-sm">
                       ⚠️ <strong>Нет активных сессий:</strong> Оформите подписку для доступа к аудио звонкам
                     </p>
-                      </div>
+                  </div>
                 )}
 
                 {/* Информация о медитациях */}
@@ -316,7 +295,7 @@ const Subscription = () => {
                     <p className="text-purple-700 dark:text-purple-300 text-sm">
                       🧘 <strong>Медитации:</strong> Доступ открыт
                     </p>
-                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -333,7 +312,7 @@ const Subscription = () => {
                     return (
                       <Badge key={planId} variant="secondary" className="text-xs">
                         {planName}
-                </Badge>
+                      </Badge>
                     );
                   })}
                 </div>
@@ -346,16 +325,15 @@ const Subscription = () => {
               const isPopular = plan.popular;
               const isFree = plan.price === 0;
 
-                  return (
+              return (
                 <Card
                   key={plan.id}
-                  className={`relative p-6 animate-scale-in ${
-                    isPopular
-                      ? 'bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border-2 border-yellow-300 dark:border-yellow-600 shadow-strong ring-2 ring-yellow-400/20'
-                      : isFree
+                  className={`relative p-6 animate-scale-in ${isPopular
+                    ? 'bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border-2 border-yellow-300 dark:border-yellow-600 shadow-strong ring-2 ring-yellow-400/20'
+                    : isFree
                       ? 'bg-card border-2 border-border shadow-medium'
                       : 'bg-card border-2 border-border shadow-medium hover:shadow-strong transition-shadow'
-                  }`}
+                    }`}
                   style={{ animationDelay: `${index * 100}ms` }}
                 >
                   {isPopular && (
@@ -364,7 +342,7 @@ const Subscription = () => {
                         <Star className="w-3 h-3 mr-1" />
                         Популярный
                       </Badge>
-                      </div>
+                    </div>
                   )}
 
                   <div className="text-center mb-6">
@@ -390,44 +368,41 @@ const Subscription = () => {
                       const Icon = feature.icon;
                       return (
                         <div key={featureIndex} className="flex items-center gap-3">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            isPopular ? 'bg-yellow-100 dark:bg-yellow-900/30' : 'bg-primary/10'
-                          }`}>
-                            <Icon className={`w-3 h-3 ${
-                              isPopular ? 'text-yellow-600 dark:text-yellow-400' : 'text-primary'
-                            }`} />
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isPopular ? 'bg-yellow-100 dark:bg-yellow-900/30' : 'bg-primary/10'
+                            }`}>
+                            <Icon className={`w-3 h-3 ${isPopular ? 'text-yellow-600 dark:text-yellow-400' : 'text-primary'
+                              }`} />
                           </div>
                           <span className="text-foreground text-sm">{feature.text}</span>
-                    </div>
-                  );
-                })}
-              </div>
+                        </div>
+                      );
+                    })}
+                  </div>
 
                   {activePlans.includes(plan.id) ? (
-                <Button variant="outline" className="w-full" disabled>
-                  <CheckCircle className="w-4 h-4 mr-2" />
+                    <Button variant="outline" className="w-full" disabled>
+                      <CheckCircle className="w-4 h-4 mr-2" />
                       Активен
                     </Button>
                   ) : plan.id === 'chat' ? (
                     <Button variant={plan.buttonVariant} className="w-full" disabled>
                       <Check className="w-4 h-4 mr-2" />
                       {plan.buttonText}
-                </Button>
-              ) : (
-                <Button
+                    </Button>
+                  ) : (
+                    <Button
                       variant={plan.buttonVariant}
-                      className={`w-full ${
-                        isPopular
-                          ? 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white'
-                          : ''
-                      }`}
+                      className={`w-full ${isPopular
+                        ? 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white'
+                        : ''
+                        }`}
                       onClick={() => handleSubscribe(plan.id)}
                     >
                       <CreditCard className="w-4 h-4 mr-2" />
                       {plan.buttonText}
-                </Button>
-              )}
-            </Card>
+                    </Button>
+                  )}
+                </Card>
               );
             })}
           </div>
@@ -523,7 +498,7 @@ const Subscription = () => {
                   Оплата подписки
                 </DialogTitle>
                 <DialogDescription>
-                  Выберите способ оплаты для премиум подписки за 799 ₽/мес
+                  Вы будете перенаправлены на страницу оплаты ЮKassa
                 </DialogDescription>
               </DialogHeader>
 
@@ -535,44 +510,30 @@ const Subscription = () => {
                   </div>
                 )}
 
-                <div className="space-y-3">
-                  {paymentService.getTestPaymentMethods().map((method, index) => (
-                    <Button
-                      key={index}
-                      variant="outline"
-                      className="w-full justify-start gap-3 h-auto p-4 hover:bg-primary/5"
-                      onClick={() => handleTestPayment(method.action)}
-                      disabled={paymentProcessing}
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                        <CreditCard className="w-5 h-5 text-white" />
-                      </div>
-                      <div className="text-left">
-                        <div className="font-medium">{method.name}</div>
-                        <div className="text-sm text-muted-foreground">{method.description}</div>
-                      </div>
-                    </Button>
-                  ))}
-                </div>
-
                 {paymentProcessing && (
-                  <div className="flex items-center justify-center gap-2 p-4 bg-blue-50 rounded-lg">
-                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                    <span className="text-sm text-blue-700">Обработка платежа...</span>
+                  <div className="flex flex-col items-center justify-center gap-4 p-8">
+                    <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <div className="text-center">
+                      <p className="font-medium text-foreground mb-1">Создание платежа...</p>
+                      <p className="text-sm text-muted-foreground">
+                        Пожалуйста, подождите. Вы будете перенаправлены на страницу оплаты.
+                      </p>
+                    </div>
                   </div>
                 )}
 
-                <div className="flex gap-2 pt-4">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setShowPaymentDialog(false)}
-                    disabled={paymentProcessing}
-                  >
-                    <X className="w-4 h-4 mr-2" />
-                    Отмена
-                  </Button>
-                </div>
+                {!paymentProcessing && paymentError && (
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setShowPaymentDialog(false)}
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Закрыть
+                    </Button>
+                  </div>
+                )}
               </div>
             </DialogContent>
           </Dialog>

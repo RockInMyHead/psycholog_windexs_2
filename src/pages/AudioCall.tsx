@@ -18,7 +18,6 @@ const AudioCall = () => {
   const [transcriptionStatus, setTranscriptionStatus] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [fastMode, setFastMode] = useState(false); // Быстрый режим для ускорения
   const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' } | null>(null);
   const [isMusicOn, setIsMusicOn] = useState(false); // Управление фоновой музыкой
   const [isVideoPlaying, setIsVideoPlaying] = useState(false); // Управление видео Марка
@@ -252,10 +251,10 @@ const AudioCall = () => {
         if (audioBuffer && audioBuffer.byteLength > 0) {
           audioQueueRef.current.push(audioBuffer);
           if (!isPlayingAudioRef.current) {
-            void playQueuedAudio();
+        void playQueuedAudio();
           }
-        }
-      } catch (error) {
+      }
+    } catch (error) {
         console.warn("[AudioCall] Failed to synthesize sentence:", sentence, error);
       }
     }
@@ -361,6 +360,15 @@ const AudioCall = () => {
     }
   };
 
+  // Инициализируем видео в паузе при загрузке компонента
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+      setIsVideoPlaying(false);
+    }
+  }, []);
+
   const startVolumeMonitoring = async (stream: MediaStream) => {
     try {
       const audioContext = await initializeAudioContext();
@@ -381,7 +389,7 @@ const AudioCall = () => {
           sum += dataArray[i];
         }
         const average = sum / dataArray.length;
-
+        
         if (average > VOICE_DETECTION_THRESHOLD && isPlayingAudioRef.current) {
           console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)}), прерываем Марка`);
           stopAssistantSpeech();
@@ -466,7 +474,7 @@ const AudioCall = () => {
     try {
       startProcessingSound();
 
-      const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current, memoryRef.current, fastMode);
+      const assistantReply = await psychologistAI.getVoiceResponse(conversationRef.current, memoryRef.current, false);
 
       // Check if interrupted
       if (generationIdRef.current !== startGenId) {
@@ -538,10 +546,10 @@ const AudioCall = () => {
 
     try {
       const updatedMemory = await memoryApi.appendMemory(
-        user.id,
-        "audio",
-        currentCallId,
-        userText,
+        user.id, 
+        "audio", 
+        currentCallId, 
+        userText, 
         assistantText
       );
       memoryRef.current = updatedMemory;
@@ -825,16 +833,16 @@ const AudioCall = () => {
       callTimerRef.current = window.setInterval(() => {
         setCallDuration((prev) => {
           const next = prev + 1;
-
+          
           if (!callLimitWarningSentRef.current && next >= SESSION_WARNING_SECONDS && next < SESSION_DURATION_SECONDS) {
             callLimitWarningSentRef.current = true;
-
+            
             responseQueueRef.current = responseQueueRef.current
               .catch((error) => console.error("Previous voice response error:", error))
               .then(async () => {
                 try {
                   setTranscriptionStatus("Марк подводит итоги сессии...");
-
+                  
                   const summaryPrompt = `У нас осталось около пяти минут до конца нашей тридцатиминутной сессии. 
                   
 Задача:
@@ -848,16 +856,16 @@ const AudioCall = () => {
                     ...conversationRef.current,
                     { role: "user" as const, content: summaryPrompt }
                   ];
-
+                  
                   const summaryResponse = await psychologistAI.getVoiceResponse(
-                    conversationForSummary,
-                    memoryRef.current,
+                    conversationForSummary, 
+                    memoryRef.current, 
                     false
                   );
-
+                  
                   conversationRef.current.push({ role: "assistant", content: summaryResponse });
                   await enqueueSpeechPlayback(summaryResponse);
-
+                  
                 } catch (error) {
                   console.error("Error generating session summary:", error);
                   const fallbackMessage = "У нас осталось около пяти минут. Давайте коротко подведем итоги нашей беседы и я предложу тему для следующей встречи";
@@ -868,7 +876,7 @@ const AudioCall = () => {
                 }
               });
           }
-
+          
           if (next >= SESSION_DURATION_SECONDS && !callLimitReachedRef.current) {
             callLimitReachedRef.current = true;
             window.setTimeout(() => {
@@ -877,11 +885,11 @@ const AudioCall = () => {
             }, 0);
             return SESSION_DURATION_SECONDS;
           }
-
+          
           if (next >= MAX_CALL_DURATION_SECONDS) {
             return MAX_CALL_DURATION_SECONDS;
           }
-
+          
           return next;
         });
       }, 1000);
@@ -963,7 +971,7 @@ const AudioCall = () => {
   return (
     <div className="min-h-screen bg-calm-gradient">
       <Navigation />
-
+      
       <div className="pt-24 pb-8 px-4">
         <div className="container mx-auto max-w-2xl">
           <div className="text-center mb-8 animate-fade-in">
@@ -974,21 +982,20 @@ const AudioCall = () => {
           <Card className="bg-card-gradient border-2 border-border shadow-strong p-8 md:p-12 text-center animate-scale-in">
             {!isCallActive ? (
               <div className="space-y-8">
-                <div className="w-[400px] h-[400px] mx-auto rounded-full overflow-hidden shadow-strong">
+                <div className="w-[250px] h-[250px] sm:w-[320px] sm:h-[320px] md:w-[400px] md:h-[400px] mx-auto rounded-full overflow-hidden shadow-strong">
                   <video
                     ref={videoRef}
                     src="/Untitled Video.mp4"
                     className="w-full h-full object-cover pointer-events-none"
                     style={{
-                      transform: 'translateX(0px)',
+                      transform: 'translateX(5px) scale(1.05)',
                       objectPosition: '50% 50%'
                     }}
                     muted
-                    loop
                     playsInline
                   />
                 </div>
-
+                
                 <div>
                   <h2 className="text-2xl font-bold text-foreground mb-2">
                     Начать звонок с психологом
@@ -1029,17 +1036,16 @@ const AudioCall = () => {
               </div>
             ) : (
               <div className="space-y-8">
-                <div className="w-[300px] h-[300px] mx-auto rounded-full overflow-hidden shadow-strong">
+                <div className="w-[250px] h-[250px] sm:w-[320px] sm:h-[320px] md:w-[400px] md:h-[400px] mx-auto rounded-full overflow-hidden shadow-strong">
                   <video
                     ref={videoRef}
                     src="/Untitled Video.mp4"
                     className="w-full h-full object-cover pointer-events-none"
                     style={{
-                      transform: 'translateX(-20px)',
+                      transform: 'translateX(5px) scale(1.05)',
                       objectPosition: '50% 50%'
                     }}
                     muted
-                    loop
                     playsInline
                   />
                 </div>
@@ -1058,11 +1064,11 @@ const AudioCall = () => {
                       </div>
                     )}
                     <div className="mt-3 w-48 mx-auto h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div
+                      <div 
                         className={`h-full transition-all duration-1000 ${callDuration >= SESSION_WARNING_SECONDS
-                          ? 'bg-orange-500'
-                          : 'bg-blue-500'
-                          }`}
+                            ? 'bg-orange-500' 
+                            : 'bg-blue-500'
+                        }`}
                         style={{ width: `${Math.min((callDuration / SESSION_DURATION_SECONDS) * 100, 100)}%` }}
                       />
                     </div>
@@ -1089,16 +1095,6 @@ const AudioCall = () => {
                   </Button>
 
                   <Button
-                    onClick={() => setFastMode(!fastMode)}
-                    size="lg"
-                    variant={fastMode ? "default" : "outline"}
-                    className="rounded-full w-16 h-16 p-0"
-                    title={fastMode ? "Выключить быстрый режим" : "Включить быстрый режим"}
-                  >
-                    ⚡
-                  </Button>
-
-                  <Button
                     onClick={toggleBackgroundMusic}
                     size="lg"
                     variant={isMusicOn ? "default" : "outline"}
@@ -1120,7 +1116,6 @@ const AudioCall = () => {
 
                 <div className="text-center text-sm text-muted-foreground">
                   {!isSpeakerOn && <p>Звук выключен</p>}
-                  {fastMode && <p className="text-primary font-medium">⚡ Быстрый режим активен</p>}
                   {isMusicOn && <p className="text-green-500 font-medium">🎵 Фоновая музыка играет</p>}
                 </div>
 

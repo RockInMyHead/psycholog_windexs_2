@@ -20,6 +20,7 @@ export interface PaymentData {
   currency: string;
   description: string;
   userId: string;
+  userEmail: string;
   plan: 'single_session' | 'four_sessions' | 'meditation_monthly';
 }
 
@@ -59,7 +60,7 @@ class PaymentService {
         },
         receipt: {
           customer: {
-            email: paymentData.userId, // Пока используем userId, позже можно добавить email
+            email: paymentData.userEmail,
           },
           items: [
             {
@@ -70,6 +71,8 @@ class PaymentService {
                 currency: paymentData.currency,
               },
               vat_code: 1, // НДС 20%
+              payment_subject: 'service', // Обязательное поле для Yookassa
+              payment_mode: 'full_payment', // Обязательное поле для Yookassa
             },
           ],
         },

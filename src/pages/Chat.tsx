@@ -32,7 +32,7 @@ const Chat = () => {
   const messagesRef = useRef<Message[]>([]);
   const memoryRef = useRef<string>("");
   const sessionTimerRef = useRef<number | null>(null);
-  
+
   const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // За 5 минут
   const {
@@ -67,7 +67,7 @@ const Chat = () => {
       memoryRef.current = existingMemory ?? "";
 
       // Create new chat session
-      const session = await chatApi.createChatSession(userData.id);
+      const session = await chatApi.createChatSession(userData.id, 'Новая сессия');
       setCurrentSessionId(session.id);
 
       // Add initial bot message
@@ -80,7 +80,7 @@ const Chat = () => {
 
       // Load messages for this session
       await loadMessages(session.id);
-      
+
       // Запускаем таймер сессии
       startSessionTimer();
 
@@ -90,42 +90,42 @@ const Chat = () => {
       setLoading(false);
     }
   };
-  
+
   const startSessionTimer = () => {
     if (sessionTimerRef.current) {
       clearInterval(sessionTimerRef.current);
     }
-    
+
     setSessionDuration(0);
     setSessionWarningShown(false);
-    
+
     sessionTimerRef.current = window.setInterval(() => {
       setSessionDuration((prev) => {
         const next = prev + 1;
-        
+
         // Предупреждение за 5 минут до конца
         if (!sessionWarningShown && next >= SESSION_WARNING_SECONDS) {
           setSessionWarningShown(true);
           generateSessionSummary();
         }
-        
+
         // Завершение сессии через 30 минут
         if (next >= SESSION_DURATION_SECONDS) {
           endChatSession();
           return SESSION_DURATION_SECONDS;
         }
-        
+
         return next;
       });
     }, 1000);
   };
-  
+
   const generateSessionSummary = async () => {
     if (!user || !currentSessionId) return;
-    
+
     try {
       setIsTyping(true);
-      
+
       const summaryPrompt = `У нас осталось около пяти минут до конца нашей тридцатиминутной сессии. 
       
 Задача:
@@ -142,34 +142,34 @@ const Chat = () => {
         })),
         { role: 'user' as const, content: summaryPrompt }
       ];
-      
+
       const summaryResponse = await psychologistAI.getResponse(conversationForSummary, memoryRef.current);
-      
+
       // Сохраняем в БД
       await chatApi.addChatMessage(currentSessionId, user.id, summaryResponse, "assistant");
-      
+
       const botMessage: Message = {
         id: Date.now().toString(),
         text: summaryResponse,
         sender: "assistant",
         timestamp: new Date(),
       };
-      
+
       setMessages((prev) => [...prev, botMessage]);
-      
+
     } catch (error) {
       console.error('Error generating session summary:', error);
     } finally {
       setIsTyping(false);
     }
   };
-  
+
   const endChatSession = async () => {
     if (sessionTimerRef.current) {
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
     }
-    
+
     if (currentSessionId) {
       try {
         await chatApi.endChatSession(currentSessionId);
@@ -177,7 +177,7 @@ const Chat = () => {
         console.error('Error ending chat session:', error);
       }
     }
-    
+
     // Показываем сообщение о завершении сессии
     const endMessage: Message = {
       id: Date.now().toString(),
@@ -187,12 +187,23 @@ const Chat = () => {
     };
     setMessages((prev) => [...prev, endMessage]);
   };
-  
-  // Очистка таймера при размонтировании
+
+  // Очистка таймера и аудио при размонтировании
   useEffect(() => {
     return () => {
       if (sessionTimerRef.current) {
         clearInterval(sessionTimerRef.current);
+      }
+      // Cleanup audio
+      if (audioSourceRef.current) {
+        try {
+          audioSourceRef.current.stop();
+        } catch (e) {
+          // Ignore
+        }
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
       }
     };
   }, []);
@@ -303,10 +314,10 @@ const Chat = () => {
     try {
       // Сохраняем в БД с sessionId и обновляем локальную память
       const updatedMemory = await memoryApi.appendMemory(
-        user.id, 
-        "chat", 
-        currentSessionId, 
-        userText, 
+        user.id,
+        "chat",
+        currentSessionId,
+        userText,
         assistantText
       );
       memoryRef.current = updatedMemory;
@@ -367,44 +378,72 @@ const Chat = () => {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const stopSpeaking = () => {
+    if (audioSourceRef.current) {
+      try {
+        audioSourceRef.current.stop();
+      } catch (e) {
+        // Ignore errors if already stopped
+      }
+      audioSourceRef.current = null;
+    }
+    setSpeakingMessageId(null);
+  };
+
   const speakMessage = async (messageId: string, text: string) => {
+    console.log('[Chat TTS] speakMessage called for message:', messageId);
+
     if (speakingMessageId === messageId) {
-      // Если уже озвучиваем это сообщение, остановим озвучку
-      setSpeakingMessageId(null);
+      console.log('[Chat TTS] Stopping current playback');
+      stopSpeaking();
       return;
     }
 
+    // Stop any current playback
+    stopSpeaking();
+
     try {
       setSpeakingMessageId(messageId);
+      console.log('[Chat TTS] Starting speech synthesis');
 
-      // Получаем аудио буфер от TTS
+      // Get audio buffer from TTS
+      console.log('[Chat TTS] Requesting TTS synthesis...');
       const audioBuffer = await psychologistAI.synthesizeSpeech(text);
+      console.log('[Chat TTS] Received audio buffer, size:', audioBuffer.byteLength);
 
-      // Создаем аудио контекст для воспроизведения
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Create blob from array buffer
+      const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
 
-      // Декодируем аудио данные
-      const decodedBuffer = await audioContext.decodeAudioData(audioBuffer.slice(0));
+      console.log('[Chat TTS] Created audio URL:', url);
 
-      // Создаем источник и воспроизводим
-      const source = audioContext.createBufferSource();
-      source.buffer = decodedBuffer;
+      // Use HTML5 Audio for playback (more reliable than Web Audio API)
+      const audio = new Audio(url);
+      audio.volume = 1.0; // Maximum volume
 
-      // Подключаем к выходу
-      source.connect(audioContext.destination);
+      console.log('[Chat TTS] Audio element created, volume:', audio.volume);
 
-      // Обещание для ожидания окончания воспроизведения
-      await new Promise<void>((resolve) => {
-        source.onended = () => {
-          setSpeakingMessageId(null);
-          audioContext.close();
-          resolve();
-        };
-        source.start(0);
-      });
+      audio.onended = () => {
+        console.log('[Chat TTS] Playback ended');
+        URL.revokeObjectURL(url);
+        setSpeakingMessageId(null);
+      };
+
+      audio.onerror = (e) => {
+        console.error('[Chat TTS] Audio playback error:', e);
+        URL.revokeObjectURL(url);
+        setSpeakingMessageId(null);
+      };
+
+      console.log('[Chat TTS] Starting playback...');
+      await audio.play();
+      console.log('[Chat TTS] Playback started successfully');
 
     } catch (error) {
-      console.error('Error speaking message:', error);
+      console.error('[Chat TTS] Error speaking message:', error);
       setSpeakingMessageId(null);
     }
   };
@@ -412,7 +451,7 @@ const Chat = () => {
   return (
     <div className="min-h-screen bg-calm-gradient">
       <Navigation />
-      
+
       <div className="pt-16 px-4">
         <div className="w-full max-w-5xl mx-auto">
           <Card className="bg-card border-0 shadow-none animate-scale-in rounded-3xl">
@@ -431,12 +470,11 @@ const Chat = () => {
                     )}
                   </div>
                   <div className="mt-2 h-1 bg-gray-200 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full transition-all duration-1000 ${
-                        sessionDuration >= SESSION_WARNING_SECONDS 
-                          ? 'bg-orange-500' 
-                          : 'bg-blue-500'
-                      }`}
+                    <div
+                      className={`h-full transition-all duration-1000 ${sessionDuration >= SESSION_WARNING_SECONDS
+                        ? 'bg-orange-500'
+                        : 'bg-blue-500'
+                        }`}
                       style={{ width: `${(sessionDuration / SESSION_DURATION_SECONDS) * 100}%` }}
                     />
                   </div>
@@ -462,16 +500,14 @@ const Chat = () => {
                   messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`flex gap-3 animate-fade-in ${
-                        message.sender === "user" ? "flex-row-reverse" : ""
-                      }`}
+                      className={`flex gap-3 animate-fade-in ${message.sender === "user" ? "flex-row-reverse" : ""
+                        }`}
                     >
                       <div
-                        className={`flex-1 max-w-[80%] p-4 rounded-3xl ${
-                          message.sender === "assistant"
-                            ? "bg-muted/50 text-foreground"
-                            : "bg-hero-gradient text-white shadow-soft"
-                        }`}
+                        className={`flex-1 max-w-[80%] p-4 rounded-3xl ${message.sender === "assistant"
+                          ? "bg-muted/50 text-foreground"
+                          : "bg-hero-gradient text-white shadow-soft"
+                          }`}
                       >
                         <div className="flex justify-between items-start gap-2">
                           <div className="flex-1">
@@ -488,9 +524,8 @@ const Chat = () => {
                               onClick={() => speakMessage(message.id, message.text)}
                               size="sm"
                               variant="ghost"
-                              className={`shrink-0 h-8 w-8 p-0 hover:bg-muted ${
-                                speakingMessageId === message.id ? 'text-blue-500' : 'text-muted-foreground'
-                              }`}
+                              className={`shrink-0 h-8 w-8 p-0 hover:bg-muted ${speakingMessageId === message.id ? 'text-blue-500' : 'text-muted-foreground'
+                                }`}
                               title={speakingMessageId === message.id ? "Остановить озвучку" : "Озвучить сообщение"}
                             >
                               {speakingMessageId === message.id ? (
