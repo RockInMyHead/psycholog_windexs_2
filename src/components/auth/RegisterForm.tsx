@@ -22,6 +22,38 @@ const RegisterForm = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validation
+    if (!name.trim()) {
+      toast.error('Пожалуйста, введите имя');
+      return;
+    }
+
+    if (name.trim().length < 2) {
+      toast.error('Имя должно содержать минимум 2 символа');
+      return;
+    }
+
+    if (!email.trim()) {
+      toast.error('Пожалуйста, введите email');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      toast.error('Пожалуйста, введите корректный email адрес');
+      return;
+    }
+
+    if (!password.trim()) {
+      toast.error('Пожалуйста, введите пароль');
+      return;
+    }
+
+    if (password.length < 6) {
+      toast.error('Пароль должен содержать минимум 6 символов');
+      return;
+    }
+
     if (password !== confirmPassword) {
       toast.error('Пароли не совпадают');
       return;

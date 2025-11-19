@@ -6,29 +6,30 @@ import { User, Mail, Calendar, LogOut } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { useState, useEffect } from "react";
 import { userApi } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Profile = () => {
+  const { user: authUser, logout } = useAuth();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
 
-  // Default user ID for demo purposes
-  const defaultUserId = 'user@zenmindmate.com';
-
   useEffect(() => {
     loadUserData();
-  }, []);
+  }, [authUser]);
 
   const loadUserData = async () => {
     try {
       setLoading(true);
 
-      // Get or create user
-      const userData = await userApi.getOrCreateUser(defaultUserId, 'Пользователь');
-      setUser(userData);
-      setName(userData.name);
-      setEmail(userData.email);
+      if (authUser) {
+        // Load current user data from database
+        const userData = await userApi.getUser(authUser.id);
+        setUser(userData);
+        setName(userData.name);
+        setEmail(userData.email);
+      }
 
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -170,6 +171,7 @@ const Profile = () => {
 
               {/* Logout */}
               <Button
+                onClick={logout}
                 variant="outline"
                 className="w-full gap-2 text-destructive hover:bg-destructive/10 border-destructive/30 animate-fade-in"
                 style={{ animationDelay: "300ms" }}
