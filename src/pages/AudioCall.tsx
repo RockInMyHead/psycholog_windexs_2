@@ -21,6 +21,7 @@ const AudioCall = () => {
   const [fastMode, setFastMode] = useState(false); // Быстрый режим для ускорения
   const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' } | null>(null);
   const [isMusicOn, setIsMusicOn] = useState(false); // Управление фоновой музыкой
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false); // Управление видео Марка
 
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callTimerRef = useRef<number | null>(null);
@@ -46,6 +47,7 @@ const AudioCall = () => {
   const volumeMonitorRef = useRef<number | null>(null);
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут на сессию
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // Предупреждение за 5 минут
@@ -185,6 +187,9 @@ const AudioCall = () => {
     const outputNode = getAudioOutputNode();
     isPlayingAudioRef.current = true;
 
+    // Запускаем видео когда начинается TTS
+    await playVideo();
+
     try {
       while (audioQueueRef.current.length > 0) {
         const buffer = audioQueueRef.current.shift();
@@ -266,6 +271,7 @@ const AudioCall = () => {
       currentSpeechSourceRef.current = null;
     }
     isPlayingAudioRef.current = false;
+    pauseVideo(); // Останавливаем видео когда TTS останавливается
   };
 
   const initializeBackgroundMusic = async () => {
@@ -329,6 +335,25 @@ const AudioCall = () => {
     } else {
       await playBackgroundMusic();
       setIsMusicOn(true);
+    }
+  };
+
+  const playVideo = async () => {
+    if (videoRef.current && !isVideoPlaying) {
+      try {
+        await videoRef.current.play();
+        setIsVideoPlaying(true);
+      } catch (error) {
+        console.warn('Error playing video:', error);
+      }
+    }
+  };
+
+  const pauseVideo = () => {
+    if (videoRef.current && isVideoPlaying) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0; // Возвращаем к началу
+      setIsVideoPlaying(false);
     }
   };
 
@@ -904,6 +929,8 @@ const AudioCall = () => {
       stopAssistantSpeech();
       pauseBackgroundMusic(); // Останавливаем фоновую музыку
       setIsMusicOn(false); // Сбрасываем состояние музыки
+      pauseVideo(); // Останавливаем видео
+      setIsVideoPlaying(false); // Сбрасываем состояние видео
       setIsCallActive(false);
       setCallDuration(0);
       setIsMuted(false);
@@ -987,8 +1014,19 @@ const AudioCall = () => {
               </div>
             ) : (
               <div className="space-y-8">
-                <div className="w-40 h-40 mx-auto rounded-full bg-hero-gradient text-white flex items-center justify-center shadow-strong animate-float">
-                  <Volume2 className="w-20 h-20  animate-pulse" />
+                <div className="w-[300px] h-[300px] mx-auto rounded-full overflow-hidden shadow-strong">
+                  <video
+                    ref={videoRef}
+                    src="/Untitled Video.mp4"
+                    className="w-full h-full object-cover"
+                    style={{
+                      transform: 'translateX(-20px)',
+                      objectPosition: '50% 50%'
+                    }}
+                    muted
+                    loop
+                    playsInline
+                  />
                 </div>
 
                 <div>
