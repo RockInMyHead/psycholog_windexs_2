@@ -143,10 +143,10 @@ const Profile = () => {
                       className="bg-background border-border"
                     />
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <Button
                       onClick={handleSaveProfile}
-                      className="flex-1 bg-hero-gradient text-white hover:shadow-lg shadow-medium"
+                      className="flex-1 bg-hero-gradient text-white hover:shadow-lg shadow-medium text-sm sm:text-base"
                       disabled={loading}
                     >
                       {loading ? "Сохранение..." : "Сохранить изменения"}
@@ -159,7 +159,7 @@ const Profile = () => {
                         }
                       }}
                       variant="outline"
-                      className="px-6 border-primary/30 text-primary hover:bg-primary/10"
+                      className="px-4 sm:px-6 border-primary/30 text-primary hover:bg-primary/10 text-sm sm:text-base"
                       disabled={loading}
                     >
                       Сбросить
