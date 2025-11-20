@@ -360,14 +360,21 @@ const AudioCall = () => {
     }
   };
 
-  // Инициализируем видео в паузе при загрузке компонента
-  useEffect(() => {
+  // Инициализируем видео только после пользовательского взаимодействия (для мобильной совместимости)
+  const initializeVideoForMobile = async () => {
     if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
-      setIsVideoPlaying(false);
+      try {
+        // На мобильных устройствах предварительно загружаем видео
+        videoRef.current.load();
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+        setIsVideoPlaying(false);
+        console.log("[AudioCall] Video initialized for mobile compatibility");
+      } catch (error) {
+        console.warn("[AudioCall] Error initializing video:", error);
+      }
     }
-  }, []);
+  };
 
   const startVolumeMonitoring = async (stream: MediaStream) => {
     try {
@@ -738,7 +745,10 @@ const AudioCall = () => {
       console.log("[AudioCall] Запрашиваем доступ к микрофону...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
-      console.log("[AudioCall] Микрофон доступен, создаем recognition...");
+      console.log("[AudioCall] Микрофон доступен, инициализируем видео для мобильных устройств...");
+
+      // Инициализируем видео после получения доступа к микрофону (пользовательское взаимодействие)
+      await initializeVideoForMobile();
 
       const recognition = new SpeechRecognitionConstructor();
       recognition.lang = "ru-RU";
