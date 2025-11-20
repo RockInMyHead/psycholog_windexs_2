@@ -189,11 +189,8 @@ const AudioCall = () => {
     // Запускаем видео когда начинается TTS
     await playVideo();
 
-    // Временно останавливаем мониторинг громкости чтобы избежать прерывания собственным звуком
-    const wasMonitoring = volumeMonitorRef.current !== null;
-    if (wasMonitoring) {
-      stopVolumeMonitoring();
-    }
+    // Увеличиваем порог чувствительности во время TTS чтобы избежать прерывания собственным звуком
+    // Порог динамически увеличивается на +20 когда Марк говорит
 
     try {
       while (audioQueueRef.current.length > 0) {
@@ -228,15 +225,6 @@ const AudioCall = () => {
       pauseVideo(); // Останавливаем видео при ошибке
     } finally {
       isPlayingAudioRef.current = false;
-      
-      // Возобновляем мониторинг громкости после небольшой задержки
-      if (wasMonitoring && audioStreamRef.current) {
-        setTimeout(() => {
-          if (recognitionActiveRef.current && audioStreamRef.current) {
-            startVolumeMonitoring(audioStreamRef.current);
-          }
-        }, 500); // 500ms задержка для стабилизации
-      }
 
       if (audioQueueRef.current.length > 0) {
         void playQueuedAudio();
@@ -412,8 +400,12 @@ const AudioCall = () => {
           sum += dataArray[i];
         }
         const average = sum / dataArray.length;
-        
-        if (average > VOICE_DETECTION_THRESHOLD && isPlayingAudioRef.current) {
+
+        // Используем повышенный порог во время TTS для избежания акустической обратной связи
+        const currentThreshold = isPlayingAudioRef.current ?
+          VOICE_DETECTION_THRESHOLD + 20 : VOICE_DETECTION_THRESHOLD;
+
+        if (average > currentThreshold) {
           console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)}), прерываем Марка`);
           stopAssistantSpeech();
         }
