@@ -47,11 +47,12 @@ const AudioCall = () => {
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const lastTTSTimeRef = useRef<number>(0); // Время последнего старта TTS для предотвращения прерывания
 
   const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут на сессию
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // Предупреждение за 5 минут
   const MAX_CALL_DURATION_SECONDS = 40 * 60; // Абсолютный максимум (для подстраховки)
-  const VOICE_DETECTION_THRESHOLD = 35; // Увеличили порог до 35, чтобы TTS не прерывалось собственным звуком
+  const VOICE_DETECTION_THRESHOLD = 55; // Увеличили порог до 55, чтобы TTS не прерывалось собственным звуком или шумом
 
   const createAudioContext = () => {
     if (!audioContextRef.current) {
@@ -185,6 +186,7 @@ const AudioCall = () => {
 
     const outputNode = getAudioOutputNode();
     isPlayingAudioRef.current = true;
+    lastTTSTimeRef.current = Date.now(); // Запоминаем время начала TTS
 
     // Запускаем видео когда начинается TTS
     await playVideo();
@@ -397,7 +399,11 @@ const AudioCall = () => {
         }
         const average = sum / dataArray.length;
         
-        if (average > VOICE_DETECTION_THRESHOLD && isPlayingAudioRef.current) {
+        // Не прерываем TTS в первые 3 секунды после начала речи
+        const timeSinceLastTTS = Date.now() - lastTTSTimeRef.current;
+        const isWithinTTSDelay = timeSinceLastTTS < 3000; // 3 секунды задержки
+
+        if (average > VOICE_DETECTION_THRESHOLD && isPlayingAudioRef.current && !isWithinTTSDelay) {
           console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)}), прерываем Марка`);
           stopAssistantSpeech();
         }
