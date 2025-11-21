@@ -316,8 +316,8 @@ class PsychologistAI {
     const defaultOptions = {
       model: "tts-1", // tts-1 быстрее и стабильнее для реального времени
       voice: "onyx",
-      response_format: "mp3", 
-      speed: 1.0, 
+      response_format: "mp3",
+      speed: 1.0,
     };
 
     const finalOptions = { ...defaultOptions, ...options };
@@ -330,15 +330,27 @@ class PsychologistAI {
         console.log(`[TTS] Attempt ${retryCount + 1}/${maxRetries} - Synthesizing speech for text:`, text.substring(0, 50) + (text.length > 50 ? "..." : ""));
         console.log(`[TTS] Using options:`, finalOptions);
 
-        const speech = await openai.audio.speech.create({
-          model: finalOptions.model,
-          voice: finalOptions.voice,
-          input: text,
-          response_format: finalOptions.response_format as any,
-          speed: finalOptions.speed,
+        // Используем прямой fetch запрос к нашему API вместо OpenAI клиента
+        const response = await fetch('/api/audio/speech', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: finalOptions.model,
+            voice: finalOptions.voice,
+            input: text,
+            response_format: finalOptions.response_format,
+            speed: finalOptions.speed,
+          }),
         });
 
-        const arrayBuffer = await speech.arrayBuffer();
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
         console.log(`[TTS] Speech synthesized successfully, buffer size: ${arrayBuffer.byteLength} bytes, format: ${finalOptions.response_format}`);
 
         // Проверяем, что буфер не пустой
