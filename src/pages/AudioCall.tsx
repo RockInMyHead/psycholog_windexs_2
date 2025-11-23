@@ -42,6 +42,7 @@ const AudioCall = () => {
   const memoryRef = useRef<string>("");
   const pendingTranscriptRef = useRef<string>("");
   const pendingProcessTimeoutRef = useRef<number | null>(null);
+  const isStartingCallRef = useRef(false); // Флаг для предотвращения повторных вызовов startCall
   const audioAnalyserRef = useRef<AnalyserNode | null>(null);
   const volumeMonitorRef = useRef<number | null>(null);
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
@@ -662,16 +663,19 @@ const AudioCall = () => {
   const startCall = async () => {
     console.log("[AudioCall] Начинаем запуск звонка...");
 
-    if (!user || isCallActive) {
+    if (!user || isCallActive || isStartingCallRef.current) {
       console.log("[AudioCall] Звонок уже активен или пользователь не найден");
       return;
     }
+
+    isStartingCallRef.current = true;
 
     try {
       const accessCheck = await subscriptionApi.checkAudioAccess(user.id);
       console.log("[AudioCall] Access check result:", accessCheck);
 
       if (!accessCheck.hasAccess) {
+        isStartingCallRef.current = false;
         if (accessCheck.reason === 'no_subscription') {
           setAudioError("У вас нет активной подписки. Оформите подписку для доступа к аудио сессиям.");
         } else if (accessCheck.reason === 'no_sessions_left') {
@@ -684,6 +688,7 @@ const AudioCall = () => {
 
       const sessionUsed = await subscriptionApi.useAudioSession(user.id);
       if (!sessionUsed) {
+        isStartingCallRef.current = false;
         setAudioError("Не удалось активировать аудио сессию. Попробуйте еще раз.");
         return;
       }
@@ -692,12 +697,14 @@ const AudioCall = () => {
 
     } catch (error) {
       console.error("[AudioCall] Error checking access:", error);
+      isStartingCallRef.current = false;
       setAudioError("Ошибка при проверке доступа к аудио сессиям.");
       return;
     }
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices) {
       console.error("[AudioCall] Браузер не поддерживает mediaDevices");
+      isStartingCallRef.current = false;
       setAudioError("Ваш браузер не поддерживает запись аудио.");
       return;
     }
@@ -717,15 +724,12 @@ const AudioCall = () => {
       const sessionInfo = await subscriptionApi.getAudioSessionInfo(user.id);
       setSubscriptionInfo(sessionInfo);
 
+      // Проверяем только статус подписки, не количество оставшихся сессий
+      // (количество уже проверено до активации сессии через checkAudioAccess)
       if (sessionInfo.plan === 'premium') {
         if (sessionInfo.status !== 'active') {
+          isStartingCallRef.current = false;
           setAudioError('Ваша премиум подписка не активна. Продлите подписку, чтобы делать звонки.');
-          setIsCallActive(false);
-          return;
-        }
-
-        if (sessionInfo.remaining <= 0) {
-          setAudioError('Лимит аудио сессий на этот месяц исчерпан.');
           setIsCallActive(false);
           return;
         }
@@ -740,6 +744,7 @@ const AudioCall = () => {
 
       if (!SpeechRecognitionConstructor) {
         console.error("[AudioCall] Speech Recognition API не поддерживается");
+        isStartingCallRef.current = false;
         setAudioError("Ваш браузер не поддерживает системное распознавание речи.");
         return;
       }
@@ -917,8 +922,10 @@ const AudioCall = () => {
 
       setTranscriptionStatus("");
       setIsCallActive(true);
+      isStartingCallRef.current = false; // Сбрасываем флаг после успешного запуска
     } catch (error) {
       console.error("Error starting call:", error);
+      isStartingCallRef.current = false; // Сбрасываем флаг при ошибке
       setAudioError("Не удалось получить доступ к микрофону. Проверьте настройки и попробуйте снова.");
       cleanupRecording();
       setCurrentCallId(null);

@@ -1005,18 +1005,21 @@ const accessService = {
       return { hasAccess: false, reason: 'subscription_expired' };
     }
 
-    // Проверяем бесплатные сессии
-    if (subscription.freeSessionsRemaining > 0) {
-      return { hasAccess: true, type: 'free_trial', remaining: subscription.freeSessionsRemaining };
+    // Проверяем бесплатные сессии (обрабатываем null/undefined)
+    const freeSessionsRemaining = subscription.freeSessionsRemaining ?? 0;
+    if (freeSessionsRemaining > 0) {
+      return { hasAccess: true, type: 'free_trial', remaining: freeSessionsRemaining };
     }
 
-    // Проверяем платные сессии
-    if (subscription.audioSessionsLimit > subscription.audioSessionsUsed) {
+    // Проверяем платные сессии (обрабатываем null/undefined)
+    const audioSessionsLimit = subscription.audioSessionsLimit ?? 0;
+    const audioSessionsUsed = subscription.audioSessionsUsed ?? 0;
+    if (audioSessionsLimit > audioSessionsUsed) {
       return {
         hasAccess: true,
         type: 'paid',
-        remaining: subscription.audioSessionsLimit - subscription.audioSessionsUsed,
-        total: subscription.audioSessionsLimit
+        remaining: audioSessionsLimit - audioSessionsUsed,
+        total: audioSessionsLimit
       };
     }
 
@@ -1049,22 +1052,25 @@ const accessService = {
     if (subscription.status !== 'active') return false;
     if (subscription.expiresAt && new Date(subscription.expiresAt) < new Date()) return false;
 
-    // Используем бесплатную сессию
-    if (subscription.freeSessionsRemaining > 0) {
+    // Используем бесплатную сессию (обрабатываем null/undefined)
+    const freeSessionsRemaining = subscription.freeSessionsRemaining ?? 0;
+    if (freeSessionsRemaining > 0) {
       await db.update(schema.subscriptions)
         .set({
-          freeSessionsRemaining: subscription.freeSessionsRemaining - 1,
+          freeSessionsRemaining: freeSessionsRemaining - 1,
           updatedAt: toTimestamp(new Date())
         })
         .where(eq(schema.subscriptions.id, subscription.id));
       return true;
     }
 
-    // Используем платную сессию
-    if (subscription.audioSessionsLimit > subscription.audioSessionsUsed) {
+    // Используем платную сессию (обрабатываем null/undefined)
+    const audioSessionsLimit = subscription.audioSessionsLimit ?? 0;
+    const audioSessionsUsed = subscription.audioSessionsUsed ?? 0;
+    if (audioSessionsLimit > audioSessionsUsed) {
       await db.update(schema.subscriptions)
         .set({
-          audioSessionsUsed: subscription.audioSessionsUsed + 1,
+          audioSessionsUsed: audioSessionsUsed + 1,
           updatedAt: toTimestamp(new Date())
         })
         .where(eq(schema.subscriptions.id, subscription.id));
