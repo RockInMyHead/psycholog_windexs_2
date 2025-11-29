@@ -17,7 +17,9 @@
     "form-data": "^4.0.4",
     "http-proxy-middleware": "^2.0.6",
     "https-proxy-agent": "^7.0.2",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "openai": "^6.9.1",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

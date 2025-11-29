@@ -10,6 +10,35 @@ import { psychologistAI, type ChatMessage } from "@/services/openai";
 const AudioCall = () => {
   const { user: authUser } = useAuth();
   const [isCallActive, setIsCallActive] = useState(false);
+
+  // Детекция Safari браузера
+  const isSafari = () => {
+    const userAgent = navigator.userAgent;
+    const isSafariBrowser = /^((?!chrome|android).)*safari/i.test(userAgent);
+    return isSafariBrowser;
+  };
+
+  // Управление микрофоном во время TTS для не-Safari браузеров
+  const updateMicDuringTTS = () => {
+    if (isSafariBrowser || !audioStreamRef.current) return;
+
+    const shouldMuteDuringTTS = isPlayingAudioRef.current || isSynthesizingRef.current;
+    const currentMicEnabled = !isMutedRef.current;
+
+    if (shouldMuteDuringTTS && currentMicEnabled) {
+      // Отключаем микрофон во время TTS
+      audioStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      console.log("[AudioCall] Микрофон отключен во время TTS");
+    } else if (!shouldMuteDuringTTS && !currentMicEnabled && !isMutedRef.current) {
+      // Включаем микрофон после окончания TTS (если не был принудительно отключен пользователем)
+      audioStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      console.log("[AudioCall] Микрофон включен после TTS");
+    }
+  };
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
@@ -21,6 +50,7 @@ const AudioCall = () => {
   const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: 'premium' | 'free' | 'none'; remaining: number; limit: number; status: 'active' | 'inactive' | 'cancelled' | 'none' } | null>(null);
   const [isMusicOn, setIsMusicOn] = useState(false); // Управление фоновой музыкой
   const [isVideoPlaying, setIsVideoPlaying] = useState(false); // Управление видео Марка
+  const [isSafariBrowser, setIsSafariBrowser] = useState(false); // Детекция Safari браузера
 
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callTimerRef = useRef<number | null>(null);
@@ -47,12 +77,13 @@ const AudioCall = () => {
   const volumeMonitorRef = useRef<number | null>(null);
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
+  const isSynthesizingRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут на сессию
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // Предупреждение за 5 минут
   const MAX_CALL_DURATION_SECONDS = 40 * 60; // Абсолютный максимум (для подстраховки)
-  const VOICE_DETECTION_THRESHOLD = 35; // Увеличили порог до 35, чтобы TTS не прерывалось собственным звуком
+  const VOICE_DETECTION_THRESHOLD = 45; // Увеличили порог до 45 для защиты от шума
 
   const createAudioContext = () => {
     if (!audioContextRef.current) {
@@ -187,8 +218,11 @@ const AudioCall = () => {
     const outputNode = getAudioOutputNode();
     isPlayingAudioRef.current = true;
 
-    // Запускаем видео когда начинается TTS
-    await playVideo();
+    // Обновляем состояние видео - запускаем если нужно
+    updateVideoBasedOnTTS();
+
+    // Отключаем микрофон во время TTS для не-Safari браузеров
+    updateMicDuringTTS();
 
     // Увеличиваем порог чувствительности во время TTS чтобы избежать прерывания собственным звуком
     // Порог динамически увеличивается на +20 когда Марк говорит
@@ -223,14 +257,19 @@ const AudioCall = () => {
     } catch (error) {
       console.error("[AudioCall] Error during audio playback:", error);
       audioQueueRef.current = [];
-      pauseVideo(); // Останавливаем видео при ошибке
+      // Обновляем состояние видео при ошибке
+      updateVideoBasedOnTTS();
     } finally {
       isPlayingAudioRef.current = false;
+
+      // Обновляем состояние видео
+      updateVideoBasedOnTTS();
 
       if (audioQueueRef.current.length > 0) {
         void playQueuedAudio();
       } else {
-        pauseVideo(); // Останавливаем видео когда очередь пуста
+        // Включаем микрофон после окончания TTS для не-Safari браузеров
+        updateMicDuringTTS();
       }
     }
   };
@@ -241,27 +280,38 @@ const AudioCall = () => {
     if (sentences.length === 0) return;
 
     const myGenId = generationIdRef.current;
+    isSynthesizingRef.current = true;
 
-    for (const sentence of sentences) {
-      if (generationIdRef.current !== myGenId) {
-        console.log("[AudioCall] Generation cancelled");
-        break;
-      }
+    // Обновляем состояние видео - запускаем если нужно
+    updateVideoBasedOnTTS();
 
-      try {
-        const audioBuffer = await psychologistAI.synthesizeSpeech(sentence);
+    try {
+      for (const sentence of sentences) {
+        if (generationIdRef.current !== myGenId) {
+          console.log("[AudioCall] Generation cancelled");
+          break;
+        }
 
-        if (generationIdRef.current !== myGenId) break;
+        try {
+          const audioBuffer = await psychologistAI.synthesizeSpeech(sentence);
 
-        if (audioBuffer && audioBuffer.byteLength > 0) {
-          audioQueueRef.current.push(audioBuffer);
-          if (!isPlayingAudioRef.current) {
-        void playQueuedAudio();
+          if (generationIdRef.current !== myGenId) break;
+
+          if (audioBuffer && audioBuffer.byteLength > 0) {
+            audioQueueRef.current.push(audioBuffer);
+            if (!isPlayingAudioRef.current) {
+              void playQueuedAudio();
+            }
           }
+        } catch (error) {
+          console.warn("[AudioCall] Failed to synthesize sentence:", sentence, error);
+        }
       }
-    } catch (error) {
-        console.warn("[AudioCall] Failed to synthesize sentence:", sentence, error);
-      }
+    } finally {
+      isSynthesizingRef.current = false;
+
+      // Обновляем состояние видео - возможно нужно остановить если синтез завершен и аудио не играет
+      updateVideoBasedOnTTS();
     }
   };
 
@@ -278,7 +328,12 @@ const AudioCall = () => {
       currentSpeechSourceRef.current = null;
     }
     isPlayingAudioRef.current = false;
-    pauseVideo(); // Останавливаем видео когда TTS останавливается
+
+    // Обновляем состояние видео - останавливаем если нужно
+    updateVideoBasedOnTTS();
+
+    // Включаем микрофон после остановки TTS для не-Safari браузеров
+    updateMicDuringTTS();
   };
 
   const initializeBackgroundMusic = async () => {
@@ -347,13 +402,28 @@ const AudioCall = () => {
 
   const playVideo = async () => {
     // Воспроизводим видео только если TTS активен
-    if (videoRef.current && !isVideoPlaying && isPlayingAudioRef.current) {
+    if (videoRef.current && !isVideoPlaying && (isPlayingAudioRef.current || isSynthesizingRef.current)) {
       try {
         await videoRef.current.play();
         setIsVideoPlaying(true);
+        console.log("[AudioCall] Video started - TTS active");
       } catch (error) {
         console.warn('Error playing video:', error);
       }
+    }
+  };
+
+  // Управление видео состоянием на основе TTS
+  const updateVideoBasedOnTTS = () => {
+    const isTTSActive = isPlayingAudioRef.current || isSynthesizingRef.current;
+
+    if (isTTSActive && !isVideoPlaying) {
+      // Запускаем видео если TTS активен и видео не играет
+      void playVideo();
+    } else if (!isTTSActive && isVideoPlaying) {
+      // Останавливаем видео если TTS не активен и видео играет
+      pauseVideo();
+      console.log("[AudioCall] Video stopped - TTS inactive");
     }
   };
 
@@ -402,12 +472,14 @@ const AudioCall = () => {
         }
         const average = sum / dataArray.length;
 
-        // Используем повышенный порог во время TTS для избежания акустической обратной связи
-        const currentThreshold = isPlayingAudioRef.current ?
-          VOICE_DETECTION_THRESHOLD + 20 : VOICE_DETECTION_THRESHOLD;
+        // Используем значительно повышенный порог во время TTS или синтеза
+        // Это предотвращает прерывание собственным эхом даже в паузах между предложениями
+        const isAssistantActive = isPlayingAudioRef.current || isSynthesizingRef.current;
+        const currentThreshold = isAssistantActive ?
+          VOICE_DETECTION_THRESHOLD + 40 : VOICE_DETECTION_THRESHOLD;
 
         if (average > currentThreshold) {
-          console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)}), прерываем Марка`);
+          console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)} > ${currentThreshold}), прерываем Марка`);
           stopAssistantSpeech();
         }
 
@@ -562,10 +634,10 @@ const AudioCall = () => {
 
     try {
       const updatedMemory = await memoryApi.appendMemory(
-        user.id, 
-        "audio", 
-        currentCallId, 
-        userText, 
+        user.id,
+        "audio",
+        currentCallId,
+        userText,
         assistantText
       );
       memoryRef.current = updatedMemory;
@@ -587,6 +659,11 @@ const AudioCall = () => {
   }, [authUser]);
 
   useEffect(() => {
+    // Детекция Safari браузера при монтировании компонента
+    setIsSafariBrowser(isSafari());
+  }, []);
+
+  useEffect(() => {
     isMutedRef.current = isMuted;
 
     const stream = audioStreamRef.current;
@@ -597,8 +674,11 @@ const AudioCall = () => {
       return;
     }
 
+    // Для не-Safari браузеров учитываем состояние TTS
+    const shouldBeEnabled = isSafariBrowser ? !isMuted : (!isMuted && !(isPlayingAudioRef.current || isSynthesizingRef.current));
+
     stream.getAudioTracks().forEach((track) => {
-      track.enabled = !isMuted;
+      track.enabled = shouldBeEnabled;
     });
 
     if (isMuted) {
@@ -859,16 +939,16 @@ const AudioCall = () => {
       callTimerRef.current = window.setInterval(() => {
         setCallDuration((prev) => {
           const next = prev + 1;
-          
+
           if (!callLimitWarningSentRef.current && next >= SESSION_WARNING_SECONDS && next < SESSION_DURATION_SECONDS) {
             callLimitWarningSentRef.current = true;
-            
+
             responseQueueRef.current = responseQueueRef.current
               .catch((error) => console.error("Previous voice response error:", error))
               .then(async () => {
                 try {
                   setTranscriptionStatus("Марк подводит итоги сессии...");
-                  
+
                   const summaryPrompt = `У нас осталось около пяти минут до конца нашей тридцатиминутной сессии. 
                   
 Задача:
@@ -882,16 +962,16 @@ const AudioCall = () => {
                     ...conversationRef.current,
                     { role: "user" as const, content: summaryPrompt }
                   ];
-                  
+
                   const summaryResponse = await psychologistAI.getVoiceResponse(
-                    conversationForSummary, 
-                    memoryRef.current, 
+                    conversationForSummary,
+                    memoryRef.current,
                     false
                   );
-                  
+
                   conversationRef.current.push({ role: "assistant", content: summaryResponse });
                   await enqueueSpeechPlayback(summaryResponse);
-                  
+
                 } catch (error) {
                   console.error("Error generating session summary:", error);
                   const fallbackMessage = "У нас осталось около пяти минут. Давайте коротко подведем итоги нашей беседы и я предложу тему для следующей встречи";
@@ -902,7 +982,7 @@ const AudioCall = () => {
                 }
               });
           }
-          
+
           if (next >= SESSION_DURATION_SECONDS && !callLimitReachedRef.current) {
             callLimitReachedRef.current = true;
             window.setTimeout(() => {
@@ -911,11 +991,11 @@ const AudioCall = () => {
             }, 0);
             return SESSION_DURATION_SECONDS;
           }
-          
+
           if (next >= MAX_CALL_DURATION_SECONDS) {
             return MAX_CALL_DURATION_SECONDS;
           }
-          
+
           return next;
         });
       }, 1000);
@@ -999,7 +1079,7 @@ const AudioCall = () => {
   return (
     <div className="min-h-screen bg-calm-gradient">
       <Navigation />
-      
+
       <div className="pt-24 pb-8 px-4">
         <div className="container mx-auto max-w-2xl">
           <div className="text-center mb-8 animate-fade-in">
@@ -1021,9 +1101,10 @@ const AudioCall = () => {
                     }}
                     muted
                     playsInline
+                    loop
                   />
                 </div>
-                
+
                 <div>
                   <h2 className="text-2xl font-bold text-foreground mb-2">
                     Начать звонок с психологом
@@ -1075,6 +1156,7 @@ const AudioCall = () => {
                     }}
                     muted
                     playsInline
+                    loop
                   />
                 </div>
 
@@ -1092,11 +1174,11 @@ const AudioCall = () => {
                       </div>
                     )}
                     <div className="mt-3 w-48 mx-auto h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className={`h-full transition-all duration-1000 ${callDuration >= SESSION_WARNING_SECONDS
-                            ? 'bg-orange-500' 
-                            : 'bg-blue-500'
-                        }`}
+                          ? 'bg-orange-500'
+                          : 'bg-blue-500'
+                          }`}
                         style={{ width: `${Math.min((callDuration / SESSION_DURATION_SECONDS) * 100, 100)}%` }}
                       />
                     </div>
@@ -1172,6 +1254,27 @@ const AudioCall = () => {
                         className="text-xs px-2 py-1"
                       >
                         Пропустить
+                      </Button>
+                    )}
+                    {(transcriptionStatus.includes("Озвучиваю") || transcriptionStatus.includes("Марк подводит")) && (
+                      <Button
+                        onClick={() => {
+                          // Останавливаем TTS и сразу включаем транскрибацию
+                          stopAssistantSpeech();
+                          // Очищаем pending transcript для новой транскрибации
+                          pendingTranscriptRef.current = "";
+                          if (pendingProcessTimeoutRef.current) {
+                            window.clearTimeout(pendingProcessTimeoutRef.current);
+                            pendingProcessTimeoutRef.current = null;
+                          }
+                          setTranscriptionStatus("Говорите...");
+                          console.log("[AudioCall] User interrupted TTS and started transcription");
+                        }}
+                        size="sm"
+                        variant="outline"
+                        className="text-xs px-2 py-1"
+                      >
+                        Прервать
                       </Button>
                     )}
                   </div>
