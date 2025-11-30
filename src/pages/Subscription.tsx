@@ -383,7 +383,6 @@ const Subscription = () => {
 
   return (
     <div className="min-h-screen bg-calm-gradient">
-      <CandyFireworks show={showConfetti} />
       <Navigation />
 
       <div className="pt-24 pb-12 px-4">
