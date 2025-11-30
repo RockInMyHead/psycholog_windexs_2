@@ -46,6 +46,7 @@ const AudioCall = () => {
   const [callDuration, setCallDuration] = useState(0);
   const [user, setUser] = useState<any | null>(null);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
+  const currentCallIdRef = useRef<string | null>(null);
   const [transcriptionStatus, setTranscriptionStatus] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -685,15 +686,21 @@ const AudioCall = () => {
   };
 
   const updateConversationMemory = async (userText: string, assistantText: string) => {
-    if (!user || !currentCallId) {
-      console.warn("[AudioCall] Cannot update memory - missing user or callId", { user: !!user, currentCallId });
+    const callId = currentCallIdRef.current || currentCallId;
+    
+    if (!user || !callId) {
+      console.warn("[AudioCall] Cannot update memory - missing user or callId", { 
+        user: !!user, 
+        currentCallId,
+        currentCallIdRef: currentCallIdRef.current 
+      });
       return;
     }
 
     try {
       console.log("[AudioCall] Updating memory:", { 
         userId: user.id, 
-        callId: currentCallId,
+        callId,
         userTextLength: userText.length,
         assistantTextLength: assistantText.length
       });
@@ -701,7 +708,7 @@ const AudioCall = () => {
       const updatedMemory = await memoryApi.appendMemory(
         user.id,
         "audio",
-        currentCallId,
+        callId,
         userText,
         assistantText
       );
@@ -908,6 +915,8 @@ const AudioCall = () => {
 
       const call = await audioCallApi.createAudioCall(user.id);
       setCurrentCallId(call.id);
+      currentCallIdRef.current = call.id;
+      console.log("[AudioCall] Аудио сессия создана, ID:", call.id);
       console.log("[AudioCall] Аудио сессия создана, ID:", call.id);
 
       console.log("[AudioCall] Запрашиваем доступ к микрофону...");
@@ -995,6 +1004,8 @@ const AudioCall = () => {
         cleanupRecording();
         await audioCallApi.endAudioCall(call.id, 0);
         setCurrentCallId(null);
+      currentCallIdRef.current = null;
+        currentCallIdRef.current = null;
         return;
       }
 
@@ -1139,6 +1150,7 @@ const AudioCall = () => {
       setAudioError("Не удалось получить доступ к микрофону. Проверьте настройки и попробуйте снова.");
       cleanupRecording();
       setCurrentCallId(null);
+      currentCallIdRef.current = null;
     }
   };
 
@@ -1187,6 +1199,7 @@ const AudioCall = () => {
       setIsMuted(false);
       isMutedRef.current = false;
       setCurrentCallId(null);
+      currentCallIdRef.current = null;
       setTranscriptionStatus(null);
       callLimitReachedRef.current = false;
       callLimitWarningSentRef.current = false;
