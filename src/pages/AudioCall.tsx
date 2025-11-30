@@ -72,6 +72,7 @@ const AudioCall = () => {
   const speakerGainRef = useRef<GainNode | null>(null);
   const callLimitReachedRef = useRef(false);
   const callLimitWarningSentRef = useRef(false);
+  const callGoodbyeSentRef = useRef(false);
   const memoryRef = useRef<string>("");
   const pendingTranscriptRef = useRef<string>("");
   const pendingProcessTimeoutRef = useRef<number | null>(null);
@@ -85,6 +86,7 @@ const AudioCall = () => {
 
   const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут на сессию
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // Предупреждение за 5 минут
+  const SESSION_GOODBYE_SECONDS = SESSION_DURATION_SECONDS - 1 * 60; // Прощание за 1 минуту
   const MAX_CALL_DURATION_SECONDS = 40 * 60; // Абсолютный максимум (для подстраховки)
   const VOICE_DETECTION_THRESHOLD = 45; // Увеличили порог до 45 для защиты от шума
 
@@ -858,6 +860,7 @@ const AudioCall = () => {
       setCallDuration(0);
       callLimitReachedRef.current = false;
       callLimitWarningSentRef.current = false;
+      callGoodbyeSentRef.current = false;
       setIsInitializingCall(false); // Сбрасываем на всякий случай
       
       // Загружаем память из базы данных
@@ -1062,6 +1065,45 @@ const AudioCall = () => {
               });
           }
 
+          // Прощание за 1 минуту до конца сессии
+          if (!callGoodbyeSentRef.current && next >= SESSION_GOODBYE_SECONDS && next < SESSION_DURATION_SECONDS) {
+            callGoodbyeSentRef.current = true;
+
+            responseQueueRef.current = responseQueueRef.current
+              .catch((error) => console.error("Previous voice response error:", error))
+              .then(async () => {
+                try {
+                  setTranscriptionStatus("Марк прощается...");
+
+                  const goodbyePrompt = `Наша сессия подходит к концу. Попрощайся с клиентом тепло и поддерживающе, пожелай успехов до следующей встречи и напомни о важности продолжать работу над собой между сессиями.
+
+Говори от первого лица, естественно и по-человечески. Будь краток - максимум два-три предложения.`;
+
+                  const conversationForGoodbye = [
+                    ...conversationRef.current,
+                    { role: "user" as const, content: goodbyePrompt }
+                  ];
+
+                  const goodbyeResponse = await psychologistAI.getVoiceResponse(
+                    conversationForGoodbye,
+                    memoryRef.current,
+                    false
+                  );
+
+                  conversationRef.current.push({ role: "assistant", content: goodbyeResponse });
+                  await enqueueSpeechPlayback(goodbyeResponse);
+
+                } catch (error) {
+                  console.error("Error generating session goodbye:", error);
+                  const fallbackGoodbye = "Спасибо за нашу работу сегодня. До скорой встречи — продолжайте заботиться о себе между сессиями.";
+                  conversationRef.current.push({ role: "assistant", content: fallbackGoodbye });
+                  await enqueueSpeechPlayback(fallbackGoodbye);
+                } finally {
+                  setTranscriptionStatus("");
+                }
+              });
+          }
+
           if (next >= SESSION_DURATION_SECONDS && !callLimitReachedRef.current) {
             callLimitReachedRef.current = true;
             window.setTimeout(() => {
@@ -1140,6 +1182,7 @@ const AudioCall = () => {
       setTranscriptionStatus(null);
       callLimitReachedRef.current = false;
       callLimitWarningSentRef.current = false;
+      callGoodbyeSentRef.current = false;
       memoryRef.current = "";
 
       if (audioStreamRef.current) {
