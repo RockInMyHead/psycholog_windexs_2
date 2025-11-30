@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX, Music } from "lucide-react";
@@ -9,6 +10,7 @@ import { psychologistAI, type ChatMessage } from "@/services/openai";
 
 const AudioCall = () => {
   const { user: authUser } = useAuth();
+  const navigate = useNavigate();
   const [isCallActive, setIsCallActive] = useState(false);
 
   // Детекция Safari браузера
@@ -51,6 +53,7 @@ const AudioCall = () => {
   const [isMusicOn, setIsMusicOn] = useState(false); // Управление фоновой музыкой
   const [isVideoPlaying, setIsVideoPlaying] = useState(false); // Управление видео Марка
   const [isSafariBrowser, setIsSafariBrowser] = useState(false); // Детекция Safari браузера
+  const [isInitializingCall, setIsInitializingCall] = useState(false); // Промежуточное состояние при запуске звонка
 
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callTimerRef = useRef<number | null>(null);
@@ -208,6 +211,9 @@ const AudioCall = () => {
       return;
     }
 
+    // Проверяем, не было ли прерывание во время подготовки
+    const startGenId = generationIdRef.current;
+
     const audioContext = await initializeAudioContext();
     if (!audioContext) {
       console.warn("[AudioCall] AudioContext unavailable.");
@@ -229,6 +235,12 @@ const AudioCall = () => {
 
     try {
       while (audioQueueRef.current.length > 0) {
+        // Проверяем, не было ли прерывание перед каждым аудио буфером
+        if (generationIdRef.current !== startGenId) {
+          console.log("[AudioCall] Playback cancelled due to generation change");
+          break;
+        }
+
         const buffer = audioQueueRef.current.shift();
         if (!buffer || !(buffer instanceof ArrayBuffer) || buffer.byteLength === 0) continue;
 
@@ -241,6 +253,13 @@ const AudioCall = () => {
         }
 
         await new Promise<void>((resolve) => {
+          // Проверяем generationId перед каждым воспроизведением
+          if (generationIdRef.current !== startGenId) {
+            console.log("[AudioCall] Audio playback cancelled due to generation change");
+            resolve();
+            return;
+          }
+
           const source = audioContext.createBufferSource();
           source.buffer = decoded;
           source.connect(outputNode ?? audioContext.destination);
@@ -295,7 +314,11 @@ const AudioCall = () => {
         try {
           const audioBuffer = await psychologistAI.synthesizeSpeech(sentence);
 
-          if (generationIdRef.current !== myGenId) break;
+          // Дополнительная проверка после синтеза
+          if (generationIdRef.current !== myGenId) {
+            console.log("[AudioCall] Generation cancelled after synthesis");
+            break;
+          }
 
           if (audioBuffer && audioBuffer.byteLength > 0) {
             audioQueueRef.current.push(audioBuffer);
@@ -316,18 +339,28 @@ const AudioCall = () => {
   };
 
   const stopAssistantSpeech = () => {
-    generationIdRef.current += 1;
+    const newGenerationId = generationIdRef.current + 1;
+    generationIdRef.current = newGenerationId;
+
+    // Агрессивная очистка всех аудио ресурсов
     audioQueueRef.current = [];
+
+    // Немедленное прерывание текущего воспроизведения
     if (currentSpeechSourceRef.current) {
       try {
         currentSpeechSourceRef.current.stop();
+        currentSpeechSourceRef.current.disconnect();
       } catch (error) {
         console.warn("Error stopping speech source:", error);
       }
-      currentSpeechSourceRef.current.disconnect();
       currentSpeechSourceRef.current = null;
     }
+
+    // Сбрасываем все флаги состояния
     isPlayingAudioRef.current = false;
+    isSynthesizingRef.current = false;
+
+    console.log(`[AudioCall] Speech stopped aggressively (generationId: ${newGenerationId})`);
 
     // Обновляем состояние видео - останавливаем если нужно
     updateVideoBasedOnTTS();
@@ -401,39 +434,61 @@ const AudioCall = () => {
   };
 
   const playVideo = async () => {
-    // Воспроизводим видео только если TTS активен
-    if (videoRef.current && !isVideoPlaying && (isPlayingAudioRef.current || isSynthesizingRef.current)) {
+    // СТРОГОЕ воспроизведение видео ТОЛЬКО когда TTS активен
+    if (videoRef.current && (isPlayingAudioRef.current || isSynthesizingRef.current)) {
       try {
-        await videoRef.current.play();
-        setIsVideoPlaying(true);
-        console.log("[AudioCall] Video started - TTS active");
+        // Минимальная задержка перед запуском видео, чтобы синхронизировать с началом аудио
+        // Задержка нужна потому что синтез TTS занимает время, а видео запускается мгновенно
+        if (isSynthesizingRef.current && !isPlayingAudioRef.current) {
+          // Когда только синтезируем, но еще не играем - добавляем небольшую задержку
+          await new Promise(resolve => setTimeout(resolve, 300)); // 300ms задержка для синхронизации
+        }
+
+        // Проверяем еще раз, что TTS все еще активен после задержки
+        if (isPlayingAudioRef.current || isSynthesizingRef.current) {
+          await videoRef.current.play();
+          setIsVideoPlaying(true);
+          console.log("[AudioCall] Video started with proper timing - TTS active");
+        }
       } catch (error) {
         console.warn('Error playing video:', error);
+        // Даже при ошибке сбрасываем состояние
+        setIsVideoPlaying(false);
+      }
+    } else {
+      // Если TTS не активен, принудительно останавливаем видео
+      stopVideoImmediately();
+    }
+  };
+
+  const stopVideoImmediately = () => {
+    // СТРОГАЯ остановка видео НЕЗАВИСИМО от состояния
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0; // Сбрасываем на начало РЕЗКО
+        setIsVideoPlaying(false);
+        console.log("[AudioCall] Video stopped IMMEDIATELY - TTS inactive");
+      } catch (error) {
+        console.warn('Error stopping video:', error);
       }
     }
   };
 
-  // Управление видео состоянием на основе TTS
+  // Управление видео состоянием на основе TTS - СТРОГОЕ И МГНОВЕННОЕ
   const updateVideoBasedOnTTS = () => {
     const isTTSActive = isPlayingAudioRef.current || isSynthesizingRef.current;
 
-    if (isTTSActive && !isVideoPlaying) {
-      // Запускаем видео если TTS активен и видео не играет
+    if (isTTSActive) {
+      // Мгновенный запуск видео когда TTS активен - БЕЗ ЗАДЕРЖЕК
       void playVideo();
-    } else if (!isTTSActive && isVideoPlaying) {
-      // Останавливаем видео если TTS не активен и видео играет
-      pauseVideo();
-      console.log("[AudioCall] Video stopped - TTS inactive");
+    } else {
+      // Мгновенная остановка видео когда TTS неактивен - РЕЗКО И СТРОГО
+      stopVideoImmediately();
     }
   };
 
-  const pauseVideo = () => {
-    if (videoRef.current && isVideoPlaying) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0; // Сбрасываем на начало
-      setIsVideoPlaying(false);
-    }
-  };
+  // Старая функция pauseVideo заменена на stopVideoImmediately для более строгого контроля
 
   // Инициализируем видео только после пользовательского взаимодействия (для мобильной совместимости)
   const initializeVideoForMobile = async () => {
@@ -749,6 +804,7 @@ const AudioCall = () => {
     }
 
     isStartingCallRef.current = true;
+    setIsInitializingCall(true);
 
     try {
       const accessCheck = await subscriptionApi.checkAudioAccess(user.id);
@@ -756,10 +812,13 @@ const AudioCall = () => {
 
       if (!accessCheck.hasAccess) {
         isStartingCallRef.current = false;
+        setIsInitializingCall(false);
         if (accessCheck.reason === 'no_subscription') {
           setAudioError("У вас нет активной подписки. Оформите подписку для доступа к аудио сессиям.");
         } else if (accessCheck.reason === 'no_sessions_left') {
-          setAudioError("У вас закончились аудио сессии. Оформите дополнительную подписку.");
+          // Перенаправляем на страницу подписок вместо показа ошибки
+          navigate('/subscription');
+          return;
         } else {
           setAudioError("Доступ к аудио сессиям ограничен.");
         }
@@ -799,6 +858,7 @@ const AudioCall = () => {
       setCallDuration(0);
       callLimitReachedRef.current = false;
       callLimitWarningSentRef.current = false;
+      setIsInitializingCall(false); // Сбрасываем на всякий случай
       memoryRef.current = await memoryApi.getMemory(user.id, "audio");
 
       const sessionInfo = await subscriptionApi.getAudioSessionInfo(user.id);
@@ -923,6 +983,10 @@ const AudioCall = () => {
         return;
       }
 
+      // Переключаем интерфейс на активный звонок сразу после инициализации устройств
+      setIsCallActive(true);
+      setTranscriptionStatus("Готовлюсь к разговору...");
+
       // Небольшая задержка, чтобы интерфейс звонка успел отрисоваться
       await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -949,8 +1013,8 @@ const AudioCall = () => {
                 try {
                   setTranscriptionStatus("Марк подводит итоги сессии...");
 
-                  const summaryPrompt = `У нас осталось около пяти минут до конца нашей тридцатиминутной сессии. 
-                  
+                  const summaryPrompt = `У нас осталось около пяти минут до конца нашей тридцатиминутной сессии.
+
 Задача:
 1. Кратко подведи итоги: что мы обсудили, какие важные моменты всплыли
 2. Отметь, что важного клиент для себя понял или осознал
@@ -1001,11 +1065,12 @@ const AudioCall = () => {
       }, 1000);
 
       setTranscriptionStatus("");
-      setIsCallActive(true);
       isStartingCallRef.current = false; // Сбрасываем флаг после успешного запуска
+      setIsInitializingCall(false);
     } catch (error) {
       console.error("Error starting call:", error);
       isStartingCallRef.current = false; // Сбрасываем флаг при ошибке
+      setIsInitializingCall(false);
       setAudioError("Не удалось получить доступ к микрофону. Проверьте настройки и попробуйте снова.");
       cleanupRecording();
       setCurrentCallId(null);
@@ -1049,9 +1114,10 @@ const AudioCall = () => {
       stopAssistantSpeech();
       pauseBackgroundMusic(); // Останавливаем фоновую музыку
       setIsMusicOn(false); // Сбрасываем состояние музыки
-      pauseVideo(); // Останавливаем видео
+      stopVideoImmediately(); // Останавливаем видео СТРОГО
       setIsVideoPlaying(false); // Сбрасываем состояние видео
       setIsCallActive(false);
+      setIsInitializingCall(false);
       setCallDuration(0);
       setIsMuted(false);
       isMutedRef.current = false;
@@ -1088,7 +1154,41 @@ const AudioCall = () => {
           </div>
 
           <Card className="bg-card-gradient border-2 border-border shadow-strong p-8 md:p-12 text-center animate-scale-in">
-            {!isCallActive ? (
+            {isInitializingCall ? (
+              <div className="space-y-8">
+                <div className="w-[180px] h-[180px] sm:w-[260px] sm:h-[260px] md:w-[320px] md:h-[320px] mx-auto rounded-full overflow-hidden shadow-strong">
+                  <video
+                    ref={videoRef}
+                    src="/Untitled Video.mp4"
+                    className="w-full h-full object-cover pointer-events-none"
+                    style={{
+                      transform: 'translateX(5px) scale(1.05)',
+                      objectPosition: '50% 50%'
+                    }}
+                    muted
+                    playsInline
+                    loop
+                  />
+                </div>
+
+                <div>
+                  <h2 className="text-2xl font-bold text-foreground mb-2">
+                    Инициализация звонка
+                  </h2>
+                  <p className="text-muted-foreground">
+                    Подготавливаю все необходимое для разговора...
+                  </p>
+                  <div className="mt-6">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-hero-gradient flex items-center justify-center animate-pulse">
+                      <Phone className="w-8 h-8 text-white animate-bounce" />
+                    </div>
+                  </div>
+                  <p className="mt-4 text-sm text-primary animate-pulse">
+                    {transcriptionStatus || "Пожалуйста, подождите..."}
+                  </p>
+                </div>
+              </div>
+            ) : !isCallActive ? (
               <div className="space-y-8">
                 <div className="w-[180px] h-[180px] sm:w-[260px] sm:h-[260px] md:w-[320px] md:h-[320px] mx-auto rounded-full overflow-hidden shadow-strong">
                   <video

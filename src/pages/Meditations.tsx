@@ -125,7 +125,10 @@ const Meditations = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Special card for Meditation with Mark */}
-            <Card className="overflow-hidden bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 shadow-soft hover:shadow-medium transition-all group cursor-pointer animate-fade-in">
+            <Card
+              className="overflow-hidden bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 shadow-soft hover:shadow-medium transition-all group cursor-pointer animate-fade-in"
+              onClick={() => navigate('/meditation-with-marque')}
+            >
               <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
                 <div className="text-center">
                   <Wind className="w-16 h-16 text-primary mx-auto mb-4" />
@@ -134,7 +137,10 @@ const Meditations = () => {
                 </div>
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button
-                    onClick={() => navigate('/meditation-with-marque')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate('/meditation-with-marque');
+                    }}
                     className="w-16 h-16 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow-strong"
                     size="icon"
                   >

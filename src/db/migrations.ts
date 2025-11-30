@@ -1,6 +1,7 @@
 import { db } from './index';
 import * as schema from './schema';
 import { eq } from 'drizzle-orm';
+import { createId } from '@paralleldrive/cuid2';
 
 // Initialize database with default data
 export async function initializeDatabase() {
@@ -139,11 +140,30 @@ async function createTables() {
 }
 
 async function seedQuotes() {
-  // Check if quotes already exist
-  const existingQuotes = await db.select().from(schema.quotes).limit(1);
-  if (existingQuotes.length > 0) {
-    console.log('Quotes already seeded, skipping...');
+  // Check if we have enough quotes (should be 174 or more)
+  const existingQuotesCount = await db.$count(schema.quotes);
+  console.log(`Found ${existingQuotesCount} existing quotes`);
+
+  if (existingQuotesCount >= 170) {
+    console.log('Quotes already fully seeded, checking for null IDs...');
+    // Fix quotes with null IDs
+    const quotesWithNullId = await db.select().from(schema.quotes).where(eq(schema.quotes.id, null));
+    if (quotesWithNullId.length > 0) {
+      console.log(`Found ${quotesWithNullId.length} quotes with null IDs, fixing...`);
+      for (const quote of quotesWithNullId) {
+        await db.update(schema.quotes)
+          .set({ id: createId() })
+          .where(eq(schema.quotes.text, quote.text)); // Use text as unique identifier
+      }
+      console.log('Null IDs fixed successfully!');
+    }
     return;
+  }
+
+  // Clear existing quotes and re-seed if we have too few
+  if (existingQuotesCount > 0) {
+    console.log('Clearing existing quotes due to insufficient count...');
+    await db.delete(schema.quotes);
   }
 
   const defaultQuotes = [
@@ -325,6 +345,7 @@ async function seedQuotes() {
 
   for (const quote of defaultQuotes) {
     await db.insert(schema.quotes).values({
+      id: createId(), // Явно генерируем ID
       ...quote,
       createdAt: new Date(),
     });

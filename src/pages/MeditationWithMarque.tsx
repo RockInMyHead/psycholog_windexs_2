@@ -77,6 +77,7 @@ const MeditationWithMarque = () => {
   const lastPoseFeedbackRef = useRef<number>(0); // Timestamp of last pose feedback
   const guidanceIntervalRef = useRef<number | null>(null); // For regular meditation guidance
 
+  /*
   // Yoga meditation plans for different durations
   const yogaMeditationPlans = {
     5: [
@@ -122,7 +123,9 @@ const MeditationWithMarque = () => {
       { poseId: "sukhasana", duration: 4 } // Продолжительный финальный отдых
     ]
   };
+  */
 
+  /*
   // Yoga poses for meditation
   const yogaPoses = [
     {
@@ -196,6 +199,7 @@ const MeditationWithMarque = () => {
       duration: 3
     }
   ];
+  */
 
   // Meditation types
   const meditations: MeditationType[] = [
@@ -224,11 +228,13 @@ const MeditationWithMarque = () => {
       name: "Осознанность",
       description: "Живите настоящим моментом"
     },
+    /*
     {
       id: "yoga_meditation",
       name: "Йога-медитация",
       description: "Медитация в йога-позах с контролем выполнения"
     }
+    */
   ];
 
   const times = [5, 10, 15, 20, 25, 30]; // минуты
@@ -245,7 +251,18 @@ const MeditationWithMarque = () => {
       "Заметьте ритм вашего дыхания. Не пытайтесь его контролировать, просто наблюдайте.",
       "Почувствуйте, как дыхание само собой становится более спокойным и ровным.",
       "Ваше дыхание - естественный процесс. Позвольте ему течь свободно.",
-      "Каждый вдох приносит свежую энергию, каждый выдох уносит заботы."
+      "Каждый вдох приносит свежую энергию, каждый выдох уносит заботы.",
+      "Сосчитайте свои вдохи от 1 до 10, затем начните заново. Это поможет сосредоточиться.",
+      "Почувствуйте, как воздух входит через нос, наполняет легкие и выходит через рот.",
+      "Представьте, что с каждым выдохом вы отпускаете все напряжение из тела.",
+      "Обратите внимание на паузу между вдохом и выдохом. Почувствуйте совершенство момента.",
+      "Если дыхание становится поверхностным, мягко углубите его, но без напряжения.",
+      "Ваше дыхание - это дар жизни. Будьте благодарны за каждый вдох.",
+      "Почувствуйте, как ритм дыхания успокаивает ваш ум и тело.",
+      "Представьте, что ваше дыхание - это волна океана, приходящая и уходящая.",
+      "Заметьте, как дыхание объединяет тело и разум в гармоничное целое.",
+      "Позвольте дыханию быть вашим учителем - естественным, мудрым, спокойным.",
+      "Завершите осознанием того, как дыхание поддерживает вас в каждый момент жизни."
     ],
     body_scan: [
       "Начните с пальцев ног и медленно перемещайте внимание вверх по телу, расслабляя каждую часть.",
@@ -257,7 +274,22 @@ const MeditationWithMarque = () => {
       "Вернитесь к пальцам ног. Почувствуйте, как расслабление распространяется по всему телу.",
       "Обратите внимание на общую позу тела. Позвольте ему полностью отдохнуть.",
       "Почувствуйте единство всех частей тела в состоянии покоя.",
-      "Продолжайте осознавать тело как единое целое, наполненное спокойствием."
+      "Продолжайте осознавать тело как единое целое, наполненное спокойствием.",
+      "Сосредоточьтесь на пальцах ног. Почувствуйте, как они полностью расслаблены.",
+      "Переместите внимание на свод стопы. Заметьте любые ощущения в этой области.",
+      "Почувствуйте лодыжки и нижнюю часть голеней. Позвольте мышцам расслабиться.",
+      "Обратите внимание на колени. Почувствуйте, как они отдыхают на поверхности.",
+      "Перейдите к бедрам. Заметьте, как расслабление распространяется вверх.",
+      "Почувствуйте тазовую область. Позвольте ей полностью отдохнуть.",
+      "Обратите внимание на нижнюю часть спины. Почувствуйте поддержку под вами.",
+      "Переместите внимание на живот и диафрагму. Заметьте ритм дыхания.",
+      "Почувствуйте грудную клетку и область сердца. Позвольте им быть спокойными.",
+      "Обратите внимание на плечи. Почувствуйте, как они опускаются вниз.",
+      "Перейдите к рукам - от плеч до кончиков пальцев. Полностью расслабьте их.",
+      "Почувствуйте шею и затылок. Позвольте голове отдыхать на плечах.",
+      "Обратите внимание на лицо - лоб, глаза, щеки, рот. Расслабьте все мышцы.",
+      "Почувствуйте макушку головы. Завершите сканирование ощущением покоя.",
+      "Теперь осознайте все тело как единое целое. Почувствуйте глубокое расслабление."
     ],
     loving_kindness: [
       "Пошлите любовь и доброту сначала себе. Повторите: 'Пусть я буду счастлив, пусть я буду здоров'.",
@@ -268,7 +300,18 @@ const MeditationWithMarque = () => {
       "Пошлите любовь всем живым существам. Почувствуйте всеобщую связь жизни.",
       "Завершите, послав любовь обратно себе. Почувствуйте, как она наполняет вас.",
       "Заметьте, как практика любящей доброты меняет ваше восприятие мира.",
-      "Продолжайте культивировать это чувство в повседневной жизни."
+      "Продолжайте культивировать это чувство в повседневной жизни.",
+      "Начните с себя: 'Пусть я найду внутренний покой и счастье в этот момент'.",
+      "Пошлите любовь своему телу. Почувствуйте благодарность за его службу.",
+      "Распространите доброту на членов семьи. Пожелайте им здоровья и радости.",
+      "Пошлите любовь друзьям. Почувствуйте теплоту этих отношений.",
+      "Вспомните кого-то, кто помог вам в трудную минуту. Пошлите ему благодарность.",
+      "Пошлите любовь коллегам и знакомым. Мы все часть большой сети жизни.",
+      "Распространите доброту на незнакомцев. Каждый человек имеет свою историю.",
+      "Пошлите любовь тем, кто причинил вам боль. Это освобождает ваше сердце.",
+      "Распространите любовь на всю планету. Почувствуйте единство человечества.",
+      "Пошлите любовь животным и природе. Мы все взаимосвязаны.",
+      "Завершите, наполнив себя безусловной любовью и добротой ко всему сущему."
     ],
     visualization: [
       "Представьте спокойное место - лес, пляж или горы. Почувствуйте это место всеми органами чувств.",
@@ -279,7 +322,18 @@ const MeditationWithMarque = () => {
       "Обратите внимание на запахи этого места - свежая трава, соленый морской воздух, цветы.",
       "Почувствуйте текстуры - мягкая земля под ногами, прохладный бриз, теплое солнце.",
       "Позвольте этому месту стать вашим убежищем. Здесь вы всегда в безопасности.",
-      "Когда будете готовы, медленно вернитесь в настоящее, сохранив ощущение покоя."
+      "Когда будете готовы, медленно вернитесь в настоящее, сохранив ощущение покоя.",
+      "Выберите свое идеальное место покоя. Что это за место? Создайте его в воображении.",
+      "Посмотрите на небо в вашем воображаемом месте. Какие облака, солнце или звезды?",
+      "Почувствуйте поверхность под ногами. Земля, песок, трава - какая она на ощупь?",
+      "Услышьте далекие звуки этого места. Что вы слышите вдалеке?",
+      "Обратите внимание на растения и цветы вокруг. Какие они, как пахнут?",
+      "Почувствуйте, как тело полностью расслабляется в этом безопасном пространстве.",
+      "Представьте источник чистой воды неподалеку. Услышьте ее журчание.",
+      "Почувствуйте абсолютную безопасность. Здесь ничто не может навредить вам.",
+      "Добавьте в это место что-то личное - любимый предмет или воспоминание.",
+      "Позвольте этому месту стать вашим внутренним святилищем для трудных моментов.",
+      "Когда будете готовы выйти, знайте, что это место всегда доступно в вашем уме."
     ],
     mindfulness: [
       "Замечайте свои мысли и чувства без осуждения. Просто наблюдайте, как приходят и уходят.",
@@ -291,7 +345,17 @@ const MeditationWithMarque = () => {
       "Заметьте звуки вокруг вас. Принимайте их без оценки.",
       "Осознайте позу тела. Почувствуйте контакт с поверхностью.",
       "Практикуйте осознанность в повседневной жизни. Каждый момент ценен.",
-      "Завершите, сохранив ощущение присутствия в настоящем моменте."
+      "Завершите, сохранив ощущение присутствия в настоящем моменте.",
+      "Начните с осознания дыхания. Почувствуйте воздух, входящий и выходящий.",
+      "Заметьте мысли без вовлеченности. Просто отметьте: 'вот мысль о работе'.",
+      "Обратите внимание на эмоции. Назовите их: 'вот тревога', 'вот спокойствие'.",
+      "Почувствуйте вес своего тела на сиденье. Осознайте этот контакт.",
+      "Услышьте звуки в комнате. Принимайте каждый звук как часть настоящего.",
+      "Заметьте позу тела. Какие мышцы работают, чтобы удерживать эту позу?",
+      "Осознайте температуру воздуха на коже. Тепло, прохлада, нейтрально.",
+      "Обратите внимание на свет в комнате. Как он влияет на ваше восприятие?",
+      "Почувствуйте энергию в теле. Где есть движение, где покой?",
+      "Завершите осознанием того, что осознанность - это всегда доступный выбор."
     ]
   };
 
@@ -571,56 +635,40 @@ const MeditationWithMarque = () => {
     console.log("✅ Set isSessionActive to true");
     setElapsedTime(0);
 
-    // Different setup for yoga vs regular meditation
-    if (selectedMeditation.id === "yoga_meditation") {
-      await startWebcam();
+    // Regular meditation - start with first guidance
+    setMeditationGuidanceStep(0);
+    const initialGuidance = getMeditationGuidance(selectedMeditation.id, 0);
 
-      // selectedYogaPoses already set from user selection, no need to apply plan
+    const greeting = `Начинаем ${selectedMeditation.name} на ${selectedTime} минут. ${initialGuidance || 'Сосредоточьтесь и наслаждайтесь процессом.'}`;
+    conversationRef.current = [
+      { role: "system", content: `Ты ведущий ${selectedMeditation.name}. Давай мягкие, успокаивающие инструкции.` },
+      { role: "assistant", content: greeting }
+    ];
 
-      // Initial greeting for yoga
-      const greeting = `Начинаем йога-медитацию на ${selectedTime} минут. Я проведу вас через ${selectedYogaPoses.length} поз${selectedYogaPoses.length > 1 ? 'ы' : 'у'}. Сосредоточьтесь на дыхании и наслаждайтесь практикой.`;
-      conversationRef.current = [
-        { role: "system", content: "Ты инструктор йога-медитации. Помогаешь правильно выполнять позы и следить за качеством." },
-        { role: "assistant", content: greeting }
-      ];
+    await speakText(greeting);
 
-      await speakText(greeting);
-    } else {
-      // Regular meditation - start with first guidance
-      setMeditationGuidanceStep(0);
-      const initialGuidance = getMeditationGuidance(selectedMeditation.id, 0);
+    // Set up periodic guidance for regular meditation
+    guidanceIntervalRef.current = window.setInterval(() => {
+      if (!isSessionActive) {
+        if (guidanceIntervalRef.current) {
+          clearInterval(guidanceIntervalRef.current);
+          guidanceIntervalRef.current = null;
+        }
+        return;
+      }
 
-      const greeting = `Начинаем ${selectedMeditation.name} на ${selectedTime} минут. ${initialGuidance || 'Сосредоточьтесь и наслаждайтесь процессом.'}`;
-      conversationRef.current = [
-        { role: "system", content: `Ты ведущий ${selectedMeditation.name}. Давай мягкие, успокаивающие инструкции.` },
-        { role: "assistant", content: greeting }
-      ];
+      setMeditationGuidanceStep(prev => {
+        const nextStep = prev + 1;
+        const guidance = getMeditationGuidance(selectedMeditation.id, nextStep);
 
-      await speakText(greeting);
-
-      // Set up periodic guidance for regular meditation
-      guidanceIntervalRef.current = window.setInterval(() => {
-        if (!isSessionActive) {
-          if (guidanceIntervalRef.current) {
-            clearInterval(guidanceIntervalRef.current);
-            guidanceIntervalRef.current = null;
-          }
-          return;
+        if (guidance) {
+          console.log(`Speaking guidance step ${nextStep} for ${selectedMeditation.name}`);
+          speakText(guidance);
         }
 
-        setMeditationGuidanceStep(prev => {
-          const nextStep = prev + 1;
-          const guidance = getMeditationGuidance(selectedMeditation.id, nextStep);
-
-          if (guidance) {
-            console.log(`Speaking guidance step ${nextStep} for ${selectedMeditation.name}`);
-            speakText(guidance);
-          }
-
-          return nextStep;
-        });
-      }, 90000); // Every 1.5 minutes for regular meditations
-    }
+        return nextStep;
+      });
+    }, 60000); // Every minute for regular meditations
 
     // Start background music for all types
     startBackgroundMusic();
@@ -631,6 +679,7 @@ const MeditationWithMarque = () => {
       setElapsedTime((prev) => {
         const newTime = prev + 1;
 
+        /*
         // For yoga meditation, check pose changes
         if (selectedMeditation.id === "yoga_meditation" && currentYogaPose) {
           const poseDuration = currentYogaPose.duration;
@@ -638,6 +687,7 @@ const MeditationWithMarque = () => {
             changeYogaPose();
           }
         }
+        */
 
         if (newTime >= selectedTime! * 60) {
           console.log("⏰ TIMER END: newTime", newTime, "selectedTime", selectedTime, "limit", selectedTime! * 60);
@@ -658,10 +708,12 @@ const MeditationWithMarque = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (guidanceIntervalRef.current) clearInterval(guidanceIntervalRef.current);
 
+    /*
     // Stop webcam only for yoga meditation
     if (selectedMeditation?.id === "yoga_meditation" && streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
     }
+    */
 
     stopBackgroundMusic();
 
@@ -708,13 +760,16 @@ const MeditationWithMarque = () => {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
+  /*
   // Auto-start first pose when poses are loaded
   useEffect(() => {
     if (step === "meditating" && selectedYogaPoses.length > 0 && !currentYogaPose && isSessionActive) {
       changeYogaPose();
     }
   }, [selectedYogaPoses, step, currentYogaPose, isSessionActive]);
+  */
 
+  /*
   // Photo interval for pose analysis
   useEffect(() => {
     if (selectedMeditation?.id === "yoga_meditation" && isSessionActive && step === "meditating") {
@@ -730,6 +785,7 @@ const MeditationWithMarque = () => {
       };
     }
   }, [selectedMeditation, isSessionActive, step]);
+  */
 
   // Cleanup intervals on unmount
   useEffect(() => {
@@ -762,7 +818,10 @@ const MeditationWithMarque = () => {
                 {meditations.map((med) => (
                   <Card
                     key={med.id}
-                    onClick={() => setSelectedMeditation(med)}
+                    onClick={() => {
+                      setSelectedMeditation(med);
+                      setStep("select_time");
+                    }}
                     className={`p-4 sm:p-6 lg:p-8 cursor-pointer transition-all hover:shadow-lg w-full ${
                       selectedMeditation?.id === med.id
                         ? "border-2 border-primary bg-primary/5"
@@ -775,29 +834,6 @@ const MeditationWithMarque = () => {
                 ))}
               </div>
 
-              {selectedMeditation && (
-                <div className="text-center">
-                  {selectedMeditation.id === "yoga_meditation" ? (
-                    <Button
-                      size="lg"
-                      className="bg-hero-gradient text-white hover:shadow-lg"
-                      onClick={() => setStep("select_time")}
-                    >
-                      <Play className="w-5 h-5 mr-2" />
-                      Далее: выберите время
-                    </Button>
-                  ) : (
-                    <Button
-                      size="lg"
-                      className="bg-hero-gradient text-white hover:shadow-lg"
-                      onClick={() => setStep("select_time")}
-                    >
-                      <Play className="w-5 h-5 mr-2" />
-                      Далее: выберите время
-                    </Button>
-                  )}
-                </div>
-              )}
             </>
           )}
 

@@ -30,7 +30,10 @@ const Quotes = () => {
 
       // Load quotes
       const quotesData = await quoteApi.getAllQuotes();
-      setQuotes(quotesData);
+      // Filter out quotes with invalid IDs
+      const validQuotes = quotesData.filter(quote => quote.id && typeof quote.id === 'string');
+      console.log('Loaded quotes:', validQuotes.length, 'valid out of', quotesData.length, 'total');
+      setQuotes(validQuotes);
 
       // Load user's quote views
       const views = await quoteApi.getUserQuoteViews(userData.id, 50);
@@ -42,7 +45,10 @@ const Quotes = () => {
 
       // Load liked quotes
       const liked = await quoteApi.getUserLikedQuotes(userData.id, 50);
-      setLikedQuotes(liked.map(item => item.quote));
+      const validLikedQuotes = liked
+        .map(item => item.quote)
+        .filter(quote => quote.id && typeof quote.id === 'string');
+      setLikedQuotes(validLikedQuotes);
 
     } catch (error) {
       console.error('Error loading quotes data:', error);
@@ -52,7 +58,10 @@ const Quotes = () => {
   };
 
   const handleQuoteClick = async (quoteId: string) => {
-    if (!user) return;
+    if (!user || !quoteId) {
+      console.error('Invalid user or quoteId:', { user: !!user, quoteId });
+      return;
+    }
 
     try {
       // Toggle like status using the new service method
@@ -63,12 +72,15 @@ const Quotes = () => {
       setUserQuoteViews(prev => new Map(prev.set(quoteId, !currentlyLiked)));
 
       // Update liked quotes list
+      const quote = quotes.find(q => q.id === quoteId);
+      if (!quote) {
+        console.error('Quote not found in quotes array:', quoteId);
+        return;
+      }
+
       if (!currentlyLiked) {
         // Just liked - add to liked quotes
-        const quote = quotes.find(q => q.id === quoteId);
-        if (quote) {
-          setLikedQuotes(prev => [quote, ...prev]);
-        }
+        setLikedQuotes(prev => [quote, ...prev]);
       } else {
         // Just unliked - remove from liked quotes
         setLikedQuotes(prev => prev.filter(q => q.id !== quoteId));
@@ -134,7 +146,7 @@ const Quotes = () => {
                 const isLiked = userQuoteViews.get(quote.id) || false;
                 return (
                   <Card
-                    key={quote.id}
+                    key={`${showLikedOnly ? 'liked' : 'all'}-${quote.id}-${index}`}
                     className="p-6 bg-card-gradient border-2 border-border hover:border-primary/30 shadow-soft hover:shadow-medium transition-all cursor-pointer group animate-fade-in"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
