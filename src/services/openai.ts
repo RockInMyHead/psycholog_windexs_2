@@ -282,11 +282,24 @@ class PsychologistAI {
 
   async getVoiceResponse(messages: ChatMessage[], memoryContext = '', fastMode = false): Promise<string> {
     try {
+      // Формируем системный промпт с контекстом памяти
+      let systemMessages: { role: 'system'; content: string }[] = [
+        { role: "system" as const, content: this.systemPrompt }
+      ];
+
+      // Если есть контекст памяти, добавляем его как отдельное системное сообщение
+      if (memoryContext && memoryContext.trim().length > 0) {
+        systemMessages.push({
+          role: 'system' as const,
+          content: `КОНТЕКСТ ПРОШЛЫХ СЕССИЙ:
+${memoryContext}
+
+ВАЖНО: Используй эту информацию для создания персонализированных, релевантных ответов. Если пользователь спрашивает о прошлых беседах или упоминает темы, о которых вы говорили ранее, обращайся к этому контексту. Это помогает создать ощущение непрерывности терапии и показывает, что ты помнишь важные детали о пользователе.`
+        });
+      }
+
       const conversation = [
-        { role: "system" as const, content: this.systemPrompt },
-        ...(memoryContext
-          ? [{ role: 'system' as const, content: `Контекст прошлых бесед: ${memoryContext}` }]
-          : []),
+        ...systemMessages,
         ...messages.slice(-10),
       ];
 

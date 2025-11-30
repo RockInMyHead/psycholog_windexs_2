@@ -467,13 +467,12 @@ const Subscription = () => {
               return (
                 <Card
                   key={plan.id}
-                  className={`relative p-6 animate-scale-in ${isPopular
+                  className={`relative p-6 ${isPopular
                     ? 'bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border-2 border-yellow-300 dark:border-yellow-600 shadow-strong ring-2 ring-yellow-400/20'
                     : isFree
                       ? 'bg-card border-2 border-border shadow-medium'
                       : 'bg-card border-2 border-border shadow-medium hover:shadow-strong transition-shadow'
                     }`}
-                  style={{ animationDelay: `${index * 100}ms` }}
                 >
                   {isPopular && (
                     <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">

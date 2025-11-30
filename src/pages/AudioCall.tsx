@@ -859,7 +859,11 @@ const AudioCall = () => {
       callLimitReachedRef.current = false;
       callLimitWarningSentRef.current = false;
       setIsInitializingCall(false); // Сбрасываем на всякий случай
-      memoryRef.current = await memoryApi.getMemory(user.id, "audio");
+      
+      // Загружаем память из базы данных
+      const loadedMemory = await memoryApi.getMemory(user.id, "audio");
+      memoryRef.current = loadedMemory;
+      console.log("[AudioCall] Memory loaded from DB:", loadedMemory ? `${loadedMemory.substring(0, 100)}...` : "No memory found");
 
       const sessionInfo = await subscriptionApi.getAudioSessionInfo(user.id);
       setSubscriptionInfo(sessionInfo);
@@ -991,7 +995,18 @@ const AudioCall = () => {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       console.log("[AudioCall] Проигрываем приветствие...");
-      const greeting = "Здравствуйте. Я Марк, психолог. Расскажите, что вас сейчас больше всего беспокоит?";
+      
+      // Формируем приветствие с учетом истории общения
+      let greeting = "Здравствуйте. Я Марк, психолог.";
+      
+      if (memoryRef.current && memoryRef.current.trim().length > 0) {
+        // Если есть история общения, добавляем контекст
+        greeting += " Рад продолжить нашу работу. Как у вас дела после прошлой сессии? Что изменилось или что сейчас беспокоит?";
+      } else {
+        // Первая сессия - стандартное приветствие
+        greeting += " Расскажите, что вас сейчас больше всего беспокоит?";
+      }
+      
       conversationRef.current.push({ role: "assistant", content: greeting });
       await enqueueSpeechPlayback(greeting);
       console.log("[AudioCall] Приветствие проиграно");
