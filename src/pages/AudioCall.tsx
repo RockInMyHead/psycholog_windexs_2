@@ -686,10 +686,18 @@ const AudioCall = () => {
 
   const updateConversationMemory = async (userText: string, assistantText: string) => {
     if (!user || !currentCallId) {
+      console.warn("[AudioCall] Cannot update memory - missing user or callId", { user: !!user, currentCallId });
       return;
     }
 
     try {
+      console.log("[AudioCall] Updating memory:", { 
+        userId: user.id, 
+        callId: currentCallId,
+        userTextLength: userText.length,
+        assistantTextLength: assistantText.length
+      });
+      
       const updatedMemory = await memoryApi.appendMemory(
         user.id,
         "audio",
@@ -698,7 +706,7 @@ const AudioCall = () => {
         assistantText
       );
       memoryRef.current = updatedMemory;
-      console.log("[AudioCall] Memory updated and saved to DB");
+      console.log("[AudioCall] Memory updated and saved to DB. New memory length:", updatedMemory.length);
     } catch (error) {
       console.error("Error updating audio memory:", error);
     }
