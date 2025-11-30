@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX, Music } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX, Music, Square } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { userApi, audioCallApi, memoryApi, subscriptionApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,8 +20,21 @@ const AudioCall = () => {
     return isSafariBrowser;
   };
 
+  // Детекция браузеров с проблемами эхо (Chromium-based)
+  const hasEchoProblems = () => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    return userAgent.includes('chrome') ||
+           userAgent.includes('chromium') ||
+           userAgent.includes('edg/') || // Edge
+           userAgent.includes('opera') ||
+           userAgent.includes('brave');
+  };
+
   // Управление микрофоном во время TTS для не-Safari браузеров
   const updateMicDuringTTS = () => {
+    // Сначала управляем транскрибацией для браузеров с проблемами эхо
+    updateTranscriptionDuringTTS();
+
     if (isSafariBrowser || !audioStreamRef.current) return;
 
     const shouldMuteDuringTTS = isPlayingAudioRef.current || isSynthesizingRef.current;
@@ -55,6 +68,7 @@ const AudioCall = () => {
   const [isVideoPlaying, setIsVideoPlaying] = useState(false); // Управление видео Марка
   const [isSafariBrowser, setIsSafariBrowser] = useState(false); // Детекция Safari браузера
   const [isInitializingCall, setIsInitializingCall] = useState(false); // Промежуточное состояние при запуске звонка
+  const [transcriptionDisabledByTTS, setTranscriptionDisabledByTTS] = useState(false); // Отключена ли транскрибация из-за TTS
 
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callTimerRef = useRef<number | null>(null);
@@ -564,15 +578,70 @@ const AudioCall = () => {
     recognitionActiveRef.current = false;
     if (recognitionRef.current) {
       try {
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
+        // Не очищаем обработчики событий - они могут понадобиться для перезапуска
         recognitionRef.current.stop();
       } catch (error) {
         console.warn("Error stopping speech recognition:", error);
       }
-      recognitionRef.current = null;
+      // Не устанавливаем recognitionRef.current = null - объект нужен для перезапуска
     }
+  };
+
+  const startRecognition = () => {
+    if (!recognitionRef.current || recognitionActiveRef.current) return;
+
+    recognitionActiveRef.current = true;
+    try {
+      recognitionRef.current.start();
+      console.log("[AudioCall] Speech recognition restarted");
+    } catch (error) {
+      console.warn("Failed to restart speech recognition:", error);
+    }
+  };
+
+  // Управление транскрибацией во время TTS для браузеров с проблемами эхо
+  const updateTranscriptionDuringTTS = () => {
+    if (!hasEchoProblems()) return; // Только для браузеров с проблемами эхо
+
+    const shouldDisableTranscription = isPlayingAudioRef.current || isSynthesizingRef.current;
+
+    if (shouldDisableTranscription && recognitionActiveRef.current) {
+      // Отключаем транскрибацию во время TTS
+      stopRecognition();
+      setTranscriptionDisabledByTTS(true);
+      console.log("[AudioCall] Транскрибация отключена во время TTS (из-за проблем эхо)");
+    } else if (!shouldDisableTranscription && !recognitionActiveRef.current && transcriptionDisabledByTTS) {
+      // Включаем транскрибацию после окончания TTS
+      startRecognition();
+      setTranscriptionDisabledByTTS(false);
+      console.log("[AudioCall] Транскрибация включена после TTS");
+    }
+  };
+
+  // Функция прерывания TTS и включения микрофона/транскрибации
+  const interruptTTS = () => {
+    console.log("[AudioCall] Пользователь прервал TTS");
+    stopAssistantSpeech();
+
+    // Для браузеров с проблемами эхо - сразу включаем транскрибацию
+    if (hasEchoProblems() && transcriptionDisabledByTTS) {
+      startRecognition();
+      setTranscriptionDisabledByTTS(false);
+      console.log("[AudioCall] Транскрибация включена после прерывания TTS");
+    }
+
+    // Включаем микрофон если он был отключен
+    if (!isSafariBrowser && audioStreamRef.current && isMutedRef.current === false) {
+      const micEnabled = !audioStreamRef.current.getAudioTracks().some(track => !track.enabled);
+      if (!micEnabled) {
+        audioStreamRef.current.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+        console.log("[AudioCall] Микрофон включен после прерывания TTS");
+      }
+    }
+
+    setTranscriptionStatus("Говорите...");
   };
 
   const cleanupRecording = () => {
@@ -669,6 +738,13 @@ const AudioCall = () => {
 
     console.log("[AudioCall] Stopping assistant speech before processing");
     stopAssistantSpeech();
+
+    // Для браузеров с проблемами эхо - включаем транскрибацию если она была отключена
+    if (hasEchoProblems() && transcriptionDisabledByTTS) {
+      startRecognition();
+      setTranscriptionDisabledByTTS(false);
+      console.log("[AudioCall] Транскрибация включена после голосового прерывания TTS");
+    }
 
     pendingTranscriptRef.current = [pendingTranscriptRef.current, segment].filter(Boolean).join(" ");
     console.log("[AudioCall] Updated pending transcript:", pendingTranscriptRef.current);
@@ -952,6 +1028,12 @@ const AudioCall = () => {
       };
 
       recognition.onerror = (event: any) => {
+        // Игнорируем "no-speech" ошибки - это нормально для периодов тишины
+        if (event?.error === "no-speech") {
+          console.debug("[AudioCall] No speech detected - normal silence period");
+          return;
+        }
+
         console.error("[AudioCall] Speech recognition error:", event);
         if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
           setAudioError("Доступ к микрофону запрещён. Проверьте настройки браузера.");
@@ -967,6 +1049,12 @@ const AudioCall = () => {
 
         if (isMutedRef.current) {
           setTranscriptionStatus("Микрофон выключен");
+          return;
+        }
+
+        // Для браузеров с проблемами эхо - не перезапускаем автоматически если транскрибация отключена из-за TTS
+        if (hasEchoProblems() && transcriptionDisabledByTTS) {
+          console.log("[AudioCall] Recognition ended but TTS is active - not restarting");
           return;
         }
 
@@ -1193,6 +1281,22 @@ const AudioCall = () => {
       setIsMusicOn(false); // Сбрасываем состояние музыки
       stopVideoImmediately(); // Останавливаем видео СТРОГО
       setIsVideoPlaying(false); // Сбрасываем состояние видео
+
+      // Финальная очистка speech recognition
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.onresult = null;
+          recognitionRef.current.onerror = null;
+          recognitionRef.current.onend = null;
+          recognitionRef.current.stop();
+        } catch (error) {
+          // Игнорируем ошибки при финальной очистке
+        }
+        recognitionRef.current = null;
+      }
+      recognitionActiveRef.current = false;
+      setTranscriptionDisabledByTTS(false);
+
       setIsCallActive(false);
       setIsInitializingCall(false);
       setCallDuration(0);
@@ -1373,6 +1477,19 @@ const AudioCall = () => {
                   >
                     {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
                   </Button>
+
+                  {/* Кнопка прерывания TTS - показывается только когда TTS активен */}
+                  {(isPlayingAudioRef.current || isSynthesizingRef.current) && (
+                    <Button
+                      onClick={interruptTTS}
+                      size="lg"
+                      variant="destructive"
+                      className="rounded-full w-16 h-16 p-0 animate-pulse"
+                      title="Прервать речь Марка"
+                    >
+                      <Square className="w-6 h-6" />
+                    </Button>
+                  )}
 
                   <Button
                     onClick={() => setIsSpeakerOn(!isSpeakerOn)}
