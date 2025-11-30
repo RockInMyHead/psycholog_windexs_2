@@ -610,8 +610,8 @@ const AudioCall = () => {
       stopRecognition();
       setTranscriptionDisabledByTTS(true);
       console.log("[AudioCall] Транскрибация отключена во время TTS (из-за проблем эхо)");
-    } else if (!shouldDisableTranscription && !recognitionActiveRef.current && transcriptionDisabledByTTS) {
-      // Включаем транскрибацию после окончания TTS
+    } else if (!shouldDisableTranscription && !recognitionActiveRef.current && isCallActive) {
+      // Включаем транскрибацию после окончания TTS, если звонок активен
       startRecognition();
       setTranscriptionDisabledByTTS(false);
       console.log("[AudioCall] Транскрибация включена после TTS");

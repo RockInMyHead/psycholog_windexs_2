@@ -174,7 +174,10 @@ async function initializeDatabase() {
       ];
 
       for (const quote of defaultQuotes) {
+        // Generate a proper ID using the same format as createId from @paralleldrive/cuid2
+        const quoteId = `quote_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
         await db.insert(schema.quotes).values({
+          id: quoteId,
           ...quote,
           createdAt: new Date().getTime(),
         });
