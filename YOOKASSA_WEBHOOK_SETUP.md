@@ -27,7 +27,7 @@ https://psycholog.windexs.ru/api/payments/webhook
 
 **Development URL (для тестирования):**
 ```
-http://localhost:1033/api/payments/webhook
+https://psycholog.windexs.ru/api/payments/webhook
 ```
 
 ### 4. Выберите события для уведомлений
@@ -91,7 +91,7 @@ http://localhost:1033/api/payments/webhook
 
 ### 1. Проверка webhook endpoint:
 ```bash
-curl -X POST http://localhost:1033/api/payments/webhook \
+curl -X POST https://psycholog.windexs.ru/api/payments/webhook \
   -H "Content-Type: application/json" \
   -d '{
     "event": "payment.succeeded",
@@ -108,13 +108,13 @@ curl -X POST http://localhost:1033/api/payments/webhook \
 
 ### 2. Проверка verify endpoint:
 ```bash
-curl http://localhost:1033/api/payments/verify/REAL_PAYMENT_ID
+curl https://psycholog.windexs.ru/api/payments/verify/REAL_PAYMENT_ID
 ```
 
 ### 3. Проверка подписки пользователя:
 ```bash
-curl http://localhost:1033/api/users/USER_ID/subscription
-curl http://localhost:1033/api/users/USER_ID/audio-access
+curl https://psycholog.windexs.ru/api/users/USER_ID/subscription
+curl https://psycholog.windexs.ru/api/users/USER_ID/audio-access
 ```
 
 ## Troubleshooting

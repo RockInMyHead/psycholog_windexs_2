@@ -20,14 +20,14 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3002',
+        target: 'https://psycholog.windexs.ru',
         changeOrigin: true,
-        secure: false,
+        secure: true,
       },
       '/health': {
-        target: 'http://localhost:3002',
+        target: 'https://psycholog.windexs.ru',
         changeOrigin: true,
-        secure: false,
+        secure: true,
       },
     },
   },

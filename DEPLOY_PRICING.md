@@ -44,19 +44,19 @@ node app.js
 
 #### Тест создания бесплатной подписки
 ```bash
-curl -X POST http://localhost:3002/api/users/test_user/create-free-trial \
+curl -X POST https://psycholog.windexs.ru/api/users/test_user/create-free-trial \
   -H "Content-Type: application/json"
 ```
 
 #### Тест проверки доступа
 ```bash
-curl http://localhost:3002/api/users/test_user/audio-access
+curl https://psycholog.windexs.ru/api/users/test_user/audio-access
 # Ожидаемый ответ: {"hasAccess":true,"type":"free_trial","remaining":3}
 ```
 
 #### Тест создания платежа
 ```bash
-curl -X POST http://localhost:3002/api/payments/create \
+curl -X POST https://psycholog.windexs.ru/api/payments/create \
   -H "Content-Type: application/json" \
   -d '{
     "amount": {"value": "250.00", "currency": "RUB"},

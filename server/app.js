@@ -196,9 +196,7 @@ const PORT = process.env.PORT || 1034;
 // Middleware
 app.use(cors({
   origin: [
-    'https://psycholog.windexs.ru',
-    'http://localhost:5173',
-    'http://127.0.0.1:5173'
+    'https://psycholog.windexs.ru'
   ],
   credentials: true
 }));

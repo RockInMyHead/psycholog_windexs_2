@@ -6,7 +6,7 @@
 
 ## Корень проблемы
 
-1. **Backend сервер не был запущен**: Vite dev server проксировал запросы на `http://localhost:1033`, но backend сервер не работал.
+1. **Backend сервер не был запущен**: Vite dev server проксировал запросы на `https://psycholog.windexs.ru`, но backend сервер не работал.
 
 2. **Ошибка инициализации базы данных**: В `database.js` была ошибка `Cannot access 'accessService' before initialization` из-за неправильного порядка экспорта.
 
@@ -80,10 +80,10 @@ app.get('/api/users/:userId', async (req, res) => { /* ... */ });
 
 ```bash
 # Проверка доступности API
-curl "http://localhost:1033/api/users/by-email?email=test@example.com"
+curl "https://psycholog.windexs.ru/api/users/by-email?email=test@example.com"
 
 # Создание нового пользователя
-curl -X POST "http://localhost:1033/api/users" \
+curl -X POST "https://psycholog.windexs.ru/api/users" \
   -H "Content-Type: application/json" \
   -d '{"email":"new@example.com","name":"New User"}'
 ```

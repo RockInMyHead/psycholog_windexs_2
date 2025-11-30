@@ -59,10 +59,10 @@ sqlite3 zen-mind-mate.db "PRAGMA table_info(conversation_history);"
 
 ```bash
 # Проверка health
-curl http://localhost:3002/health
+curl https://psycholog.windexs.ru/health
 
 # Проверка получения памяти (замените USER_ID на реальный)
-curl http://localhost:3002/api/memory/USER_ID/audio
+curl https://psycholog.windexs.ru/api/memory/USER_ID/audio
 ```
 
 ### 6. Проверка логов
@@ -82,7 +82,7 @@ Server running on port 3002
 ### Тест 1: Создание записи
 
 ```bash
-curl -X POST http://localhost:3002/api/memory/test_user/audio/append \
+curl -X POST https://psycholog.windexs.ru/api/memory/test_user/audio/append \
   -H "Content-Type: application/json" \
   -d '{
     "sessionId": "test_session_123",
@@ -94,7 +94,7 @@ curl -X POST http://localhost:3002/api/memory/test_user/audio/append \
 ### Тест 2: Получение истории
 
 ```bash
-curl http://localhost:3002/api/memory/test_user/audio
+curl https://psycholog.windexs.ru/api/memory/test_user/audio
 ```
 
 ### Тест 3: Проверка записи в БД

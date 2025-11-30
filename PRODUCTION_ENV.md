@@ -28,7 +28,7 @@ PROXY_PASSWORD=jZdUnJ
 
 ## Frontend автоматически:
 - В production режиме использует `https://psycholog.windexs.ru/api`
-- В dev режиме использует `http://localhost:1033/api`
+- В dev режиме использует `https://psycholog.windexs.ru/api`
 
 Переключение происходит автоматически в зависимости от `import.meta.env.DEV`.
 
