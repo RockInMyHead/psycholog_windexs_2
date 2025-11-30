@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX, Music, Square } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Music, Square } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { userApi, audioCallApi, memoryApi, subscriptionApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1491,14 +1491,6 @@ const AudioCall = () => {
                     </Button>
                   )}
 
-                  <Button
-                    onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-                    size="lg"
-                    variant={!isSpeakerOn ? "destructive" : "outline"}
-                    className="rounded-full w-16 h-16 p-0"
-                  >
-                    {isSpeakerOn ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
-                  </Button>
 
 
                   <Button
@@ -1511,9 +1503,6 @@ const AudioCall = () => {
                   </Button>
                 </div>
 
-                <div className="text-center text-sm text-muted-foreground">
-                  {!isSpeakerOn && <p>Звук выключен</p>}
-                </div>
 
                 {subscriptionInfo && (
                   <p className="text-xs text-muted-foreground">
