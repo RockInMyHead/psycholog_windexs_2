@@ -1500,15 +1500,6 @@ const AudioCall = () => {
                     {isSpeakerOn ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
                   </Button>
 
-                  <Button
-                    onClick={toggleBackgroundMusic}
-                    size="lg"
-                    variant={isMusicOn ? "default" : "outline"}
-                    className="rounded-full w-16 h-16 p-0"
-                    title={isMusicOn ? "Выключить фоновую музыку" : "Включить фоновую музыку"}
-                  >
-                    {isMusicOn ? <Music className="w-6 h-6" /> : <Music className="w-6 h-6 opacity-40" />}
-                  </Button>
 
                   <Button
                     onClick={() => endCall()}
@@ -1522,7 +1513,6 @@ const AudioCall = () => {
 
                 <div className="text-center text-sm text-muted-foreground">
                   {!isSpeakerOn && <p>Звук выключен</p>}
-                  {isMusicOn && <p className="text-green-500 font-medium">🎵 Фоновая музыка играет</p>}
                 </div>
 
                 {subscriptionInfo && (
