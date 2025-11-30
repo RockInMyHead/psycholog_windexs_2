@@ -588,43 +588,6 @@ const Subscription = () => {
             </div>
           </Card>
 
-          {/* FAQ Section */}
-          <Card className="p-8 bg-card border-2 border-border shadow-soft animate-fade-in mt-8">
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-foreground mb-4">
-                Часто задаваемые вопросы
-              </h2>
-            </div>
-
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  Могу ли я отменить подписку в любое время?
-                </h3>
-                <p className="text-muted-foreground">
-                  Да, вы можете отменить подписку в любое время без штрафов. Доступ к премиум функциям будет сохранен до конца оплаченного периода.
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  Что произойдет с моими данными при отмене?
-                </h3>
-                <p className="text-muted-foreground">
-                  Все ваши данные и история переписок остаются сохраненными. Вы сможете продолжить использовать бесплатный план.
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  Можно ли вернуть деньги?
-                </h3>
-                <p className="text-muted-foreground">
-                  Если подписка не оправдала ваших ожиданий в течение первых 7 дней, мы вернем полную стоимость.
-                </p>
-              </div>
-            </div>
-          </Card>
 
           {/* Payment Dialog */}
           <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
