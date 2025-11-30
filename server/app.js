@@ -191,7 +191,7 @@ async function initializeDatabase() {
 }
 
 const app = express();
-const PORT = process.env.PORT || 1034;
+const PORT = process.env.PORT || 1033;
 
 // Middleware
 app.use(cors({
