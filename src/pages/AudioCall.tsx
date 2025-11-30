@@ -38,16 +38,16 @@ const AudioCall = () => {
     if (isSafariBrowser || !audioStreamRef.current) return;
 
     const shouldMuteDuringTTS = isPlayingAudioRef.current || isSynthesizingRef.current;
-    const currentMicEnabled = !isMutedRef.current;
+    const userMuted = isMutedRef.current; // Пользователь вручную отключил микрофон
 
-    if (shouldMuteDuringTTS && currentMicEnabled) {
-      // Отключаем микрофон во время TTS
+    if (shouldMuteDuringTTS && !userMuted) {
+      // Отключаем микрофон во время TTS (только если пользователь не отключил его вручную)
       audioStreamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = false;
       });
       console.log("[AudioCall] Микрофон отключен во время TTS");
-    } else if (!shouldMuteDuringTTS && !currentMicEnabled && !isMutedRef.current) {
-      // Включаем микрофон после окончания TTS (если не был принудительно отключен пользователем)
+    } else if (!shouldMuteDuringTTS && !userMuted) {
+      // Включаем микрофон после окончания TTS (только если пользователь не отключил его вручную)
       audioStreamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = true;
       });
