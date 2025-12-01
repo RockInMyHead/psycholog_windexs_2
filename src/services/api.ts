@@ -317,3 +317,73 @@ export const memoryApi = {
     }
   },
 };
+
+// User Profile service - структурированная память психолога
+export interface UserProfile {
+  id: string;
+  userId: string;
+  personalityTraits?: string;
+  communicationStyle?: string;
+  currentConcerns?: string;
+  emotionalState?: string;
+  stressTriggers?: string;
+  interests?: string;
+  dislikes?: string;
+  values?: string;
+  workLife?: string;
+  relationships?: string;
+  family?: string;
+  health?: string;
+  discussedTopics?: string;
+  recurringThemes?: string;
+  sessionCount: number;
+  lastSessionDate?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export const userProfileApi = {
+  async getUserProfile(userId: string): Promise<UserProfile> {
+    const response = await apiCall(`/user-profiles/${userId}`);
+    return response.profile;
+  },
+
+  async updateUserProfile(userId: string, updates: Partial<UserProfile>): Promise<UserProfile> {
+    const response = await apiCall(`/user-profiles/${userId}`, {
+      method: 'PUT',
+      body: updates,
+    });
+    return response.profile;
+  },
+
+  async incrementSessionCount(userId: string): Promise<UserProfile> {
+    const response = await apiCall(`/user-profiles/${userId}/increment-session`, {
+      method: 'POST',
+    });
+    return response.profile;
+  },
+
+  async addDiscussedTopic(userId: string, topic: string): Promise<UserProfile> {
+    const response = await apiCall(`/user-profiles/${userId}/add-topic`, {
+      method: 'POST',
+      body: { topic },
+    });
+    return response.profile;
+  },
+
+  async updateEmotionalState(userId: string, emotionalState: string): Promise<UserProfile> {
+    const response = await apiCall(`/user-profiles/${userId}/emotional-state`, {
+      method: 'PUT',
+      body: { emotionalState },
+    });
+    return response.profile;
+  },
+
+  async updateCurrentConcerns(userId: string, concerns: string): Promise<UserProfile> {
+    const response = await apiCall(`/user-profiles/${userId}/concerns`, {
+      method: 'PUT',
+      body: { concerns },
+    });
+    return response.profile;
+  },
+};

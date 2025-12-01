@@ -115,6 +115,43 @@ const conversationHistory = sqliteTable('conversation_history', {
   createdAt: integer('created_at').notNull(),
 });
 
+// Таблица профиля пользователя - структурированная память психолога
+const userProfiles = sqliteTable('user_profiles', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().unique(),
+  // Основная информация
+  personalityTraits: text('personality_traits'), // Черты характера
+  communicationStyle: text('communication_style'), // Стиль общения
+
+  // Эмоциональное состояние
+  currentConcerns: text('current_concerns'), // Текущие тревоги/проблемы
+  emotionalState: text('emotional_state'), // Общее эмоциональное состояние
+  stressTriggers: text('stress_triggers'), // Триггеры стресса
+
+  // Предпочтения и интересы
+  interests: text('interests'), // Интересы и хобби
+  dislikes: text('dislikes'), // Что не нравится
+  values: text('values'), // Ценности и приоритеты
+
+  // Жизненные сферы
+  workLife: text('work_life'), // Работа и карьера
+  relationships: text('relationships'), // Отношения
+  family: text('family'), // Семья
+  health: text('health'), // Здоровье
+
+  // Темы, которые поднимались
+  discussedTopics: text('discussed_topics'), // Обсужденные темы (JSON array)
+  recurringThemes: text('recurring_themes'), // Повторяющиеся темы
+
+  // История взаимодействия
+  sessionCount: integer('session_count').notNull().default(0), // Количество сессий
+  lastSessionDate: integer('last_session_date'), // Дата последней сессии
+
+  // Метаданные
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 const schema = {
   users,
   chatSessions,
@@ -126,6 +163,7 @@ const schema = {
   userStats,
   subscriptions,
   conversationHistory,
+  userProfiles,
 };
 
 // Create database connection
@@ -990,6 +1028,112 @@ const memoryService = {
   },
 };
 
+// User Profile service - структурированная память психолога
+const userProfileService = {
+  async getUserProfile(userId) {
+    const result = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId));
+    if (result.length === 0) {
+      // Создаем пустой профиль, если его нет
+      return await this.createUserProfile(userId);
+    }
+    return result[0];
+  },
+
+  async createUserProfile(userId) {
+    const now = Date.now();
+    const profileId = `profile_${Math.random().toString(36).slice(2)}_${now.toString(36)}`;
+
+    await db.insert(schema.userProfiles).values({
+      id: profileId,
+      userId,
+      sessionCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return {
+      id: profileId,
+      userId,
+      personalityTraits: null,
+      communicationStyle: null,
+      currentConcerns: null,
+      emotionalState: null,
+      stressTriggers: null,
+      interests: null,
+      dislikes: null,
+      values: null,
+      workLife: null,
+      relationships: null,
+      family: null,
+      health: null,
+      discussedTopics: null,
+      recurringThemes: null,
+      sessionCount: 0,
+      lastSessionDate: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  },
+
+  async updateUserProfile(userId, updates) {
+    const now = Date.now();
+
+    // Получаем текущий профиль
+    const currentProfile = await this.getUserProfile(userId);
+
+    // Обновляем профиль
+    await db.update(schema.userProfiles)
+      .set({
+        ...updates,
+        updatedAt: now,
+      })
+      .where(eq(schema.userProfiles.userId, userId));
+
+    // Возвращаем обновленный профиль
+    return await this.getUserProfile(userId);
+  },
+
+  async incrementSessionCount(userId) {
+    const currentProfile = await this.getUserProfile(userId);
+    const newCount = (currentProfile.sessionCount || 0) + 1;
+
+    return await this.updateUserProfile(userId, {
+      sessionCount: newCount,
+      lastSessionDate: Date.now(),
+    });
+  },
+
+  async addDiscussedTopic(userId, topic) {
+    const currentProfile = await this.getUserProfile(userId);
+    const currentTopics = currentProfile.discussedTopics ? JSON.parse(currentProfile.discussedTopics) : [];
+    if (!currentTopics.includes(topic)) {
+      currentTopics.push(topic);
+    }
+
+    return await this.updateUserProfile(userId, {
+      discussedTopics: JSON.stringify(currentTopics),
+    });
+  },
+
+  async updateRecurringThemes(userId, themes) {
+    return await this.updateUserProfile(userId, {
+      recurringThemes: themes,
+    });
+  },
+
+  async updateEmotionalState(userId, emotionalState) {
+    return await this.updateUserProfile(userId, {
+      emotionalState,
+    });
+  },
+
+  async updateCurrentConcerns(userId, concerns) {
+    return await this.updateUserProfile(userId, {
+      currentConcerns: concerns,
+    });
+  },
+};
+
 // Обновленная логика для проверки доступа к функциям
 const accessService = {
   checkAudioSessionAccess: async function(userId) {
@@ -1091,6 +1235,7 @@ module.exports = {
   userStatsService,
   subscriptionService,
   memoryService,
+  userProfileService,
   conversationHistoryService,
   accessService,
   db,

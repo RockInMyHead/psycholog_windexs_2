@@ -73,11 +73,12 @@ const AudioCall = () => {
   }, [isTTSPlaying, isTTSSynthesizing]);
 
   // 2. LLM Service (Logic)
-  const { 
-    processUserMessage, 
-    loadMemory, 
+  const {
+    processUserMessage,
+    loadUserProfile,
+    updateUserProfile,
     addToConversation,
-    isProcessing: isAIProcessing 
+    isProcessing: isAIProcessing
   } = useLLM({
     userId: user?.id,
     callId: currentCallId,
@@ -166,8 +167,11 @@ const AudioCall = () => {
       const call = await audioCallApi.createAudioCall(user.id);
       setCurrentCallId(call.id);
       
-      // Load Memory
-      await loadMemory();
+      // Load User Profile
+      await loadUserProfile();
+
+      // Increment session count
+      await updateUserProfile("", ""); // Empty strings to just increment counter
 
       // Initialize Audio/Recognition
       await initializeRecognition();
@@ -213,8 +217,15 @@ const AudioCall = () => {
       }
     }
 
-      if (callTimerRef.current) {
-        clearInterval(callTimerRef.current);
+    // Update user profile with final session data
+    try {
+      await updateUserProfile("", ""); // Empty strings to trigger profile save
+    } catch (err) {
+      console.error("Error updating user profile:", err);
+    }
+
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
     }
 
       setIsCallActive(false);

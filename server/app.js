@@ -11,7 +11,7 @@ require('dotenv').config();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Import database services
-const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, accessService, db, schema, sqlite } = require('./database');
+const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, db, schema, sqlite } = require('./database');
 const logger = require('./logger');
 
 // Initialize database function
@@ -136,6 +136,30 @@ async function initializeDatabase() {
         FOREIGN KEY (user_id) REFERENCES users(id)
       );
 
+      CREATE TABLE IF NOT EXISTS user_profiles (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE,
+        personality_traits TEXT,
+        communication_style TEXT,
+        current_concerns TEXT,
+        emotional_state TEXT,
+        stress_triggers TEXT,
+        interests TEXT,
+        dislikes TEXT,
+        "values" TEXT,
+        work_life TEXT,
+        relationships TEXT,
+        family TEXT,
+        health TEXT,
+        discussed_topics TEXT,
+        recurring_themes TEXT,
+        session_count INTEGER DEFAULT 0,
+        last_session_date INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      );
+
     `;
 
     // Execute the SQL to create tables
@@ -189,7 +213,8 @@ async function initializeDatabase() {
 
     logger.info('DB', 'Database initialized successfully!');
   } catch (error) {
-    logger.db.error('initialization', error);
+    logger.error('DB', 'Ошибка initialization', error);
+    console.error('Database initialization error details:', error);
     throw error;
   }
 }
@@ -704,6 +729,77 @@ app.delete('/api/memory/:userId/:type', async (req, res) => {
   }
 });
 
+// User Profile endpoints - структурированная память психолога
+app.get('/api/user-profiles/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const profile = await userProfileService.getUserProfile(userId);
+    res.json({ profile });
+  } catch (error) {
+    console.error('Error getting user profile:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/user-profiles/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const updates = req.body;
+    const updatedProfile = await userProfileService.updateUserProfile(userId, updates);
+    res.json({ profile: updatedProfile });
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/user-profiles/:userId/increment-session', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const updatedProfile = await userProfileService.incrementSessionCount(userId);
+    res.json({ profile: updatedProfile });
+  } catch (error) {
+    console.error('Error incrementing session count:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/user-profiles/:userId/add-topic', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { topic } = req.body;
+    const updatedProfile = await userProfileService.addDiscussedTopic(userId, topic);
+    res.json({ profile: updatedProfile });
+  } catch (error) {
+    console.error('Error adding discussed topic:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/user-profiles/:userId/emotional-state', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { emotionalState } = req.body;
+    const updatedProfile = await userProfileService.updateEmotionalState(userId, emotionalState);
+    res.json({ profile: updatedProfile });
+  } catch (error) {
+    console.error('Error updating emotional state:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/user-profiles/:userId/concerns', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { concerns } = req.body;
+    const updatedProfile = await userProfileService.updateCurrentConcerns(userId, concerns);
+    res.json({ profile: updatedProfile });
+  } catch (error) {
+    console.error('Error updating current concerns:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Payment endpoints - ЮKassa ShopAI integration
 // Shop ID: 1183996, Token: live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg
 app.post('/api/payments/create', async (req, res) => {
@@ -939,7 +1035,9 @@ app.listen(PORT, () => {
   }
   });
 }).catch((error) => {
-  logger.server.error(error);
+  logger.error('DB', 'Ошибка initialization', error);
+  logger.error('SERVER', 'Ошибка сервера', error);
+  console.error('Database initialization error:', error);
   process.exit(1);
 });
 
