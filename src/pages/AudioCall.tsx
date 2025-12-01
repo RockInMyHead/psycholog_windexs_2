@@ -874,6 +874,34 @@ const AudioCall = () => {
     };
   }, []);
 
+  // Обработка событий видимости страницы для возобновления распознавания речи
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isCallActive && !isPlayingAudioRef.current && !isSynthesizingRef.current) {
+        // Страница снова стала видимой, пытаемся возобновить распознавание
+        console.log("[AudioCall] Page became visible, attempting to resume speech recognition");
+        if (hasEchoProblems() && !recognitionActiveRef.current) {
+          startRecognition();
+          setTranscriptionDisabledByTTS(false);
+        }
+        // Очищаем ошибку видимости страницы
+        if (audioError && audioError.includes("страница не в фокусе")) {
+          setAudioError(null);
+        }
+      } else if (document.hidden && recognitionActiveRef.current) {
+        // Страница стала невидимой, приостанавливаем распознавание
+        console.log("[AudioCall] Page became hidden, pausing speech recognition");
+        stopRecognition();
+        setTranscriptionDisabledByTTS(true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isCallActive, audioError]);
+
   const initializeUser = async () => {
     try {
       const { email, name } = getUserCredentials();
@@ -1035,8 +1063,16 @@ const AudioCall = () => {
         }
 
         console.error("[AudioCall] Speech recognition error:", event);
-        if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
-          setAudioError("Доступ к микрофону запрещён. Проверьте настройки браузера.");
+        if (event?.error === "not-allowed") {
+          if (event?.message?.includes("Page is not visible") || event?.message?.includes("not visible to user")) {
+            setAudioError("Распознавание приостановлено - страница не в фокусе. Кликните на страницу и продолжайте разговор.");
+            setTranscriptionStatus("⏸️ Страница не в фокусе - кликните для возобновления");
+            console.log("[AudioCall] Recognition paused due to page not being visible");
+          } else {
+            setAudioError("Доступ к микрофону запрещён. Проверьте настройки браузера.");
+          }
+        } else if (event?.error === "service-not-allowed") {
+          setAudioError("Служба распознавания речи недоступна. Попробуйте обновить страницу.");
         } else if (event?.error !== "aborted") {
           setAudioError("Ошибка распознавания речи. Попробуйте ещё раз.");
         }
@@ -1071,6 +1107,15 @@ const AudioCall = () => {
 
       await startVolumeMonitoring(stream);
       console.log("[AudioCall] Мониторинг громкости запущен");
+
+      // Уведомляем пользователя о важности держать страницу в фокусе
+      console.log("[AudioCall] Уведомление: Держите страницу в фокусе для корректной работы распознавания речи");
+      if (!isSafari()) {
+        setTranscriptionStatus("💡 Держите страницу в фокусе для быстрого распознавания речи");
+        setTimeout(() => {
+          setTranscriptionStatus("Говорите...");
+        }, 3000);
+      }
 
       try {
         setTimeout(() => {
