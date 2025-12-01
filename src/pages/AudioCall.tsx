@@ -30,6 +30,286 @@ const AudioCall = () => {
            userAgent.includes('brave');
   };
 
+  // Функции аналитики и мониторинга
+  const updateAnalytics = (updates: Partial<typeof analytics>) => {
+    setAnalytics(prev => ({ ...prev, ...updates }));
+  };
+
+  const logTranscriptionEvent = (event: keyof typeof analytics.transcriptionEvents, details?: any) => {
+    console.log(`[ANALYTICS] Transcription event: ${event}`, details);
+    updateAnalytics({
+      transcriptionEvents: {
+        ...analytics.transcriptionEvents,
+        [event]: analytics.transcriptionEvents[event] + 1
+      }
+    });
+
+    // Сохраняем детальную информацию в localStorage для отчета
+    try {
+      const logEntry = {
+        timestamp: Date.now(),
+        event,
+        details,
+        sessionId: currentCallId,
+        browserInfo: analytics.browserInfo
+      };
+
+      const existingLogs = JSON.parse(localStorage.getItem('transcriptionLogs') || '[]');
+      existingLogs.push(logEntry);
+
+      // Ограничиваем размер логов (последние 100 записей)
+      if (existingLogs.length > 100) {
+        existingLogs.splice(0, existingLogs.length - 100);
+      }
+
+      localStorage.setItem('transcriptionLogs', JSON.stringify(existingLogs));
+    } catch (error) {
+      console.warn('[ANALYTICS] Failed to save transcription log:', error);
+    }
+  };
+
+  const logNetworkEvent = (event: keyof typeof analytics.networkStats, details?: any) => {
+    console.log(`[ANALYTICS] Network event: ${event}`, details);
+    updateAnalytics({
+      networkStats: {
+        ...analytics.networkStats,
+        [event]: analytics.networkStats[event] + 1
+      }
+    });
+  };
+
+  const logAudioQuality = (metric: keyof typeof analytics.audioQuality, value?: number) => {
+    updateAnalytics({
+      audioQuality: {
+        ...analytics.audioQuality,
+        [metric]: typeof value === 'number' ? value :
+          (metric === 'interruptions' || metric === 'speechDetections') ?
+          analytics.audioQuality[metric] + 1 : analytics.audioQuality[metric]
+      }
+    });
+  };
+
+  const generateAnalyticsReport = () => {
+    const sessionDuration = (Date.now() - analytics.sessionStartTime) / 1000; // в секундах
+
+    const report = {
+      sessionInfo: {
+        duration: sessionDuration,
+        startTime: new Date(analytics.sessionStartTime).toISOString(),
+        callId: currentCallId,
+      },
+      transcriptionStats: {
+        totalAttempts: analytics.transcriptionEvents.browserSuccess +
+                      analytics.transcriptionEvents.browserErrors +
+                      analytics.transcriptionEvents.openaiFallbackSuccess +
+                      analytics.transcriptionEvents.openaiFallbackErrors,
+        browserSuccessRate: analytics.transcriptionEvents.browserErrors > 0 ?
+          (analytics.transcriptionEvents.browserSuccess /
+           (analytics.transcriptionEvents.browserSuccess + analytics.transcriptionEvents.browserErrors) * 100).toFixed(1) + '%' : '100%',
+        openaiFallbackUsage: analytics.transcriptionEvents.openaiFallbackUsed,
+        openaiFallbackSuccessRate: analytics.transcriptionEvents.openaiFallbackUsed > 0 ?
+          (analytics.transcriptionEvents.openaiFallbackSuccess /
+           analytics.transcriptionEvents.openaiFallbackUsed * 100).toFixed(1) + '%' : '0%',
+        manualInputs: analytics.transcriptionEvents.manualInputUsed,
+        ...analytics.transcriptionEvents
+      },
+      audioQuality: {
+        interruptionsCount: analytics.audioQuality.interruptions,
+        speechDetections: analytics.audioQuality.speechDetections,
+        averageVolume: analytics.audioQuality.volumeReadings > 0 ?
+          (analytics.audioQuality.averageVolume / analytics.audioQuality.volumeReadings).toFixed(1) : '0',
+        ...analytics.audioQuality
+      },
+      networkPerformance: {
+        openaiRequests: analytics.networkStats.openaiRequests,
+        retryRate: analytics.networkStats.openaiRequests > 0 ?
+          (analytics.networkStats.openaiRetries / analytics.networkStats.openaiRequests * 100).toFixed(1) + '%' : '0%',
+        errorRate: analytics.networkStats.openaiRequests > 0 ?
+          ((analytics.networkStats.openaiTimeouts + analytics.networkStats.networkErrors) /
+           analytics.networkStats.openaiRequests * 100).toFixed(1) + '%' : '0%',
+        ...analytics.networkStats
+      },
+      browserCompatibility: {
+        ...analytics.browserInfo,
+        compatibility: getBrowserCompatibilityScore()
+      }
+    };
+
+    console.log('[ANALYTICS] Session Report:', report);
+    return report;
+  };
+
+  const getBrowserCompatibilityScore = () => {
+    let score = 100;
+    const issues = [];
+
+    if (analytics.browserInfo.isIOS) {
+      score -= 20;
+      issues.push('iOS device - forced OpenAI usage');
+    }
+
+    if (analytics.browserInfo.forceOpenAI) {
+      score -= 15;
+      issues.push('Forced OpenAI mode');
+    }
+
+    if (analytics.transcriptionEvents.browserErrors > 0) {
+      score -= Math.min(analytics.transcriptionEvents.browserErrors * 5, 30);
+      issues.push(`${analytics.transcriptionEvents.browserErrors} browser transcription errors`);
+    }
+
+    if (analytics.networkStats.networkErrors > 0) {
+      score -= Math.min(analytics.networkStats.networkErrors * 10, 20);
+      issues.push(`${analytics.networkStats.networkErrors} network errors`);
+    }
+
+    return {
+      score: Math.max(score, 0),
+      issues,
+      rating: score >= 90 ? 'Excellent' :
+              score >= 80 ? 'Good' :
+              score >= 70 ? 'Fair' :
+              score >= 60 ? 'Poor' : 'Critical'
+    };
+  };
+
+  // Функция для получения агрегированной статистики из всех сессий
+  const getAggregatedAnalytics = () => {
+    try {
+      const sessionReports = JSON.parse(localStorage.getItem('sessionReports') || '[]');
+      const transcriptionLogs = JSON.parse(localStorage.getItem('transcriptionLogs') || '[]');
+
+      if (sessionReports.length === 0) {
+        return {
+          totalSessions: 0,
+          averageSessionDuration: 0,
+          totalTranscriptionAttempts: 0,
+          browserSuccessRate: 0,
+          openaiFallbackUsage: 0,
+          networkErrorRate: 0,
+          browserCompatibility: {},
+          recentIssues: []
+        };
+      }
+
+      // Агрегируем данные из всех сессий
+      const aggregated = sessionReports.reduce((acc: any, session: any) => {
+        const report = session.report;
+
+        acc.totalSessions++;
+        acc.totalSessionDuration += report.sessionInfo.duration;
+        acc.totalTranscriptionAttempts += report.transcriptionStats.totalAttempts;
+        acc.totalBrowserSuccess += report.transcriptionStats.browserSuccess;
+        acc.totalBrowserErrors += report.transcriptionStats.browserErrors;
+        acc.totalOpenaiFallbacks += report.transcriptionStats.openaiFallbackUsage;
+        acc.totalNetworkErrors += report.networkPerformance.networkErrors;
+
+        // Собираем браузерную статистику
+        const browserKey = `${report.browserCompatibility.isIOS ? 'iOS' : 'Non-iOS'}-${report.browserCompatibility.isMobile ? 'Mobile' : 'Desktop'}`;
+        if (!acc.browserStats[browserKey]) {
+          acc.browserStats[browserKey] = { count: 0, totalScore: 0 };
+        }
+        acc.browserStats[browserKey].count++;
+        acc.browserStats[browserKey].totalScore += report.browserCompatibility.score;
+
+        return acc;
+      }, {
+        totalSessions: 0,
+        totalSessionDuration: 0,
+        totalTranscriptionAttempts: 0,
+        totalBrowserSuccess: 0,
+        totalBrowserErrors: 0,
+        totalOpenaiFallbacks: 0,
+        totalNetworkErrors: 0,
+        browserStats: {}
+      });
+
+      // Вычисляем средние значения
+      const avgSessionDuration = aggregated.totalSessionDuration / aggregated.totalSessions;
+      const browserSuccessRate = aggregated.totalBrowserErrors > 0 ?
+        (aggregated.totalBrowserSuccess / (aggregated.totalBrowserSuccess + aggregated.totalBrowserErrors) * 100) : 100;
+      const networkErrorRate = aggregated.totalTranscriptionAttempts > 0 ?
+        (aggregated.totalNetworkErrors / aggregated.totalTranscriptionAttempts * 100) : 0;
+
+      // Получаем последние проблемы
+      const recentIssues = transcriptionLogs
+        .filter((log: any) => log.event === 'browserErrors' || log.event === 'openaiFallbackErrors')
+        .slice(-10)
+        .map((log: any) => ({
+          timestamp: new Date(log.timestamp).toLocaleString(),
+          type: log.event,
+          error: log.details?.error || 'Unknown',
+          browser: log.browserInfo?.userAgent?.substring(0, 50) + '...'
+        }));
+
+      return {
+        totalSessions: aggregated.totalSessions,
+        averageSessionDuration: Math.round(avgSessionDuration),
+        totalTranscriptionAttempts: aggregated.totalTranscriptionAttempts,
+        browserSuccessRate: Math.round(browserSuccessRate * 10) / 10,
+        openaiFallbackUsage: aggregated.totalOpenaiFallbacks,
+        networkErrorRate: Math.round(networkErrorRate * 10) / 10,
+        browserCompatibility: Object.entries(aggregated.browserStats).map(([browser, stats]: [string, any]) => ({
+          browser,
+          sessions: stats.count,
+          averageScore: Math.round(stats.totalScore / stats.count)
+        })),
+        recentIssues
+      };
+    } catch (error) {
+      console.error('[ANALYTICS] Failed to aggregate analytics:', error);
+      return null;
+    }
+  };
+
+  // Экспортируем функции аналитики для внешнего использования
+  useEffect(() => {
+    (window as any).getTranscriptionAnalytics = getAggregatedAnalytics;
+    (window as any).getCurrentSessionReport = generateAnalyticsReport;
+  }, []);
+
+  // Детекция iOS устройств
+  const isIOSDevice = () => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    return /iphone|ipad|ipod/.test(userAgent) ||
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPad with desktop mode
+  };
+
+  // Детекция мобильных устройств
+  const isMobileDevice = () => {
+    return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent.toLowerCase()) ||
+           (window.innerWidth <= 768 && window.innerHeight <= 1024);
+  };
+
+  // Проверка поддержки Speech Recognition API на мобильных устройствах
+  const checkSpeechRecognitionSupport = () => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isIOS = isIOSDevice();
+    const isMobile = isMobileDevice();
+
+    // iOS Safari имеет ограниченную поддержку Speech Recognition
+    if (isIOS) {
+      console.log("[Mobile] iOS device detected - Speech Recognition may have limitations");
+      return 'limited'; // Ограниченная поддержка
+    }
+
+    // Android устройства обычно хорошо поддерживают Speech Recognition
+    if (isMobile && userAgent.includes('android')) {
+      console.log("[Mobile] Android device detected - good Speech Recognition support expected");
+      return 'full'; // Полная поддержка
+    }
+
+    // Другие мобильные устройства - проверяем наличие API
+    if (isMobile) {
+      const hasAPI = !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition;
+      console.log(`[Mobile] Mobile device detected - Speech Recognition API: ${hasAPI ? 'available' : 'not available'}`);
+      return hasAPI ? 'full' : 'none';
+    }
+
+    // Desktop устройства
+    return 'full';
+  };
+
   // Управление микрофоном во время TTS для не-Safari браузеров
   const updateMicDuringTTS = () => {
     // Сначала управляем транскрибацией для браузеров с проблемами эхо
@@ -69,6 +349,47 @@ const AudioCall = () => {
   const [isSafariBrowser, setIsSafariBrowser] = useState(false); // Детекция Safari браузера
   const [isInitializingCall, setIsInitializingCall] = useState(false); // Промежуточное состояние при запуске звонка
   const [transcriptionDisabledByTTS, setTranscriptionDisabledByTTS] = useState(false); // Отключена ли транскрибация из-за TTS
+  const [transcriptionMode, setTranscriptionMode] = useState<'browser' | 'openai'>('browser'); // Режим транскрибации
+  const [isRecordingForFallback, setIsRecordingForFallback] = useState(false); // Запись аудио для fallback
+  const [browserRetryCount, setBrowserRetryCount] = useState(0); // Счетчик повторных попыток браузерной транскрибации
+  const [safariSpeechDetectionCount, setSafariSpeechDetectionCount] = useState(0); // Счетчик кадров с речью для Safari
+  const [lastSafariSpeechTime, setLastSafariSpeechTime] = useState(0); // Время последнего обнаружения речи в Safari
+
+  // Аналитика и мониторинг
+  const [analytics, setAnalytics] = useState({
+    sessionStartTime: Date.now(),
+    transcriptionEvents: {
+      browserSuccess: 0,
+      browserErrors: 0,
+      openaiFallbackUsed: 0,
+      openaiFallbackSuccess: 0,
+      openaiFallbackErrors: 0,
+      manualInputUsed: 0,
+    },
+    audioQuality: {
+      interruptions: 0,
+      speechDetections: 0,
+      averageVolume: 0,
+      volumeReadings: 0,
+    },
+    browserInfo: {
+      userAgent: navigator.userAgent,
+      isIOS: false,
+      isMobile: false,
+      speechRecognitionSupport: 'unknown',
+      forceOpenAI: false,
+    },
+    networkStats: {
+      openaiRequests: 0,
+      openaiRetries: 0,
+      openaiTimeouts: 0,
+      networkErrors: 0,
+    }
+  });
+  const [isIOS, setIsIOS] = useState(false); // Определение iOS устройств
+  const [isMobile, setIsMobile] = useState(false); // Определение мобильных устройств
+  const [microphoneAccessGranted, setMicrophoneAccessGranted] = useState(false); // Статус доступа к микрофону
+  const [forceOpenAI, setForceOpenAI] = useState(false); // Принудительное использование OpenAI транскрибации
 
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callTimerRef = useRef<number | null>(null);
@@ -97,12 +418,20 @@ const AudioCall = () => {
   const musicGainRef = useRef<GainNode | null>(null);
   const isSynthesizingRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null); // MediaRecorder для fallback транскрибации
+  const recordedChunksRef = useRef<Blob[]>([]); // Записанные аудио чанки для fallback
 
   const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут на сессию
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // Предупреждение за 5 минут
   const SESSION_GOODBYE_SECONDS = SESSION_DURATION_SECONDS - 1 * 60; // Прощание за 1 минуту
   const MAX_CALL_DURATION_SECONDS = 40 * 60; // Абсолютный максимум (для подстраховки)
   const VOICE_DETECTION_THRESHOLD = 80; // Увеличили порог до 80 для лучшей защиты от шума и ложных срабатываний
+
+  // Оптимизация для Safari голосового прерывания
+  const SAFARI_VOICE_DETECTION_THRESHOLD = 60; // Более низкий порог для Safari (более чувствительный)
+  const SAFARI_SPEECH_CONFIRMATION_FRAMES = 3; // Нужно 3 подряд кадра с речью для подтверждения
+  const SAFARI_SPEECH_TIMEOUT = 2000; // Максимальное время ожидания подтверждения речи (мс)
+  const SAFARI_SPEECH_DEBOUNCE = 1000; // Минимальный интервал между прерываниями (мс)
 
   const createAudioContext = () => {
     if (!audioContextRef.current) {
@@ -378,6 +707,9 @@ const AudioCall = () => {
 
     console.log(`[AudioCall] Speech stopped aggressively (generationId: ${newGenerationId})`);
 
+    // Сбрасываем счетчики обнаружения речи Safari при остановке TTS
+    setSafariSpeechDetectionCount(0);
+
     // Обновляем состояние видео - останавливаем если нужно
     updateVideoBasedOnTTS();
 
@@ -543,16 +875,51 @@ const AudioCall = () => {
         }
         const average = sum / dataArray.length;
 
-        // Используем значительно повышенный порог во время TTS или синтеза
-        // Это предотвращает прерывание собственным эхом даже в паузах между предложениями
-        const isAssistantActive = isPlayingAudioRef.current || isSynthesizingRef.current;
-        const currentThreshold = isAssistantActive ?
-          VOICE_DETECTION_THRESHOLD + 25 : VOICE_DETECTION_THRESHOLD;
+        // Оптимизированная логика для Safari
+        if (!hasEchoProblems()) {
+          const isAssistantActive = isPlayingAudioRef.current || isSynthesizingRef.current;
+          const safariThreshold = isAssistantActive ?
+            SAFARI_VOICE_DETECTION_THRESHOLD + 15 : SAFARI_VOICE_DETECTION_THRESHOLD;
 
-        // Добавляем гистерезис: прерываем только если громкость значительно превышает порог
-        if (average > currentThreshold + 5) {
-          console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)} > ${currentThreshold}), прерываем Марка`);
-          stopAssistantSpeech();
+          const currentTime = Date.now();
+
+          // Проверяем уровень громкости
+          if (average > safariThreshold) {
+            // Речь обнаружена - увеличиваем счетчик
+            setSafariSpeechDetectionCount(prev => {
+              const newCount = prev + 1;
+              console.debug(`[AudioCall] Safari speech detection: frame ${newCount}/${SAFARI_SPEECH_CONFIRMATION_FRAMES}, volume: ${average.toFixed(1)}`);
+
+              // Проверяем подтверждение речи
+              if (newCount >= SAFARI_SPEECH_CONFIRMATION_FRAMES) {
+                // Проверяем debounce (не прерывать слишком часто)
+                if (currentTime - lastSafariSpeechTime > SAFARI_SPEECH_DEBOUNCE) {
+            console.log(`[AudioCall] Safari: Confirmed user speech (volume: ${average.toFixed(1)}), interrupting TTS`);
+            setLastSafariSpeechTime(currentTime);
+            logAudioQuality('interruptions');
+            logAudioQuality('speechDetections');
+            stopAssistantSpeech();
+            return 0; // Сбрасываем счетчик после успешного прерывания
+                } else {
+                  console.debug(`[AudioCall] Safari: Speech detected but debouncing (${currentTime - lastSafariSpeechTime}ms < ${SAFARI_SPEECH_DEBOUNCE}ms)`);
+                }
+              }
+
+              return newCount;
+            });
+          } else {
+            // Речь не обнаружена - сбрасываем счетчик
+            setSafariSpeechDetectionCount(0);
+          }
+
+          // Проверяем таймаут подтверждения речи
+          setSafariSpeechDetectionCount(prev => {
+            if (prev > 0 && currentTime - lastSafariSpeechTime > SAFARI_SPEECH_TIMEOUT) {
+              console.debug(`[AudioCall] Safari: Speech confirmation timeout, resetting counter`);
+              return 0;
+            }
+            return prev;
+          });
         }
 
         volumeMonitorRef.current = window.requestAnimationFrame(checkVolume);
@@ -572,6 +939,82 @@ const AudioCall = () => {
       audioAnalyserRef.current.disconnect();
       audioAnalyserRef.current = null;
     }
+  };
+
+  // MediaRecorder для fallback транскрибации через OpenAI
+  const startMediaRecording = (stream: MediaStream) => {
+    if (mediaRecorderRef.current) {
+      console.warn("[AudioCall] MediaRecorder already active");
+      return;
+    }
+
+    try {
+      // Проверяем поддержку форматов записи
+      const mimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/wav'
+      ];
+
+      let selectedMimeType = '';
+      for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          selectedMimeType = mimeType;
+          break;
+        }
+      }
+
+      if (!selectedMimeType) {
+        console.warn("[AudioCall] No supported audio format for MediaRecorder");
+        return;
+      }
+
+      console.log(`[AudioCall] Starting MediaRecorder with format: ${selectedMimeType}`);
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: selectedMimeType
+      });
+
+      recordedChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        console.log(`[AudioCall] MediaRecorder stopped, recorded ${recordedChunksRef.current.length} chunks`);
+      };
+
+      mediaRecorderRef.current.start(1000); // Записываем чанки каждую секунду
+      setIsRecordingForFallback(true);
+
+    } catch (error) {
+      console.error("[AudioCall] Failed to start MediaRecorder:", error);
+    }
+  };
+
+  const stopMediaRecording = (): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      if (!mediaRecorderRef.current) {
+        resolve(null);
+        return;
+      }
+
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, {
+          type: mediaRecorderRef.current?.mimeType || 'audio/webm'
+        });
+        recordedChunksRef.current = [];
+        setIsRecordingForFallback(false);
+        console.log(`[AudioCall] MediaRecorder stopped, created blob of ${blob.size} bytes`);
+        resolve(blob);
+      };
+
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    });
   };
 
   const stopRecognition = () => {
@@ -658,12 +1101,45 @@ const AudioCall = () => {
     conversationRef.current = [];
     responseQueueRef.current = Promise.resolve();
 
+    // Останавливаем MediaRecorder для fallback
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+    recordedChunksRef.current = [];
+    setIsRecordingForFallback(false);
+    setTranscriptionMode('browser');
+
     if (audioStreamRef.current) {
       audioStreamRef.current.getTracks().forEach((track) => track.stop());
       audioStreamRef.current = null;
     }
 
     setTranscriptionStatus(null);
+  };
+
+  // Fallback транскрибация через OpenAI (упрощенная версия, повторные попытки в сервисе)
+  const transcribeWithOpenAI = async (audioBlob: Blob): Promise<string | null> => {
+    try {
+      console.log("[AudioCall] Starting OpenAI fallback transcription for", audioBlob.size, "bytes");
+      setTranscriptionStatus("Отправляю аудио в OpenAI...");
+
+      const transcription = await psychologistAI.transcribeAudio(audioBlob);
+
+      if (transcription && transcription.trim()) {
+        console.log("[AudioCall] OpenAI fallback successful:", transcription);
+        console.info("[AudioCall] OpenAI fallback successful:", transcription.substring(0, 50) + (transcription.length > 50 ? '...' : ''));
+        return transcription.trim();
+      } else {
+        console.warn("[AudioCall] OpenAI fallback returned empty result");
+        return null;
+      }
+    } catch (error) {
+      console.error("[AudioCall] OpenAI fallback failed:", error);
+      return null;
+    } finally {
+      setTranscriptionStatus("");
+    }
   };
 
   const processRecognizedText = async (rawText: string) => {
@@ -717,30 +1193,49 @@ const AudioCall = () => {
   };
 
 
-  const handleRecognizedText = (rawText: string) => {
-    console.log("[AudioCall] handleRecognizedText called with:", rawText);
+  const handleRecognizedText = async (rawText: string, source: 'browser' | 'openai' | 'manual' = 'browser') => {
+    console.log(`[AudioCall] handleRecognizedText called with (${source}):`, rawText);
     const segment = rawText.trim();
     if (!segment) {
       console.log("[AudioCall] Empty segment, skipping");
       return;
     }
 
-    console.log("[AudioCall] Stopping assistant speech before processing");
-    stopAssistantSpeech();
+    // Для ручного ввода не останавливаем речь, позволяем пользователю прервать
+    if (source !== 'manual') {
+      console.log("[AudioCall] Stopping assistant speech before processing");
+      stopAssistantSpeech();
 
-    // Для браузеров с проблемами эхо - включаем транскрибацию если она была отключена
-    if (hasEchoProblems() && transcriptionDisabledByTTS) {
-      startRecognition();
-      setTranscriptionDisabledByTTS(false);
-      console.log("[AudioCall] Транскрибация включена после голосового прерывания TTS");
+      // Для браузеров с проблемами эхо - включаем транскрибацию если она была отключена
+      if (hasEchoProblems() && transcriptionDisabledByTTS) {
+        startRecognition();
+        setTranscriptionDisabledByTTS(false);
+        console.log("[AudioCall] Транскрибация включена после голосового прерывания TTS");
+      }
+    }
+
+    // Если это результат OpenAI транскрибации, возвращаемся к браузерной
+    if (source === 'openai') {
+      setTranscriptionMode('browser');
+      console.log("[AudioCall] Switched back to browser transcription after OpenAI fallback");
     }
 
     // Немедленная обработка финального результата
     console.log("[AudioCall] Processing recognized text immediately:", segment);
-    processRecognizedText(segment);
 
-    // Перезапускаем recognition для очистки буфера
-    if (recognitionRef.current && recognitionActiveRef.current) {
+    // Логируем успешную транскрибацию
+    if (source === 'browser') {
+      logTranscriptionEvent('browserSuccess', { length: segment.length });
+    } else if (source === 'openai') {
+      logTranscriptionEvent('openaiFallbackSuccess', { length: segment.length });
+    } else if (source === 'manual') {
+      logTranscriptionEvent('manualInputUsed', { length: segment.length });
+    }
+
+    await processRecognizedText(segment);
+
+    // Перезапускаем recognition для очистки буфера (только для браузерной транскрибации)
+    if (source === 'browser' && recognitionRef.current && recognitionActiveRef.current) {
       try {
         recognitionRef.current.stop();
         console.log("[AudioCall] Recognition stopped to clear buffer");
@@ -810,6 +1305,34 @@ const AudioCall = () => {
   useEffect(() => {
     // Детекция Safari браузера при монтировании компонента
     setIsSafariBrowser(isSafari());
+
+    // Детекция мобильных устройств и iOS
+    const ios = isIOSDevice();
+    const mobile = isMobileDevice();
+    const speechSupport = checkSpeechRecognitionSupport();
+
+    setIsIOS(ios);
+    setIsMobile(mobile);
+
+    // Инициализация аналитики
+    updateAnalytics({
+      browserInfo: {
+        userAgent: navigator.userAgent,
+        isIOS: ios,
+        isMobile: mobile,
+        speechRecognitionSupport: speechSupport,
+        forceOpenAI: false, // будет обновлено позже
+      }
+    });
+
+    // Делаем аналитику доступной глобально для openai.ts
+    (window as any).transcriptionAnalytics = {
+      logNetworkEvent: logNetworkEvent,
+      generateReport: generateAnalyticsReport
+    };
+
+    console.log(`[Mobile] Device detection: iOS=${ios}, Mobile=${mobile}`);
+    console.log(`[Mobile] Speech Recognition support: ${speechSupport}`);
   }, []);
 
   useEffect(() => {
@@ -981,6 +1504,9 @@ const AudioCall = () => {
       callLimitReachedRef.current = false;
       callLimitWarningSentRef.current = false;
       callGoodbyeSentRef.current = false;
+      setBrowserRetryCount(0); // Сбрасываем счетчик повторных попыток
+      setSafariSpeechDetectionCount(0); // Сбрасываем счетчик обнаружения речи Safari
+      setLastSafariSpeechTime(0); // Сбрасываем время последнего обнаружения речи
       setIsInitializingCall(false); // Сбрасываем на всякий случай
       
       // Загружаем память из базы данных
@@ -1002,14 +1528,32 @@ const AudioCall = () => {
         }
       }
 
-      const SpeechRecognitionConstructor =
+      // Проверяем поддержку Speech Recognition для мобильных устройств
+      const speechSupport = checkSpeechRecognitionSupport();
+      const shouldForceOpenAI = isIOSDevice() || speechSupport === 'none';
+      setForceOpenAI(shouldForceOpenAI);
+
+      console.log(`[Mobile] Speech support level: ${speechSupport}, force OpenAI: ${shouldForceOpenAI}`);
+
+      const SpeechRecognitionConstructor = shouldForceOpenAI ? null : (
         typeof window !== "undefined"
           ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-          : null;
+          : null
+      );
 
       console.log("[AudioCall] SpeechRecognition constructor:", SpeechRecognitionConstructor);
 
-      if (!SpeechRecognitionConstructor) {
+      // Для iOS и устройств без поддержки используем только OpenAI
+      if (shouldForceOpenAI) {
+        console.log("[Mobile] Using OpenAI transcription as primary method for mobile/iOS device");
+        setTranscriptionMode('openai');
+
+        // Обновляем аналитику
+        updateAnalytics({
+          browserInfo: { ...analytics.browserInfo, forceOpenAI: true }
+        });
+        logTranscriptionEvent('openaiFallbackUsed', { reason: 'forced_by_device' });
+      } else if (!SpeechRecognitionConstructor) {
         console.error("[AudioCall] Speech Recognition API не поддерживается");
         isStartingCallRef.current = false;
         setAudioError("Ваш браузер не поддерживает системное распознавание речи.");
@@ -1025,9 +1569,66 @@ const AudioCall = () => {
       console.log("[AudioCall] Аудио сессия создана, ID:", call.id);
 
       console.log("[AudioCall] Запрашиваем доступ к микрофону...");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = stream;
-      console.log("[AudioCall] Микрофон доступен, инициализируем видео для мобильных устройств...");
+
+      let stream: MediaStream;
+      try {
+        // Для мобильных устройств может потребоваться дополнительное время
+        const constraints = isMobileDevice() ? {
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 16000, // Оптимальная частота для речи
+            channelCount: 1
+          }
+        } : { audio: true };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        audioStreamRef.current = stream;
+        setMicrophoneAccessGranted(true);
+        console.log("[AudioCall] Микрофон доступен, инициализируем видео для мобильных устройств...");
+      } catch (micError: any) {
+        console.error("[AudioCall] Microphone access error:", micError);
+
+        // Обработка различных типов ошибок доступа к микрофону
+        if (micError.name === 'NotAllowedError') {
+          setAudioError("Доступ к микрофону запрещен. Разрешите доступ в настройках браузера.");
+        } else if (micError.name === 'NotFoundError') {
+          setAudioError("Микрофон не найден. Подключите микрофон и попробуйте снова.");
+        } else if (micError.name === 'NotReadableError') {
+          setAudioError("Микрофон занят другим приложением. Закройте другие приложения и попробуйте снова.");
+        } else if (micError.name === 'OverconstrainedError') {
+          // Для мобильных устройств пробуем с базовыми настройками
+          if (isMobileDevice()) {
+            console.log("[Mobile] Retrying microphone access with basic constraints...");
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              audioStreamRef.current = stream;
+              setMicrophoneAccessGranted(true);
+              console.log("[AudioCall] Микрофон доступен после повторной попытки");
+            } catch (retryError) {
+              console.error("[Mobile] Microphone access failed on retry:", retryError);
+              setAudioError("Не удалось получить доступ к микрофону. Проверьте настройки устройства.");
+              isStartingCallRef.current = false;
+              return;
+            }
+          } else {
+            setAudioError("Микрофон не соответствует требованиям. Попробуйте другой микрофон.");
+          }
+        } else {
+          setAudioError(`Ошибка доступа к микрофону: ${micError.message}`);
+        }
+
+        // Если микрофон недоступен, но у нас есть OpenAI fallback - продолжаем
+        if (shouldForceOpenAI) {
+          console.log("[Mobile] Continuing without microphone - using OpenAI transcription only");
+          setMicrophoneAccessGranted(false);
+          // Продолжаем без микрофона для OpenAI-only режима
+        } else {
+          isStartingCallRef.current = false;
+          return;
+        }
+      }
 
       // Инициализируем видео после получения доступа к микрофону (пользовательское взаимодействие)
       await initializeVideoForMobile();
@@ -1070,6 +1671,8 @@ const AudioCall = () => {
             clearTimeout(speechTimeoutRef.current);
             speechTimeoutRef.current = null;
           }
+          setBrowserRetryCount(0); // Сбрасываем счетчик при успешной транскрибации
+          setSafariSpeechDetectionCount(0); // Сбрасываем счетчик обнаружения речи Safari
           handleRecognizedText(finalTranscript);
         } 
         // Если есть только промежуточный результат - ждем паузу 1.5 сек
@@ -1092,20 +1695,35 @@ const AudioCall = () => {
       };
 
       recognition.onspeechstart = () => {
-        console.log("[AudioCall] Speech started event");
-        
-        // Только Safari: прерываем TTS голосом (работает без эхо)
+        console.log("[AudioCall] Speech started event (browser detection)");
+
+        // Оптимизированная логика прерывания для Safari
         if (!hasEchoProblems() && (isPlayingAudioRef.current || isSynthesizingRef.current)) {
-          console.log("[AudioCall] Safari: User interrupted with voice - stopping TTS");
-          stopAssistantSpeech();
+          const currentTime = Date.now();
+
+          // Проверяем debounce перед мгновенным прерыванием
+          if (currentTime - lastSafariSpeechTime > SAFARI_SPEECH_DEBOUNCE) {
+            console.log("[AudioCall] Safari: Instant voice interruption (onspeechstart), stopping TTS");
+            setLastSafariSpeechTime(currentTime);
+            setSafariSpeechDetectionCount(0); // Сбрасываем счетчик volume monitoring
+            stopAssistantSpeech();
+          } else {
+            console.debug("[AudioCall] Safari: onspeechstart detected but debouncing active");
+          }
         }
-        // Chrome: не прерываем автоматически (может быть эхо)
+        // Chrome: используем только volume monitoring для точности
       };
 
-      recognition.onerror = (event: any) => {
+      // Счетчик повторных попыток для браузерной транскрибации
+      let browserRetryCount = 0;
+      const maxBrowserRetries = 3;
+      const maxOpenAIRetries = 2; // Меньше попыток для OpenAI чтобы не задерживать разговор
+
+      recognition.onerror = async (event: any) => {
         // Игнорируем "no-speech" ошибки - это нормально для периодов тишины
         if (event?.error === "no-speech") {
           console.debug("[AudioCall] No speech detected - normal silence period");
+          browserRetryCount = 0; // Сбрасываем счетчик при нормальной работе
           return;
         }
 
@@ -1116,6 +1734,82 @@ const AudioCall = () => {
         }
 
         console.error("[AudioCall] Speech recognition error:", event);
+        logTranscriptionEvent('browserErrors', { error: event.error, message: event.message });
+        browserRetryCount++;
+
+        // Повторные попытки при временных ошибках (до maxBrowserRetries раз)
+        const retryableErrors = ["network", "audio-capture", "not-allowed"];
+        if (retryableErrors.includes(event?.error) && browserRetryCount < maxBrowserRetries) {
+          console.log(`[AudioCall] Browser transcription error (${event.error}), attempt ${browserRetryCount + 1}/${maxBrowserRetries}`);
+
+          // Ждем перед повторной попыткой
+          const delay = Math.min(1000 * (browserRetryCount + 1), 3000); // 1s, 2s, 3s
+          setTranscriptionStatus(`Повторная попытка браузерного распознавания (${browserRetryCount + 1}/${maxBrowserRetries})...`);
+          console.log(`[AudioCall] Will retry browser recognition in ${delay}ms`);
+
+          setTimeout(() => {
+            if (isCallActive && !transcriptionDisabledByTTS) {
+              try {
+                console.log(`[AudioCall] Restarting browser recognition (attempt ${browserRetryCount + 1})`);
+                recognition.start();
+                setTranscriptionStatus("");
+              } catch (restartError) {
+                console.error("[AudioCall] Failed to restart recognition after error:", restartError);
+                setTranscriptionStatus("");
+                browserRetryCount = maxBrowserRetries; // Предотвращаем дальнейшие попытки
+              }
+            }
+          }, delay);
+          return;
+        }
+
+        // При критичных ошибках или превышении лимита попыток - переходим к OpenAI fallback
+        if (event?.error === "network" || event?.error === "service-not-allowed" ||
+            event?.error === "audio-capture" || event?.error === "language-not-supported" ||
+            browserRetryCount >= maxBrowserRetries) {
+
+          console.log(`[AudioCall] Browser transcription failed after ${browserRetryCount} retries, attempting OpenAI fallback`);
+          console.log(`[AudioCall] Final error: ${event?.error}`);
+          logTranscriptionEvent('openaiFallbackUsed', { reason: 'browser_failed', error: event?.error, retries: browserRetryCount });
+          browserRetryCount = 0; // Сбрасываем счетчик
+
+          try {
+            setTranscriptionMode('openai');
+            setTranscriptionStatus("Использую OpenAI для распознавания...");
+
+            // Останавливаем запись и получаем аудио blob
+            const audioBlob = await stopMediaRecording();
+            if (audioBlob && audioBlob.size > 1000) { // Минимум 1KB аудио
+              const transcription = await transcribeWithOpenAI(audioBlob);
+
+              if (transcription) {
+                console.log("[AudioCall] OpenAI fallback successful, processing:", transcription);
+                await handleRecognizedText(transcription, 'openai');
+                setTranscriptionStatus("");
+                return;
+              } else {
+                console.warn("[AudioCall] OpenAI fallback returned no result");
+                setTranscriptionStatus("");
+              }
+            } else {
+              console.warn("[AudioCall] No audio data available for OpenAI fallback");
+              setTranscriptionStatus("");
+            }
+          } catch (fallbackError) {
+            console.error("[AudioCall] OpenAI fallback failed:", fallbackError);
+            logTranscriptionEvent('openaiFallbackErrors', { error: fallbackError.message });
+            setTranscriptionStatus("");
+
+            // Graceful degradation: если OpenAI тоже не работает
+            console.warn("[AudioCall] All transcription methods failed, showing user message");
+            logTranscriptionEvent('browserErrors', { reason: 'all_methods_failed', finalError: fallbackError.message });
+            setAudioError("Не удалось распознать речь. Попробуйте перезагрузить страницу или проверьте интернет-соединение.");
+          } finally {
+            setTranscriptionMode('browser');
+          }
+        }
+
+        // Обработка других ошибок
         if (event?.error === "not-allowed") {
           if (event?.message?.includes("Page is not visible") || event?.message?.includes("not visible to user")) {
             setAudioError("Распознавание приостановлено - страница не в фокусе. Кликните на страницу и продолжайте разговор.");
@@ -1129,6 +1823,8 @@ const AudioCall = () => {
         } else {
           setAudioError("Ошибка распознавания речи. Попробуйте ещё раз.");
         }
+
+        browserRetryCount = 0; // Сбрасываем счетчик при окончательной ошибке
       };
 
       recognition.onend = () => {
@@ -1160,6 +1856,14 @@ const AudioCall = () => {
 
       await startVolumeMonitoring(stream);
       console.log("[AudioCall] Мониторинг громкости запущен");
+
+      // Запускаем MediaRecorder для fallback транскрибации (только если есть микрофон)
+      if (stream) {
+        startMediaRecording(stream);
+        console.log("[AudioCall] MediaRecorder для fallback запущен");
+      } else {
+        console.log("[Mobile] MediaRecorder not started - no microphone available");
+      }
 
       // Уведомляем пользователя о важности держать страницу в фокусе
       console.log("[AudioCall] Уведомление: Держите страницу в фокусе для корректной работы распознавания речи");
@@ -1374,6 +2078,29 @@ const AudioCall = () => {
       console.error("Error ending call:", error);
       setAudioError("Не удалось корректно завершить звонок.");
     } finally {
+      // Генерируем финальный отчет аналитики перед завершением звонка
+      const finalReport = generateAnalyticsReport();
+      console.log('[ANALYTICS] Final session report:', finalReport);
+
+      // Сохраняем отчет в localStorage для последующего анализа
+      try {
+        const reports = JSON.parse(localStorage.getItem('sessionReports') || '[]');
+        reports.push({
+          timestamp: Date.now(),
+          callId: currentCallId,
+          report: finalReport
+        });
+
+        // Храним последние 10 отчетов
+        if (reports.length > 10) {
+          reports.splice(0, reports.length - 10);
+        }
+
+        localStorage.setItem('sessionReports', JSON.stringify(reports));
+      } catch (error) {
+        console.warn('[ANALYTICS] Failed to save session report:', error);
+      }
+
       stopAssistantSpeech();
       pauseBackgroundMusic(); // Останавливаем фоновую музыку
       setIsMusicOn(false); // Сбрасываем состояние музыки
@@ -1493,6 +2220,22 @@ const AudioCall = () => {
                   <p className="text-muted-foreground">
                     Нажмите кнопку ниже, чтобы начать голосовую сессию
                   </p>
+
+                  {/* Информация для мобильных устройств */}
+                  {isMobile && (
+                    <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <p className="text-sm text-blue-800 dark:text-blue-200">
+                        📱 <strong>Мобильное устройство обнаружено</strong>
+                      </p>
+                      <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">
+                        {isIOS
+                          ? "Используется облачная транскрибация для лучшей совместимости с iOS"
+                          : "Оптимизированные настройки для мобильного устройства"
+                        }
+                      </p>
+                    </div>
+                  )}
+
                   {subscriptionInfo && subscriptionInfo.plan === 'premium' ? (
                     <p className="mt-3 text-sm text-primary font-medium">
                       Осталось аудио сессий: {subscriptionInfo.remaining} из {subscriptionInfo.limit}
@@ -1576,8 +2319,8 @@ const AudioCall = () => {
                     {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
                   </Button>
 
-                  {/* Кнопка прерывания TTS - показывается только когда TTS активен */}
-                  {(isPlayingAudioRef.current || isSynthesizingRef.current) && (
+                  {/* Кнопка прерывания TTS - показывается только в Chromium браузерах когда TTS активен */}
+                  {hasEchoProblems() && (isPlayingAudioRef.current || isSynthesizingRef.current) && (
                     <Button
                       onClick={interruptTTS}
                       size="lg"
@@ -1601,11 +2344,63 @@ const AudioCall = () => {
                   </Button>
                 </div>
 
+                {/* Текстовый интерфейс для устройств без микрофона */}
+                {!microphoneAccessGranted && forceOpenAI && (
+                  <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+                      💬 Текстовый режим
+                    </h3>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => {
+                          const message = prompt("Введите ваше сообщение:");
+                          if (message && message.trim()) {
+                            handleRecognizedText(message.trim(), 'manual');
+                          }
+                        }}
+                        size="sm"
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        Отправить сообщение
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          const responses = [
+                            "Расскажите подробнее",
+                            "Что вы чувствуете по этому поводу?",
+                            "Как это влияет на вашу жизнь?",
+                            "Что вы хотели бы изменить?"
+                          ];
+                          const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+                          handleRecognizedText(randomResponse, 'manual');
+                        }}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Случайный вопрос
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
 
                 {subscriptionInfo && (
                   <p className="text-xs text-muted-foreground">
                     Осталось сессий в этом месяце: {subscriptionInfo.remaining} из {subscriptionInfo.limit}
                   </p>
+                )}
+
+                {/* Специальное уведомление для устройств без микрофона */}
+                {!microphoneAccessGranted && forceOpenAI && (
+                  <div className="mb-4 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                    <p className="text-sm text-orange-800 dark:text-orange-200">
+                      🎤 <strong>Микрофон недоступен</strong>
+                    </p>
+                    <p className="text-xs text-orange-600 dark:text-orange-300 mt-1">
+                      Работа в текстовом режиме. Используйте кнопки для отправки сообщений.
+                    </p>
+                  </div>
                 )}
 
                 {transcriptionStatus && (

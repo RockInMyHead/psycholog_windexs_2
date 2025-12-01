@@ -12,11 +12,12 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // Import database services
 const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, accessService, db, schema, sqlite } = require('./database');
+const logger = require('./logger');
 
 // Initialize database function
 async function initializeDatabase() {
   try {
-    console.log('Initializing database...');
+    logger.info('DB', 'Initializing database...');
 
     // Create tables if they don't exist
     const createTablesSQL = `
@@ -159,7 +160,7 @@ async function initializeDatabase() {
       }
     }
 
-    console.log('Database tables created successfully!');
+    logger.info('DB', 'Database tables created successfully!');
 
     // Check if quotes already exist
     const existingQuotes = await db.select().from(schema.quotes).limit(1);
@@ -183,12 +184,12 @@ async function initializeDatabase() {
         });
       }
 
-      console.log('Default quotes seeded successfully!');
+      logger.info('DB', 'Default quotes seeded successfully!');
     }
 
-    console.log('Database initialized successfully!');
+    logger.info('DB', 'Database initialized successfully!');
   } catch (error) {
-    console.error('Error initializing database:', error);
+    logger.db.error('initialization', error);
     throw error;
   }
 }
@@ -247,7 +248,7 @@ app.post('/api/chat/completions', async (req, res) => {
     const response = await axiosInstance.post('https://api.openai.com/v1/chat/completions', req.body);
     res.json(response.data);
   } catch (error) {
-    console.error('Error:', error.response?.data || error.message);
+    logger.openai.error('chat completion', error);
     res.status(error.response?.status || 500).json({
       error: error.response?.data || { message: error.message }
     });
@@ -278,7 +279,7 @@ app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) =>
     if (req.body.response_format) formData.append('response_format', req.body.response_format);
     if (req.body.prompt) formData.append('prompt', req.body.prompt);
 
-    console.log(`Sending transcription request to OpenAI: ${req.file.originalname}, size: ${req.file.size}`);
+    logger.openai.request('transcription', null);
 
     const response = await axiosInstance.post('https://api.openai.com/v1/audio/transcriptions', formData, {
       headers: {
@@ -291,7 +292,7 @@ app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) =>
 
     res.json(response.data);
   } catch (error) {
-    console.error('Transcription error:', error.response?.data || error.message);
+    logger.openai.error('transcription', error);
     res.status(error.response?.status || 500).json({
       error: error.response?.data || { message: error.message }
     });
@@ -313,7 +314,7 @@ app.post('/api/audio/speech', async (req, res) => {
 
     res.send(response.data);
   } catch (error) {
-    console.error('Speech error:', error.response?.data || error.message);
+    logger.openai.error('speech synthesis', error);
     res.status(error.response?.status || 500).json({
       error: error.response?.data || { message: error.message }
     });
@@ -327,7 +328,7 @@ app.get('/api/models', async (req, res) => {
     const response = await axiosInstance.get('https://api.openai.com/v1/models');
     res.json(response.data);
   } catch (error) {
-    console.error('Models error:', error.response?.data || error.message);
+    logger.openai.error('models request', error);
     res.status(error.response?.status || 500).json({
       error: error.response?.data || { message: error.message }
     });
@@ -351,7 +352,7 @@ app.post('/api/users', async (req, res) => {
 app.get('/api/users/by-email', async (req, res) => {
   try {
     const email = req.query.email;
-    console.log('[User] Getting user by email:', email);
+    logger.debug('USER', `Getting user by email: ${email}`);
 
     if (!email || typeof email !== 'string') {
       console.log('[User] Invalid email parameter');
@@ -359,7 +360,11 @@ app.get('/api/users/by-email', async (req, res) => {
     }
 
     const user = await userService.getUserByEmail(email);
-    console.log('[User] User found:', user ? user.id : 'not found');
+    if (user) {
+      logger.user.found(user.id, email);
+    } else {
+      logger.user.notFound(email);
+    }
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -705,13 +710,7 @@ app.post('/api/payments/create', async (req, res) => {
   try {
     const { amount, confirmation, description, metadata, receipt } = req.body;
 
-    console.log('[Payment] Creating payment with data:', {
-      amount,
-      confirmation,
-      description,
-      metadata,
-      hasReceipt: !!receipt
-    });
+    logger.debug('PAYMENT', `Creating payment: ${amount} руб`, { metadata });
 
     const yookassaPayload = {
       amount,
@@ -722,7 +721,7 @@ app.post('/api/payments/create', async (req, res) => {
       receipt,
     };
 
-    console.log('[Payment] Sending to YooKassa:', JSON.stringify(yookassaPayload, null, 2));
+    logger.debug('PAYMENT', 'Sending payment to YooKassa', { amount: yookassaPayload.amount });
 
     // Создаем платеж в ЮKassa через API
     const yookassaResponse = await fetch('https://api.yookassa.ru/v3/payments', {
@@ -735,16 +734,16 @@ app.post('/api/payments/create', async (req, res) => {
       body: JSON.stringify(yookassaPayload),
     });
 
-    console.log('[Payment] YooKassa response status:', yookassaResponse.status);
+    logger.debug('PAYMENT', `YooKassa response status: ${yookassaResponse.status}`);
 
     if (!yookassaResponse.ok) {
       const error = await yookassaResponse.text();
-      console.error('[Payment] Yookassa API error:', error);
+      logger.payment.error('creation', error);
       throw new Error(`Ошибка при создании платежа: ${error}`);
     }
 
     const paymentData = await yookassaResponse.json();
-    console.log('[Payment] Payment created successfully:', paymentData.id);
+    logger.payment.created(paymentData.id, paymentData.amount?.value, metadata?.userId);
 
     res.json({
       id: paymentData.id,
@@ -753,7 +752,7 @@ app.post('/api/payments/create', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[Payment] Payment creation error:', error);
+    logger.payment.error('creation', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -762,24 +761,27 @@ app.post('/api/payments/create', async (req, res) => {
 app.post('/api/payments/webhook', async (req, res) => {
   try {
     const notification = req.body;
-    console.log('[WEBHOOK] Received notification from Yookassa:', JSON.stringify(notification, null, 2));
+    logger.debug('WEBHOOK', 'Received notification from YooKassa', { event: notification.event, paymentId: notification.object?.id });
 
     // Verify notification is from Yookassa
     if (notification.event === 'payment.succeeded') {
       const payment = notification.object;
-      console.log('[WEBHOOK] Payment succeeded:', payment.id);
-      console.log('[WEBHOOK] Payment metadata:', payment.metadata);
+      logger.payment.succeeded(payment.id, payment.metadata?.userId);
+      logger.debug('WEBHOOK', `Payment metadata for ${payment.id}`, payment.metadata);
 
       if (payment.metadata?.userId && payment.metadata?.plan) {
-        console.log('[WEBHOOK] Creating subscription for user:', payment.metadata.userId, 'plan:', payment.metadata.plan);
+        logger.debug('WEBHOOK', `Creating subscription for user ${payment.metadata.userId}, plan ${payment.metadata.plan}`);
         const subscriptionId = await subscriptionService.createSubscription(
           payment.metadata.userId,
           payment.metadata.plan,
           payment.id
         );
-        console.log('[WEBHOOK] Subscription created with ID:', subscriptionId);
+        logger.subscription.created(payment.metadata.userId, payment.metadata.plan, subscriptionId);
       } else {
-        console.log('[WEBHOOK] Missing metadata - userId:', payment.metadata?.userId, 'plan:', payment.metadata?.plan);
+        logger.warn('WEBHOOK', `Missing metadata in payment ${payment.id}`, {
+          userId: payment.metadata?.userId,
+          plan: payment.metadata?.plan
+        });
       }
     }
 
@@ -787,7 +789,7 @@ app.post('/api/payments/webhook', async (req, res) => {
     res.status(200).json({ success: true });
 
   } catch (error) {
-    console.error('[WEBHOOK] Error processing webhook:', error);
+    logger.error('WEBHOOK', 'Error processing webhook', { error: error.message });
     // Still return 200 to avoid retries
     res.status(200).json({ success: false, error: error.message });
   }
@@ -796,7 +798,7 @@ app.post('/api/payments/webhook', async (req, res) => {
 app.get('/api/payments/verify/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
-    console.log('[VERIFY] Verifying payment:', paymentId);
+    logger.debug('PAYMENT', `Verifying payment: ${paymentId}`);
 
     // Проверяем статус платежа в ЮKassa
     const yookassaResponse = await fetch(`https://api.yookassa.ru/v3/payments/${paymentId}`, {
@@ -807,41 +809,43 @@ app.get('/api/payments/verify/:paymentId', async (req, res) => {
     });
 
     if (!yookassaResponse.ok) {
-      console.error('[VERIFY] Yookassa API error:', yookassaResponse.status);
+      logger.payment.error('verification', new Error(`YooKassa API error: ${yookassaResponse.status}`));
       throw new Error('Ошибка при проверке платежа');
     }
 
     const paymentData = await yookassaResponse.json();
-    console.log('[VERIFY] Payment status from Yookassa:', paymentData.status);
-    console.log('[VERIFY] Payment metadata:', paymentData.metadata);
-    console.log('[VERIFY] Payment amount:', paymentData.amount);
+    logger.debug('PAYMENT', `Payment status: ${paymentData.status}, amount: ${paymentData.amount?.value}`, paymentData.metadata);
 
     // Создаем подписку при успешной оплате
     if (paymentData.status === 'succeeded' && paymentData.metadata?.userId) {
-      console.log('[VERIFY] Payment succeeded, checking if subscription needs update for user:', paymentData.metadata.userId, 'plan:', paymentData.metadata.plan);
+      logger.debug('PAYMENT', `Payment succeeded for user ${paymentData.metadata.userId}, checking subscription`);
 
       // Проверяем, не обрабатывали ли мы уже этот платеж
       const existingSubscription = await subscriptionService.getUserSubscription(paymentData.metadata.userId);
-      console.log('[VERIFY] Current subscription:', existingSubscription);
+      logger.debug('PAYMENT', `Current subscription for user ${paymentData.metadata.userId}`, existingSubscription);
 
       const subscriptionId = await subscriptionService.createSubscription(
         paymentData.metadata.userId,
         paymentData.metadata.plan,
         paymentId
       );
-      console.log('[VERIFY] Subscription update result:', subscriptionId);
+      logger.subscription.created(paymentData.metadata.userId, paymentData.metadata.plan, subscriptionId);
 
       // Проверяем результат обновления
       const updatedSubscription = await subscriptionService.getUserSubscription(paymentData.metadata.userId);
-      console.log('[VERIFY] Updated subscription:', updatedSubscription);
+      logger.debug('PAYMENT', `Updated subscription for user ${paymentData.metadata.userId}`, updatedSubscription);
     } else {
-      console.log('[VERIFY] Skipping subscription creation - status:', paymentData.status, 'userId:', paymentData.metadata?.userId, 'plan:', paymentData.metadata?.plan);
+      logger.debug('PAYMENT', `Skipping subscription creation`, {
+        status: paymentData.status,
+        userId: paymentData.metadata?.userId,
+        plan: paymentData.metadata?.plan
+      });
     }
 
     res.json(paymentData);
 
   } catch (error) {
-    console.error('[VERIFY] Payment verification error:', error);
+    logger.payment.error('verification', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -927,17 +931,12 @@ app.get('/health', (req, res) => {
 
 // Initialize database before starting server
 initializeDatabase().then(() => {
-  console.log('Database initialized successfully');
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Proxy enabled: ${useProxy}`);
+  logger.server.started(PORT);
   if (useProxy) {
-    console.log(`Proxy: ${proxyConfig.host}:${proxyConfig.port}`);
+    logger.info('SERVER', `Proxy enabled: ${proxyConfig.host}:${proxyConfig.port}`);
   }
-  });
 }).catch((error) => {
-  console.error('Failed to initialize database:', error);
+  logger.server.error(error);
   process.exit(1);
 });
 

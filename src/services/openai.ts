@@ -2,6 +2,114 @@ import OpenAI from 'openai';
 
 const apiKey = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
 
+// Конфигурация повторных попыток
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelay: 1000, // 1 секунда
+  maxDelay: 10000, // Максимум 10 секунд
+  backoffFactor: 2, // Экспоненциальный рост задержки
+};
+
+// Функция для определения, стоит ли повторять попытку при данной ошибке
+function shouldRetry(error: any, attempt: number): boolean {
+  // Не повторяем при аутентификационных ошибках
+  if (error?.response?.status === 401 || error?.response?.status === 403) {
+    return false;
+  }
+
+  // Не повторяем при ошибках валидации (400)
+  if (error?.response?.status === 400) {
+    return false;
+  }
+
+  // Повторяем при сетевых ошибках, таймаутах, серверных ошибках
+  if (
+    error?.code === 'ECONNRESET' ||
+    error?.code === 'ETIMEDOUT' ||
+    error?.code === 'ENOTFOUND' ||
+    error?.code === 'ECONNREFUSED' ||
+    (error?.response?.status >= 500 && error?.response?.status < 600) ||
+    error?.response?.status === 429 // Rate limit
+  ) {
+    return attempt < RETRY_CONFIG.maxRetries;
+  }
+
+  // Повторяем при неизвестных ошибках
+  return attempt < RETRY_CONFIG.maxRetries;
+}
+
+// Функция для расчета задержки перед следующей попыткой
+function calculateDelay(attempt: number): number {
+  const delay = RETRY_CONFIG.baseDelay * Math.pow(RETRY_CONFIG.backoffFactor, attempt - 1);
+  // Добавляем jitter для избежания одновременных повторных попыток
+  const jitter = Math.random() * 0.1 * delay;
+  return Math.min(delay + jitter, RETRY_CONFIG.maxDelay);
+}
+
+// Универсальная функция для выполнения API вызовов с повторными попытками
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  customShouldRetry?: (error: any, attempt: number) => boolean
+): Promise<T> {
+  let lastError: any;
+  let totalRetries = 0;
+  let timeouts = 0;
+  let networkErrors = 0;
+
+  for (let attempt = 1; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+    try {
+      console.log(`[OpenAI] ${operationName} - attempt ${attempt}/${RETRY_CONFIG.maxRetries}`);
+      const result = await operation();
+
+      if (attempt > 1) {
+        console.log(`[OpenAI] ${operationName} - succeeded on attempt ${attempt} after ${totalRetries} retries`);
+      }
+
+      // Логируем статистику в глобальный объект (если доступен)
+      if (typeof window !== 'undefined' && (window as any).transcriptionAnalytics) {
+        (window as any).transcriptionAnalytics.logNetworkEvent('openaiRequests');
+        if (totalRetries > 0) {
+          (window as any).transcriptionAnalytics.logNetworkEvent('openaiRetries', totalRetries);
+        }
+        if (timeouts > 0) {
+          (window as any).transcriptionAnalytics.logNetworkEvent('openaiTimeouts', timeouts);
+        }
+        if (networkErrors > 0) {
+          (window as any).transcriptionAnalytics.logNetworkEvent('networkErrors', networkErrors);
+        }
+      }
+
+      return result;
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`[OpenAI] ${operationName} - attempt ${attempt} failed:`, error.message);
+
+      // Классифицируем ошибки для статистики
+      if (error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
+        timeouts++;
+      } else if (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+        networkErrors++;
+      }
+
+      const shouldRetryFn = customShouldRetry || shouldRetry;
+      if (!shouldRetryFn(error, attempt)) {
+        console.error(`[OpenAI] ${operationName} - giving up after ${attempt} attempts`);
+        break;
+      }
+
+      totalRetries++;
+      if (attempt < RETRY_CONFIG.maxRetries) {
+        const delay = calculateDelay(attempt);
+        console.log(`[OpenAI] ${operationName} - waiting ${delay}ms before retry`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 if (!apiKey) {
   console.warn('OpenAI API key is not defined. Please set VITE_OPENAI_API_KEY in your environment.');
 }
@@ -236,7 +344,7 @@ class PsychologistAI {
   }
 
   async transcribeAudio(audioBlob: Blob): Promise<string> {
-    try {
+    return withRetry(async () => {
       // Determine appropriate extension based on MIME type
       let extension = 'webm';
       if (audioBlob.type.includes('mp4') || audioBlob.type.includes('aac') || audioBlob.type.includes('m4a')) {
@@ -274,14 +382,11 @@ class PsychologistAI {
       }
 
       return text;
-    } catch (error) {
-      console.error("Error transcribing audio:", error);
-      throw error;
-    }
+    }, "transcribeAudio");
   }
 
   async getVoiceResponse(messages: ChatMessage[], memoryContext = '', fastMode = false): Promise<string> {
-    try {
+    return withRetry(async () => {
       // Формируем системный промпт с контекстом памяти
       let systemMessages: { role: 'system'; content: string }[] = [
         { role: "system" as const, content: this.systemPrompt }
@@ -316,10 +421,7 @@ ${memoryContext}
       }
 
       return response;
-    } catch (error) {
-      console.error("Error getting voice response:", error);
-      throw error;
-    }
+    }, "getVoiceResponse");
   }
 
   async synthesizeSpeech(text: string, options: { model?: string; voice?: string; format?: string } = {}): Promise<ArrayBuffer> {
@@ -335,67 +437,49 @@ ${memoryContext}
 
     const finalOptions = { ...defaultOptions, ...options };
 
-    let retryCount = 0;
-    const maxRetries = 3;
+    return withRetry(async () => {
+      console.log(`[TTS] Synthesizing speech for text:`, text.substring(0, 50) + (text.length > 50 ? "..." : ""));
+      console.log(`[TTS] Using options:`, finalOptions);
 
-    while (retryCount < maxRetries) {
-      try {
-        console.log(`[TTS] Attempt ${retryCount + 1}/${maxRetries} - Synthesizing speech for text:`, text.substring(0, 50) + (text.length > 50 ? "..." : ""));
-        console.log(`[TTS] Using options:`, finalOptions);
+      // Используем прямой fetch запрос к нашему API вместо OpenAI клиента
+      const response = await fetch('/api/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: finalOptions.model,
+          voice: finalOptions.voice,
+          input: text,
+          response_format: finalOptions.response_format,
+          speed: finalOptions.speed,
+        }),
+      });
 
-        // Используем прямой fetch запрос к нашему API вместо OpenAI клиента
-        const response = await fetch('/api/audio/speech', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: finalOptions.model,
-            voice: finalOptions.voice,
-            input: text,
-            response_format: finalOptions.response_format,
-            speed: finalOptions.speed,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-        console.log(`[TTS] Speech synthesized successfully, buffer size: ${arrayBuffer.byteLength} bytes, format: ${finalOptions.response_format}`);
-
-        // Проверяем, что буфер не пустой
-        if (arrayBuffer.byteLength === 0) {
-          throw new Error("Received empty audio buffer");
-        }
-
-        return arrayBuffer;
-      } catch (error) {
-        console.error(`[TTS] Error synthesizing speech (attempt ${retryCount + 1}):`, error);
-
-        retryCount++;
-
-        // Если это последняя попытка, пробуем fallback настройки
-        if (retryCount === maxRetries - 1) {
-          console.log("[TTS] Trying fallback settings...");
-          finalOptions.model = "tts-1"; // Переключаемся на базовую модель
-          finalOptions.response_format = "mp3"; // Переключаемся на MP3
-          finalOptions.speed = 1.0;
-        }
-
-        // Если все попытки исчерпаны, бросаем ошибку
-        if (retryCount >= maxRetries) {
-          throw new Error(`TTS synthesis failed after ${maxRetries} attempts: ${error}`);
-        }
-
-        // Ждем перед следующей попыткой
-        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-    }
 
-    throw new Error("TTS synthesis failed");
+      const arrayBuffer = await response.arrayBuffer();
+      console.log(`[TTS] Speech synthesized successfully, buffer size: ${arrayBuffer.byteLength} bytes, format: ${finalOptions.response_format}`);
+
+      // Проверяем, что буфер не пустой
+      if (arrayBuffer.byteLength === 0) {
+        throw new Error("Received empty audio buffer");
+      }
+
+      return arrayBuffer;
+    }, "synthesizeSpeech", (error, attempt) => {
+      // Кастомная логика для TTS: пробуем fallback настройки на предпоследней попытке
+      if (attempt === RETRY_CONFIG.maxRetries - 1) {
+        console.log("[TTS] Trying fallback settings for next attempt...");
+        finalOptions.model = "tts-1"; // Переключаемся на базовую модель
+        finalOptions.response_format = "mp3"; // Переключаемся на MP3
+        finalOptions.speed = 1.0;
+      }
+      return shouldRetry(error, attempt);
+    });
   }
 }
 

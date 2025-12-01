@@ -4,6 +4,7 @@
 const Database = require('better-sqlite3');
 const { drizzle } = require('drizzle-orm/better-sqlite3');
 const { eq, and, desc, sql } = require('drizzle-orm');
+const logger = require('./logger');
 
 // Define schema inline for server use
 const { sqliteTable, text, integer } = require('drizzle-orm/sqlite-core');
@@ -128,7 +129,7 @@ const schema = {
 };
 
 // Create database connection
-const sqlite = new Database('../zen-mind-mate.db', { verbose: console.log });
+const sqlite = new Database('../zen-mind-mate.db');
 
 // Create drizzle instance
 const db = drizzle(sqlite, { schema });
@@ -679,7 +680,7 @@ const subscriptionService = {
     const subscriptionId = `sub_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
     const now = new Date();
 
-    console.log('[DB] Create/Update subscription called:', { userId, plan, yookassaPaymentId, subscriptionId });
+    logger.subscription.created(userId, plan, subscriptionId);
 
     // Определяем параметры подписки в зависимости от плана
     let subscriptionData = {
@@ -715,13 +716,13 @@ const subscriptionService = {
 
     // Проверяем, есть ли уже активная подписка
     const existingSubscription = await this.getUserSubscription(userId);
-    console.log('[DB] Existing subscription:', existingSubscription);
+    logger.debug('DB', `Existing subscription for user ${userId}`, existingSubscription);
 
     if (existingSubscription) {
-      console.log('[DB] Updating existing subscription');
+      logger.debug('DB', `Updating existing subscription for user ${userId}`);
       const oldLimit = existingSubscription.audioSessionsLimit || 0;
       const newLimit = (existingSubscription.audioSessionsLimit || 0) + (subscriptionData.audioSessionsLimit || 0);
-      console.log('[DB] Audio sessions: old =', oldLimit, 'new =', newLimit);
+      logger.debug('DB', `Audio sessions limit: ${oldLimit} -> ${newLimit} for user ${userId}`);
 
       // Если подписка уже есть, обновляем её
       // Добавляем новые лимиты к существующим
@@ -739,7 +740,7 @@ const subscriptionService = {
         })
         .where(eq(schema.subscriptions.id, existingSubscription.id));
 
-      console.log('[DB] Subscription updated successfully');
+      logger.subscription.updated(userId, { audioSessionsLimit: newLimit });
       return existingSubscription.id;
 
       return existingSubscription.id;
