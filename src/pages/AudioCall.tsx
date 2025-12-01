@@ -91,6 +91,7 @@ const AudioCall = () => {
   const memoryRef = useRef<string>("");
   const isStartingCallRef = useRef(false); // Флаг для предотвращения повторных вызовов startCall
   const speechTimeoutRef = useRef<number | null>(null); // Таймер для обработки промежуточных результатов
+  const lastProcessedResultIndexRef = useRef<number>(-1); // Последний обработанный resultIndex
   const audioAnalyserRef = useRef<AnalyserNode | null>(null);
   const volumeMonitorRef = useRef<number | null>(null);
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
@@ -1018,20 +1019,22 @@ const AudioCall = () => {
 
       recognition.onresult = (event: any) => {
         console.log("[AudioCall] Recognition result event:", event);
-        
+
         // Только для Chromium: блокируем обработку во время TTS (защита от эхо)
         if (hasEchoProblems() && (isPlayingAudioRef.current || isSynthesizingRef.current)) {
           console.log("[AudioCall] Ignoring recognition during TTS (Chrome echo prevention)");
           return;
         }
-        
+
+        // Обрабатываем только новые результаты (с resultIndex больше последнего обработанного)
         let finalTranscript = "";
         let interimTranscript = "";
-        
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        let hasNewResults = false;
+
+        for (let i = Math.max(event.resultIndex, lastProcessedResultIndexRef.current + 1); i < event.results.length; i += 1) {
           const result = event.results[i];
           const transcript = result?.[0]?.transcript ?? "";
-          
+
           if (result.isFinal) {
             finalTranscript += transcript;
             console.log(`[AudioCall] Final result: "${transcript}"`);
@@ -1039,8 +1042,18 @@ const AudioCall = () => {
             interimTranscript += transcript;
             console.log(`[AudioCall] Interim result: "${transcript}"`);
           }
+          hasNewResults = true;
         }
-        
+
+        if (!hasNewResults) {
+          console.log("[AudioCall] No new results to process");
+          return;
+        }
+
+        // Обновляем последний обработанный индекс
+        lastProcessedResultIndexRef.current = event.results.length - 1;
+        console.log(`[AudioCall] Updated lastProcessedResultIndex to: ${lastProcessedResultIndexRef.current}`);
+
         // Если есть финальный результат - обрабатываем сразу
         if (finalTranscript.trim()) {
           console.log("[AudioCall] Processing final transcript immediately:", finalTranscript);
@@ -1049,7 +1062,7 @@ const AudioCall = () => {
             speechTimeoutRef.current = null;
           }
           handleRecognizedText(finalTranscript);
-        } 
+        }
         // Если есть только промежуточный результат - ждем паузу 1.5 сек
         else if (interimTranscript.trim()) {
           if (speechTimeoutRef.current) {
