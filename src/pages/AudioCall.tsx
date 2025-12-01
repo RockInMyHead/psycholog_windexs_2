@@ -89,8 +89,6 @@ const AudioCall = () => {
   const callLimitWarningSentRef = useRef(false);
   const callGoodbyeSentRef = useRef(false);
   const memoryRef = useRef<string>("");
-  const pendingTranscriptRef = useRef<string>("");
-  const pendingProcessTimeoutRef = useRef<number | null>(null);
   const isStartingCallRef = useRef(false); // Флаг для предотвращения повторных вызовов startCall
   const audioAnalyserRef = useRef<AnalyserNode | null>(null);
   const volumeMonitorRef = useRef<number | null>(null);
@@ -651,11 +649,6 @@ const AudioCall = () => {
     resetAudioPlayback();
     conversationRef.current = [];
     responseQueueRef.current = Promise.resolve();
-    pendingTranscriptRef.current = "";
-    if (pendingProcessTimeoutRef.current) {
-      window.clearTimeout(pendingProcessTimeoutRef.current);
-      pendingProcessTimeoutRef.current = null;
-    }
 
     if (audioStreamRef.current) {
       audioStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -715,19 +708,6 @@ const AudioCall = () => {
     }
   };
 
-  const flushPendingTranscript = () => {
-    const text = pendingTranscriptRef.current.trim();
-    pendingTranscriptRef.current = "";
-    if (!text) {
-      return;
-    }
-
-    stopAssistantSpeech();
-
-    responseQueueRef.current = responseQueueRef.current
-      .catch((error) => console.error("Previous voice response error:", error))
-      .then(() => processRecognizedText(text));
-  };
 
   const handleRecognizedText = (rawText: string) => {
     console.log("[AudioCall] handleRecognizedText called with:", rawText);
@@ -747,19 +727,9 @@ const AudioCall = () => {
       console.log("[AudioCall] Транскрибация включена после голосового прерывания TTS");
     }
 
-    pendingTranscriptRef.current = [pendingTranscriptRef.current, segment].filter(Boolean).join(" ");
-    console.log("[AudioCall] Updated pending transcript:", pendingTranscriptRef.current);
-
-    if (pendingProcessTimeoutRef.current) {
-      window.clearTimeout(pendingProcessTimeoutRef.current);
-    }
-
-    const timeoutDelay = 3000;
-    pendingProcessTimeoutRef.current = window.setTimeout(() => {
-      pendingProcessTimeoutRef.current = null;
-      console.log("[AudioCall] Timeout reached (3 seconds), flushing pending transcript");
-      flushPendingTranscript();
-    }, timeoutDelay);
+    // Немедленная обработка финального результата вместо ожидания таймера
+    console.log("[AudioCall] Processing recognized text immediately:", segment);
+    processRecognizedText(segment);
   };
 
   const updateConversationMemory = async (userText: string, assistantText: string) => {
@@ -867,10 +837,6 @@ const AudioCall = () => {
       stopProcessingSound();
       if (callTimerRef.current) {
         clearInterval(callTimerRef.current);
-      }
-      if (pendingProcessTimeoutRef.current) {
-        window.clearTimeout(pendingProcessTimeoutRef.current);
-        pendingProcessTimeoutRef.current = null;
       }
     };
   }, []);
@@ -1582,12 +1548,6 @@ const AudioCall = () => {
                         onClick={() => {
                           // Останавливаем TTS и сразу включаем транскрибацию
                           stopAssistantSpeech();
-                          // Очищаем pending transcript для новой транскрибации
-                          pendingTranscriptRef.current = "";
-                          if (pendingProcessTimeoutRef.current) {
-                            window.clearTimeout(pendingProcessTimeoutRef.current);
-                            pendingProcessTimeoutRef.current = null;
-                          }
                           setTranscriptionStatus("Говорите...");
                           console.log("[AudioCall] User interrupted TTS and started transcription");
                         }}
