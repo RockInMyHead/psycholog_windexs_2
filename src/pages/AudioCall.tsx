@@ -753,10 +753,10 @@ const AudioCall = () => {
       window.clearTimeout(pendingProcessTimeoutRef.current);
     }
 
-    const timeoutDelay = 5000;
+    const timeoutDelay = 3000;
     pendingProcessTimeoutRef.current = window.setTimeout(() => {
       pendingProcessTimeoutRef.current = null;
-      console.log("[AudioCall] Timeout reached (5 seconds), flushing pending transcript");
+      console.log("[AudioCall] Timeout reached (3 seconds), flushing pending transcript");
       flushPendingTranscript();
     }, timeoutDelay);
   };
