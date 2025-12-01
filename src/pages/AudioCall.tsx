@@ -103,7 +103,7 @@ const AudioCall = () => {
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // Предупреждение за 5 минут
   const SESSION_GOODBYE_SECONDS = SESSION_DURATION_SECONDS - 1 * 60; // Прощание за 1 минуту
   const MAX_CALL_DURATION_SECONDS = 40 * 60; // Абсолютный максимум (для подстраховки)
-  const VOICE_DETECTION_THRESHOLD = 65; // Увеличили порог до 65 для защиты от шума и ложных срабатываний
+  const VOICE_DETECTION_THRESHOLD = 80; // Увеличили порог до 80 для лучшей защиты от шума и ложных срабатываний
 
   const createAudioContext = () => {
     if (!audioContextRef.current) {
@@ -550,7 +550,8 @@ const AudioCall = () => {
         const currentThreshold = isAssistantActive ?
           VOICE_DETECTION_THRESHOLD + 25 : VOICE_DETECTION_THRESHOLD;
 
-        if (average > currentThreshold) {
+        // Добавляем гистерезис: прерываем только если громкость значительно превышает порог
+        if (average > currentThreshold + 5) {
           console.debug(`[AudioCall] Обнаружен голос пользователя (громкость: ${average.toFixed(1)} > ${currentThreshold}), прерываем Марка`);
           stopAssistantSpeech();
         }
