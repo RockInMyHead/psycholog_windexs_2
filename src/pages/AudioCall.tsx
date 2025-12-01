@@ -1109,6 +1109,12 @@ const AudioCall = () => {
           return;
         }
 
+        // Игнорируем "aborted" ошибки - это нормально при перезапуске recognition
+        if (event?.error === "aborted") {
+          console.debug("[AudioCall] Recognition aborted - normal during restart");
+          return;
+        }
+
         console.error("[AudioCall] Speech recognition error:", event);
         if (event?.error === "not-allowed") {
           if (event?.message?.includes("Page is not visible") || event?.message?.includes("not visible to user")) {
@@ -1120,7 +1126,7 @@ const AudioCall = () => {
           }
         } else if (event?.error === "service-not-allowed") {
           setAudioError("Служба распознавания речи недоступна. Попробуйте обновить страницу.");
-        } else if (event?.error !== "aborted") {
+        } else {
           setAudioError("Ошибка распознавания речи. Попробуйте ещё раз.");
         }
       };
