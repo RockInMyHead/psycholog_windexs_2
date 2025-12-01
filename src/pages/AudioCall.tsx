@@ -90,6 +90,7 @@ const AudioCall = () => {
   const callGoodbyeSentRef = useRef(false);
   const memoryRef = useRef<string>("");
   const isStartingCallRef = useRef(false); // Флаг для предотвращения повторных вызовов startCall
+  const speechTimeoutRef = useRef<number | null>(null); // Таймер для обработки промежуточных результатов
   const audioAnalyserRef = useRef<AnalyserNode | null>(null);
   const volumeMonitorRef = useRef<number | null>(null);
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
@@ -838,6 +839,10 @@ const AudioCall = () => {
       if (callTimerRef.current) {
         clearInterval(callTimerRef.current);
       }
+      if (speechTimeoutRef.current) {
+        clearTimeout(speechTimeoutRef.current);
+        speechTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -1001,19 +1006,48 @@ const AudioCall = () => {
       const recognition = new SpeechRecognitionConstructor();
       recognition.lang = "ru-RU";
       recognition.continuous = true;
-      recognition.interimResults = false;
+      recognition.interimResults = true; // Включаем промежуточные результаты для быстрой обработки
       recognition.maxAlternatives = 1;
 
       recognition.onresult = (event: any) => {
         console.log("[AudioCall] Recognition result event:", event);
+        
+        let finalTranscript = "";
+        let interimTranscript = "";
+        
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
           const result = event.results[i];
           const transcript = result?.[0]?.transcript ?? "";
-          console.log(`[AudioCall] Result ${i}: final=${result.isFinal}, transcript="${transcript}"`);
-          if (result.isFinal && transcript) {
-            console.log("[AudioCall] Финальный результат, передаем на обработку");
-            handleRecognizedText(transcript);
+          
+          if (result.isFinal) {
+            finalTranscript += transcript;
+            console.log(`[AudioCall] Final result: "${transcript}"`);
+          } else {
+            interimTranscript += transcript;
+            console.log(`[AudioCall] Interim result: "${transcript}"`);
           }
+        }
+        
+        // Если есть финальный результат - обрабатываем сразу
+        if (finalTranscript.trim()) {
+          console.log("[AudioCall] Processing final transcript immediately:", finalTranscript);
+          if (speechTimeoutRef.current) {
+            clearTimeout(speechTimeoutRef.current);
+            speechTimeoutRef.current = null;
+          }
+          handleRecognizedText(finalTranscript);
+        } 
+        // Если есть только промежуточный результат - ждем паузу 1.5 сек
+        else if (interimTranscript.trim()) {
+          if (speechTimeoutRef.current) {
+            clearTimeout(speechTimeoutRef.current);
+          }
+          const capturedTranscript = interimTranscript;
+          speechTimeoutRef.current = window.setTimeout(() => {
+            console.log("[AudioCall] Pause detected after interim result, processing:", capturedTranscript);
+            handleRecognizedText(capturedTranscript);
+            speechTimeoutRef.current = null;
+          }, 1500);
         }
       };
 
@@ -1529,9 +1563,9 @@ const AudioCall = () => {
                       <Button
                         onClick={() => {
                           // Прерываем ожидание и очищаем статус
-                          if (pendingProcessTimeoutRef.current) {
-                            window.clearTimeout(pendingProcessTimeoutRef.current);
-                            pendingProcessTimeoutRef.current = null;
+                          if (speechTimeoutRef.current) {
+                            window.clearTimeout(speechTimeoutRef.current);
+                            speechTimeoutRef.current = null;
                           }
                           setTranscriptionStatus("");
                           console.log("[AudioCall] User skipped waiting for response");
