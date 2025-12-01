@@ -931,10 +931,13 @@ app.get('/health', (req, res) => {
 
 // Initialize database before starting server
 initializeDatabase().then(() => {
-  logger.server.started(PORT);
+  // Start the HTTP server
+app.listen(PORT, () => {
+    logger.server.started(PORT);
   if (useProxy) {
-    logger.info('SERVER', `Proxy enabled: ${proxyConfig.host}:${proxyConfig.port}`);
+      logger.info('SERVER', `Proxy enabled: ${proxyConfig.host}:${proxyConfig.port}`);
   }
+  });
 }).catch((error) => {
   logger.server.error(error);
   process.exit(1);

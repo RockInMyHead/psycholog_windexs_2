@@ -2,8 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
-// Production-only build configuration
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   build: {
     // Оптимизации для production
     minify: 'esbuild',
@@ -14,11 +13,21 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // Отключаем HMR для production сборки
   server: {
-    hmr: false,
     port: 5173,
-    proxy: {
+    // Настраиваем proxy в зависимости от режима
+    proxy: mode === 'development' ? {
+      '/api': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/health': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        secure: false,
+      },
+    } : {
       '/api': {
         target: 'https://psycholog.windexs.ru',
         changeOrigin: true,
@@ -31,9 +40,9 @@ export default defineConfig({
       },
     },
   },
-  define: {
-    // Полностью отключаем development режим
+  define: mode === 'production' ? {
+    // Полностью отключаем development режим для production
     __HMR_PORT__: undefined,
     'import.meta.env.VITE_DISABLE_HMR': 'true',
-  },
-});
+  } : {},
+}));

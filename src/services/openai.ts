@@ -438,8 +438,9 @@ ${memoryContext}
     const finalOptions = { ...defaultOptions, ...options };
 
     return withRetry(async () => {
-      console.log(`[TTS] Synthesizing speech for text:`, text.substring(0, 50) + (text.length > 50 ? "..." : ""));
-      console.log(`[TTS] Using options:`, finalOptions);
+      const synthId = Date.now(); // Unique ID for this synthesis
+      console.log(`[TTS] Synthesizing speech (ID: ${synthId}) for text:`, text.substring(0, 50) + (text.length > 50 ? "..." : ""));
+      console.log(`[TTS] Using options (ID: ${synthId}):`, finalOptions);
 
       // Используем прямой fetch запрос к нашему API вместо OpenAI клиента
       const response = await fetch('/api/audio/speech', {
@@ -461,8 +462,8 @@ ${memoryContext}
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      console.log(`[TTS] Speech synthesized successfully, buffer size: ${arrayBuffer.byteLength} bytes, format: ${finalOptions.response_format}`);
+        const arrayBuffer = await response.arrayBuffer();
+        console.log(`[TTS] Speech synthesized successfully (ID: ${synthId}), buffer size: ${arrayBuffer.byteLength} bytes, format: ${finalOptions.response_format}`);
 
       // Проверяем, что буфер не пустой
       if (arrayBuffer.byteLength === 0) {
