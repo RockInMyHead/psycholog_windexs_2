@@ -610,6 +610,13 @@ const AudioCall = () => {
       stopRecognition();
       setTranscriptionDisabledByTTS(true);
       console.log("[AudioCall] Транскрибация отключена во время TTS (из-за проблем эхо)");
+      
+      // Очищаем pending timeout чтобы не обработать эхо
+      if (speechTimeoutRef.current) {
+        clearTimeout(speechTimeoutRef.current);
+        speechTimeoutRef.current = null;
+        console.log("[AudioCall] Cleared speech timeout to prevent echo processing");
+      }
     } else if (!shouldDisableTranscription && !recognitionActiveRef.current && isCallActive) {
       // Включаем транскрибацию после окончания TTS, если звонок активен
       startRecognition();
@@ -1012,6 +1019,12 @@ const AudioCall = () => {
       recognition.onresult = (event: any) => {
         console.log("[AudioCall] Recognition result event:", event);
         
+        // Только для Chromium: блокируем обработку во время TTS (защита от эхо)
+        if (hasEchoProblems() && (isPlayingAudioRef.current || isSynthesizingRef.current)) {
+          console.log("[AudioCall] Ignoring recognition during TTS (Chrome echo prevention)");
+          return;
+        }
+        
         let finalTranscript = "";
         let interimTranscript = "";
         
@@ -1044,6 +1057,11 @@ const AudioCall = () => {
           }
           const capturedTranscript = interimTranscript;
           speechTimeoutRef.current = window.setTimeout(() => {
+            // Только для Chromium: проверка перед обработкой
+            if (hasEchoProblems() && (isPlayingAudioRef.current || isSynthesizingRef.current)) {
+              console.log("[AudioCall] Cancelled interim processing - TTS is active (Chrome)");
+              return;
+            }
             console.log("[AudioCall] Pause detected after interim result, processing:", capturedTranscript);
             handleRecognizedText(capturedTranscript);
             speechTimeoutRef.current = null;
@@ -1052,8 +1070,14 @@ const AudioCall = () => {
       };
 
       recognition.onspeechstart = () => {
-        console.log("[AudioCall] Speech started - stopping assistant speech");
-        stopAssistantSpeech();
+        console.log("[AudioCall] Speech started event");
+        
+        // Только Safari: прерываем TTS голосом (работает без эхо)
+        if (!hasEchoProblems() && (isPlayingAudioRef.current || isSynthesizingRef.current)) {
+          console.log("[AudioCall] Safari: User interrupted with voice - stopping TTS");
+          stopAssistantSpeech();
+        }
+        // Chrome: не прерываем автоматически (может быть эхо)
       };
 
       recognition.onerror = (event: any) => {
