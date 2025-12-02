@@ -203,7 +203,7 @@ const userService = {
   },
 
   async getUserByEmail(email) {
-    const result = await db.select().from(schema.users).where(eq(schema.users.email, email));
+    const result = await db.select().from(users).where(eq(users.email, email));
     if (result.length === 0) return undefined;
 
     const user = result[0];

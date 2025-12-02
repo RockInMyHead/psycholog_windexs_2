@@ -15,19 +15,13 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     port: 5173,
-    // Настраиваем proxy в зависимости от режима
-    proxy: mode === 'development' ? {
-      '/api': {
-        target: 'http://localhost:3002',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/health': {
-        target: 'http://localhost:3002',
-        changeOrigin: true,
-        secure: false,
-      },
-    } : {
+    host: true, // Разрешить доступ из сети
+    https: process.env.USE_HTTPS === 'true' ? {
+      key: './server/key.pem',
+      cert: './server/cert.pem',
+    } : false,
+    // Настраиваем proxy - используем production URL
+    proxy: {
       '/api': {
         target: 'https://psycholog.windexs.ru',
         changeOrigin: true,

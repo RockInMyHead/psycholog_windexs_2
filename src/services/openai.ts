@@ -114,16 +114,11 @@ if (!apiKey) {
   console.warn('OpenAI API key is not defined. Please set VITE_OPENAI_API_KEY in your environment.');
 }
 
-// API endpoint - use full URL for OpenAI client
-const baseURL = typeof window !== 'undefined'
-  ? `${window.location.protocol}//${window.location.host}/api`
-  : 'https://psycholog.windexs.ru/api';
-
-console.log(`OpenAI client initialized - using ${baseURL}`);
+// OpenAI client should use the official API, not local proxy
+console.log(`OpenAI client initialized - using official OpenAI API`);
 
 const openai = new OpenAI({
   apiKey,
-  baseURL,
   dangerouslyAllowBrowser: true,
   defaultHeaders: {
     'X-Forwarded-For': 'client'
@@ -344,29 +339,34 @@ class PsychologistAI {
   }
 
   async transcribeAudio(audioBlob: Blob): Promise<string> {
+    console.log(`[OpenAI] Transcribe: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+
     return withRetry(async () => {
-      // Determine appropriate extension based on MIME type
-      let extension = 'webm';
-      if (audioBlob.type.includes('mp4') || audioBlob.type.includes('aac') || audioBlob.type.includes('m4a')) {
-        extension = 'm4a';
-      } else if (audioBlob.type.includes('wav')) {
-        extension = 'wav';
-      } else if (audioBlob.type.includes('mpeg') || audioBlob.type.includes('mp3')) {
-          extension = 'mp3';
-      } else if (audioBlob.type.includes('ogg')) {
-          extension = 'ogg';
+      // Determine file extension based on MIME type (no conversion - faster!)
+      let extension = "webm";
+      if (audioBlob.type.includes("mp4") || audioBlob.type.includes("aac") || audioBlob.type.includes("m4a")) {
+        extension = "m4a";
+      } else if (audioBlob.type.includes("wav")) {
+        extension = "wav";
+      } else if (audioBlob.type.includes("mpeg") || audioBlob.type.includes("mp3")) {
+        extension = "mp3";
+      } else if (audioBlob.type.includes("ogg")) {
+        extension = "ogg";
       }
 
-      // Create a File object from the Blob
-      const file = new File([audioBlob], `voice-message.${extension}`, { type: audioBlob.type });
-
-      console.debug(`[OpenAI] Отправляется аудио на транскрибацию (${file.type}, size: ${file.size})`);
+      // Create File directly from blob (no conversion = faster)
+      const file = new File([audioBlob], `voice.${extension}`, { type: audioBlob.type || "audio/webm" });
+      console.debug(`[OpenAI] Sending: ${file.name}, ${file.size} bytes`);
 
       const transcription = await openai.audio.transcriptions.create({
         file,
         model: "whisper-1",
         response_format: "text",
         language: "ru",
+        // Короткий промпт для контекста (длинный замедляет)
+        prompt: "Разговор с психологом. Короткие фразы: Привет, Да, Нет, Хорошо, Понял.",
+        // temperature: 0.2 быстрее чем 0, но достаточно точно
+        temperature: 0.2,
       });
 
       if (!transcription) {

@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const multer = require('multer');
 const FormData = require('form-data');
@@ -221,6 +223,7 @@ async function initializeDatabase() {
 
 const app = express();
 const PORT = process.env.PORT || 1033;
+const USE_HTTPS = process.env.USE_HTTPS === 'true' || process.env.NODE_ENV === 'production';
 
 // Middleware
 app.use(cors({
@@ -1027,17 +1030,32 @@ app.get('/health', (req, res) => {
 
 // Initialize database before starting server
 initializeDatabase().then(() => {
-  // Start the HTTP server
-app.listen(PORT, () => {
-    logger.server.started(PORT);
-  if (useProxy) {
-      logger.info('SERVER', `Proxy enabled: ${proxyConfig.host}:${proxyConfig.port}`);
+  if (USE_HTTPS) {
+    // Start HTTPS server
+    const httpsOptions = {
+      key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+      cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
+    };
+
+    https.createServer(httpsOptions, app).listen(PORT, '0.0.0.0', () => {
+      logger.server.started(PORT, 'HTTPS');
+      if (useProxy) {
+        logger.info('SERVER', `Proxy enabled: ${proxyConfig.host}:${proxyConfig.port}`);
+      }
+    });
+  } else {
+    // Start HTTP server
+    app.listen(PORT, '0.0.0.0', () => {
+      logger.server.started(PORT, 'HTTP');
+      if (useProxy) {
+        logger.info('SERVER', `Proxy enabled: ${proxyConfig.host}:${proxyConfig.port}`);
+      }
+    });
   }
-  });
 }).catch((error) => {
   logger.error('DB', 'Ошибка initialization', error);
   logger.error('SERVER', 'Ошибка сервера', error);
-  console.error('Database initialization error:', error);
+  console.error('Database initialization error details:', error);
   process.exit(1);
 });
 

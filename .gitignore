@@ -29,3 +29,8 @@ dist-ssr
 .env.development.local
 .env.test.local
 .env.production.local
+
+# SSL certificates (private keys)
+*.pem
+server/cert.pem
+server/key.pem
