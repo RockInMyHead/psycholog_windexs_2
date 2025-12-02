@@ -151,7 +151,7 @@ const logger = {
   },
 
   server: {
-    started: (port) => log('info', 'SERVER', `Сервер запущен на порту ${port}`),
+    started: (port, protocol = 'HTTP') => log('info', 'SERVER', `Сервер запущен на порту ${port} (${protocol})`),
     error: (error) => log('error', 'SERVER', 'Ошибка сервера', { error: error.message })
   }
 };
