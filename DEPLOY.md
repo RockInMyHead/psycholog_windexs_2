@@ -93,7 +93,7 @@ server {
 
     # API прокси к backend-серверу
     location /api {
-        proxy_pass http://localhost:1033;
+        proxy_pass http://localhost:3002;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
