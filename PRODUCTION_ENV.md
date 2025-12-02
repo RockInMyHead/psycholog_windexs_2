@@ -11,6 +11,11 @@ VITE_OPENAI_API_KEY=your_real_openai_api_key_here
 PORT=1033
 NODE_ENV=production
 
+# HTTPS Configuration
+# ВАЖНО: Установите false при использовании Nginx reverse proxy!
+# SSL обрабатывается на уровне Nginx, а не Node.js
+USE_HTTPS=false
+
 # Proxy Configuration (опционально, только если нужен для доступа к OpenAI)
 USE_PROXY=false
 PROXY_HOST=185.68.187.20
@@ -24,6 +29,7 @@ PROXY_PASSWORD=jZdUnJ
 - **VITE_OPENAI_API_KEY** - обязательна! Без неё API не будет работать
 - **PORT** - порт для backend-сервера (должен быть 1033 по конфигу Nginx)
 - **NODE_ENV** - ВСЕГДА должна быть `production` на сервере
+- **USE_HTTPS** - ВСЕГДА `false` при использовании Nginx reverse proxy (SSL на уровне Nginx)
 - **USE_PROXY** - ставьте `true` только если нужен прокси для доступа к OpenAI
 
 ## Frontend автоматически:

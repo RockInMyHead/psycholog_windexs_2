@@ -223,7 +223,9 @@ async function initializeDatabase() {
 
 const app = express();
 const PORT = process.env.PORT || 1033;
-const USE_HTTPS = process.env.USE_HTTPS === 'true' || process.env.NODE_ENV === 'production';
+// USE_HTTPS should be explicitly set, not auto-enabled in production
+// In production, SSL is usually handled by Nginx reverse proxy, not Node.js
+const USE_HTTPS = process.env.USE_HTTPS === 'true';
 
 // Middleware
 app.use(cors({

@@ -5,6 +5,11 @@ VITE_OPENAI_API_KEY=your_openai_api_key_here
 PORT=1033
 NODE_ENV=production
 
+# HTTPS Configuration
+# Set to 'true' only if you want Node.js to handle SSL directly
+# In production with Nginx reverse proxy, leave this as 'false'
+USE_HTTPS=false
+
 # Proxy Configuration (optional, for accessing OpenAI through proxy)
 USE_PROXY=false
 PROXY_HOST=185.68.187.20
@@ -20,5 +25,6 @@ ENABLE_MOCK_API=false
 # 2. Copy this file to .env
 # 3. Replace 'your_openai_api_key_here' with your actual API key
 # 4. For production deployment, set NODE_ENV=production
-# 5. If you need to use a proxy for OpenAI API, set USE_PROXY=true
-# 6. Restart the development server after making changes
+# 5. USE_HTTPS=false when using Nginx reverse proxy (recommended)
+# 6. If you need to use a proxy for OpenAI API, set USE_PROXY=true
+# 7. Restart the development server after making changes
