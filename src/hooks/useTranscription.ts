@@ -37,7 +37,7 @@ export const useTranscription = ({
   const browserRetryCountRef = useRef(0);
 
   // Constants
-  const SAFARI_VOICE_DETECTION_THRESHOLD = 60;
+  const SAFARI_VOICE_DETECTION_THRESHOLD = 40;
   const SAFARI_SPEECH_CONFIRMATION_FRAMES = 3;
   const SAFARI_SPEECH_DEBOUNCE = 1000;
 
@@ -212,8 +212,8 @@ export const useTranscription = ({
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Audio volume: ${volumeLevel.toFixed(2)}%`);
 
-          // Only send if volume is above threshold (2% = user actually speaking)
-          if (volumeLevel < 2.0) {
+          // Only send if volume is above threshold (0.5% = user actually speaking)
+          if (volumeLevel < 0.5) {
             addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(2)}%), skipping`);
             return;
           }
@@ -510,9 +510,18 @@ export const useTranscription = ({
           noiseSuppression: true,
           autoGainControl: true,
           sampleRate: { ideal: 44100 },
-          channelCount: { ideal: 1 }
+          channelCount: { ideal: 1 },
+          // Добавляем усиление для лучшей чувствительности
+          volume: { ideal: 1.0, min: 0.5 }
         }
-      } : { audio: true };
+      } : {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          volume: { ideal: 1.0, min: 0.5 }
+        }
+      };
 
       addDebugLog(`[Mic] Requesting access | Mobile: ${isMobile} | Constraints: ${JSON.stringify(constraints).substring(0, 50)}...`);
 
