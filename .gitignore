@@ -34,3 +34,7 @@ dist-ssr
 *.pem
 server/cert.pem
 server/key.pem
+
+# Database files
+*.db
+zen-mind-mate.db
