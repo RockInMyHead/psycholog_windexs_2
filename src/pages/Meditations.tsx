@@ -6,6 +6,14 @@ import { PlayCircle, Clock, Star, Wind } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { userApi, meditationApi } from "@/services/api";
 
+interface MeditationItem {
+  title: string;
+  duration: string;
+  description: string;
+  thumbnail: string;
+  videoUrl: string;
+}
+
 const meditations = [
   {
     title: "Утренняя медитация",
@@ -79,7 +87,7 @@ const Meditations = () => {
     }
   };
 
-  const startMeditation = (meditation: any) => {
+  const startMeditation = (meditation: MeditationItem) => {
     setCurrentMeditation(meditation);
     setMeditationStartTime(new Date());
   };

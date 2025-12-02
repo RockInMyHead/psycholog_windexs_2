@@ -26,7 +26,7 @@ export const useTranscription = ({
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
   
   // Refs
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const recognitionActiveRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
@@ -273,7 +273,7 @@ export const useTranscription = ({
   // Check audio volume level to filter out silence/noise
   const checkAudioVolume = async (audioBlob: Blob): Promise<number> => {
     try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const audioContext = new AudioContextClass();
       const arrayBuffer = await audioBlob.arrayBuffer();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
@@ -316,8 +316,8 @@ export const useTranscription = ({
       }
       addDebugLog(`[OpenAI] ⚠️ Empty result`);
       return null;
-    } catch (error: any) {
-      addDebugLog(`[OpenAI] ❌ Failed: ${error.message}`);
+    } catch (error: unknown) {
+      addDebugLog(`[OpenAI] ❌ Failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return null;
     } finally {
       setTranscriptionStatus("");
@@ -368,8 +368,10 @@ export const useTranscription = ({
 
       recorder.start(1000);
       addDebugLog(`[MediaRec] Starting recording with 1s chunks`);
-    } catch (error: any) {
-      addDebugLog(`[MediaRec] ❌ Start failed: ${error.message} | Name: ${error.name}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorName = error instanceof Error ? error.name : 'Unknown';
+      addDebugLog(`[MediaRec] ❌ Start failed: ${errorMessage} | Name: ${errorName}`);
     }
   };
 
@@ -401,7 +403,7 @@ export const useTranscription = ({
   const startVolumeMonitoring = async (stream: MediaStream) => {
     try {
       addDebugLog(`[Volume] Starting audio analysis...`);
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const audioContext = new AudioContextClass();
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
@@ -558,7 +560,7 @@ export const useTranscription = ({
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
         // Echo Prevention for Chrome
         if (hasEchoProblems() && isTTSActiveRef.current) {
           console.log("[Transcription] Ignoring input during TTS (Echo Prevention)");
@@ -659,7 +661,7 @@ export const useTranscription = ({
         }
       };
 
-      recognition.onerror = async (event: any) => {
+      recognition.onerror = async (event: SpeechRecognitionErrorEvent) => {
         if (event.error === 'no-speech' || event.error === 'aborted') return;
         console.error("[Transcription] Error:", event.error);
 
@@ -668,7 +670,11 @@ export const useTranscription = ({
           browserRetryCountRef.current++;
           setTimeout(() => {
             if (recognitionActiveRef.current) {
-               try { recognition.start(); } catch(e) {}
+               try {
+                 recognition.start();
+               } catch (e) {
+                 // Ignore start errors during retry
+               }
             }
           }, 1000 * browserRetryCountRef.current);
           return;
@@ -702,7 +708,11 @@ export const useTranscription = ({
 
       recognition.onend = () => {
         if (recognitionActiveRef.current && !isTTSActiveRef.current) {
-          try { recognition.start(); } catch (e) {}
+          try {
+            recognition.start();
+          } catch (e) {
+            // Ignore start errors on end
+          }
         }
       };
 
@@ -710,23 +720,25 @@ export const useTranscription = ({
       recognitionActiveRef.current = true;
       recognition.start();
 
-    } catch (error: any) {
-      addDebugLog(`[Mic] ❌ Failed: ${error.name} - ${error.message}`);
+    } catch (error: unknown) {
+      const errorName = error instanceof Error ? error.name : 'Unknown';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      addDebugLog(`[Mic] ❌ Failed: ${errorName} - ${errorMessage}`);
 
       // More specific error messages for mobile
-      let errorMessage = "Ошибка доступа к микрофону";
+      let userFriendlyErrorMessage = "Ошибка доступа к микрофону";
       if (error.name === 'NotAllowedError') {
-        errorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера.";
+        userFriendlyErrorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера.";
       } else if (error.name === 'NotFoundError') {
-        errorMessage = "Микрофон не найден. Проверьте подключение микрофона.";
+        userFriendlyErrorMessage = "Микрофон не найден. Проверьте подключение микрофона.";
       } else if (error.name === 'NotReadableError') {
-        errorMessage = "Микрофон занят другим приложением.";
+        userFriendlyErrorMessage = "Микрофон занят другим приложением.";
       } else if (error.name === 'OverconstrainedError') {
-        errorMessage = "Настройки микрофона не поддерживаются устройством.";
+        userFriendlyErrorMessage = "Настройки микрофона не поддерживаются устройством.";
       } else if (error.name === 'SecurityError') {
-        errorMessage = "Требуется HTTPS для доступа к микрофону.";
+        userFriendlyErrorMessage = "Требуется HTTPS для доступа к микрофону.";
       } else if (error.name === 'AbortError') {
-        errorMessage = "Доступ к микрофону был прерван.";
+        userFriendlyErrorMessage = "Доступ к микрофону был прерван.";
       }
 
       console.error(`[Transcription] 📱 Mobile-specific error analysis:`, {
@@ -739,7 +751,7 @@ export const useTranscription = ({
           "На Android: Проверьте разрешения приложения и браузера"
       });
 
-      onError?.(errorMessage);
+      onError?.(userFriendlyErrorMessage);
       setMicrophoneAccessGranted(false);
     }
   }, []); // Dependencies intentionally empty for init
@@ -748,7 +760,13 @@ export const useTranscription = ({
   const cleanup = useCallback(() => {
     lastProcessedTextRef.current = ''; // Reset processed text
     recognitionActiveRef.current = false;
-    if (recognitionRef.current) try { recognitionRef.current.stop(); } catch(e){}
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Ignore stop errors during cleanup
+      }
+    }
     stopVolumeMonitoring();
     stopMobileTranscriptionTimer(); // Stop mobile transcription timer
     stopMediaRecording(); // Just stop, don't return blob
@@ -778,7 +796,11 @@ export const useTranscription = ({
     },
     startRecognition: () => {
       recognitionActiveRef.current = true;
-      try { recognitionRef.current?.start(); } catch(e){}
+      try {
+        recognitionRef.current?.start();
+      } catch (e) {
+        // Ignore start errors
+      }
     }
   };
 };

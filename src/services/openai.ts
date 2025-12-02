@@ -11,7 +11,7 @@ const RETRY_CONFIG = {
 };
 
 // Функция для определения, стоит ли повторять попытку при данной ошибке
-function shouldRetry(error: any, attempt: number): boolean {
+function shouldRetry(error: unknown, attempt: number): boolean {
   // Не повторяем при аутентификационных ошибках
   if (error?.response?.status === 401 || error?.response?.status === 403) {
     return false;
@@ -50,9 +50,9 @@ function calculateDelay(attempt: number): number {
 async function withRetry<T>(
   operation: () => Promise<T>,
   operationName: string,
-  customShouldRetry?: (error: any, attempt: number) => boolean
+  customShouldRetry?: (error: unknown, attempt: number) => boolean
 ): Promise<T> {
-  let lastError: any;
+  let lastError: unknown;
   let totalRetries = 0;
   let timeouts = 0;
   let networkErrors = 0;
@@ -81,9 +81,10 @@ async function withRetry<T>(
       }
 
       return result;
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
-      console.warn(`[OpenAI] ${operationName} - attempt ${attempt} failed:`, error.message);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.warn(`[OpenAI] ${operationName} - attempt ${attempt} failed:`, errorMessage);
 
       // Классифицируем ошибки для статистики
       if (error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
@@ -388,7 +389,7 @@ class PsychologistAI {
   async getVoiceResponse(messages: ChatMessage[], memoryContext = '', fastMode = false): Promise<string> {
     return withRetry(async () => {
       // Формируем системный промпт с контекстом памяти
-      let systemMessages: { role: 'system'; content: string }[] = [
+      const systemMessages: { role: 'system'; content: string }[] = [
         { role: "system" as const, content: this.systemPrompt }
       ];
 

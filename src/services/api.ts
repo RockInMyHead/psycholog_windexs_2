@@ -56,9 +56,9 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
     console.log('[API] Request:', config.method || 'GET', url);
     const response = await fetch(url, config);
     if (!response.ok) {
-      const error: any = new Error(
+      const error = new Error(
         `API call failed: ${response.status} ${response.statusText}`
-      );
+      ) as Error & { status: number; statusText: string; body?: string };
       error.status = response.status;
       error.statusText = response.statusText;
       error.body = await response.text().catch(() => undefined);
@@ -99,7 +99,7 @@ export const userApi = {
           method: 'GET',
         }
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error?.status === 404) {
         return null;
       }
@@ -107,7 +107,7 @@ export const userApi = {
     }
   },
 
-  async updateUser(userId: string, data: any) {
+  async updateUser(userId: string, data: Record<string, unknown>) {
     return await apiCall(`/users/${userId}`, {
       method: 'PUT',
       body: JSON.stringify(data),

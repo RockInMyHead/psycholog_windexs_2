@@ -12,6 +12,18 @@ import { useTTS } from "@/hooks/useTTS";
 import { useLLM } from "@/hooks/useLLM";
 import { useTranscription } from "@/hooks/useTranscription";
 
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface SubscriptionInfo {
+  plan: string;
+  remaining: number;
+  limit: number;
+}
+
 // Debug Logs Component
 const DebugLogs = ({ logs, isVisible, onToggle, onClear }: {
   logs: string[];
@@ -78,9 +90,9 @@ const AudioCall = () => {
   const [showDebugLogs, setShowDebugLogs] = useState(false);
   
   // Data State
-  const [user, setUser] = useState<any | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
-  const [subscriptionInfo, setSubscriptionInfo] = useState<any | null>(null);
+  const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
   
   // Audio/Video State
   const [isMuted, setIsMuted] = useState(false);
@@ -262,7 +274,7 @@ const AudioCall = () => {
         setCallDuration(prev => prev + 1);
       }, 1000);
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Start call error:", err);
       setError(err.message || "Не удалось начать звонок");
       cleanupRecognition();

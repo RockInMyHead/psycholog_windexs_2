@@ -87,9 +87,9 @@ const Subscription = () => {
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const paymentHandledRef = useRef(false); // Защита от повторной обработки
-  const [currentSubscription, setCurrentSubscription] = useState<any>(null);
-  const [audioAccess, setAudioAccess] = useState<any>(null);
-  const [meditationAccess, setMeditationAccess] = useState<any>(null);
+  const [currentSubscription, setCurrentSubscription] = useState<{ plan: string; status: string } | null>(null);
+  const [audioAccess, setAudioAccess] = useState<{ hasAccess: boolean; remaining: number; limit: number } | null>(null);
+  const [meditationAccess, setMeditationAccess] = useState<{ hasAccess: boolean } | null>(null);
   const [activePlans, setActivePlans] = useState<string[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -291,7 +291,7 @@ const Subscription = () => {
     return descriptions[planId as keyof typeof descriptions] || 'Подписка на психологическую поддержку';
   };
 
-  const handlePaymentProcess = async (planId: string, paymentData: any) => {
+  const handlePaymentProcess = async (planId: string, paymentData: Record<string, unknown>) => {
     try {
       setPaymentProcessing(true);
       setPaymentError(null);
@@ -306,9 +306,10 @@ const Subscription = () => {
         setPaymentError('Не удалось получить ссылку на оплату');
         setPaymentProcessing(false);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Payment creation error:', error);
-      setPaymentError(error.message || 'Ошибка при создании платежа');
+      const errorMessage = error instanceof Error ? error.message : 'Ошибка при создании платежа';
+      setPaymentError(errorMessage);
       setPaymentProcessing(false);
     }
   };

@@ -54,7 +54,7 @@ export const debugAuth = {
 
 // Make debug utilities globally available in development
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
-  (window as any).debugAuth = debugAuth;
+  (window as Window & { debugAuth?: typeof debugAuth }).debugAuth = debugAuth;
   console.log('🔧 Debug utilities available: window.debugAuth');
   console.log('   - debugAuth.checkStorage()');
   console.log('   - debugAuth.clearAuth()');

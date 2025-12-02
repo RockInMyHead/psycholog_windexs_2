@@ -7,9 +7,16 @@ interface User {
   email: string;
 }
 
+interface SubscriptionInfo {
+  plan: string;
+  status: string;
+  remaining?: number;
+  limit?: number;
+}
+
 interface AuthContextType {
   user: User | null;
-  subscription: any | null;
+  subscription: SubscriptionInfo | null;
   isAuthenticated: boolean;
   isPremium: boolean;
   loading: boolean;
@@ -36,7 +43,7 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
-  const [subscription, setSubscription] = useState<any | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -70,7 +77,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               console.warn('[AuthContext] User not found in database, clearing localStorage');
               localStorage.removeItem('auth_user');
             }
-          } catch (apiError: any) {
+          } catch (apiError: unknown) {
             // Don't clear localStorage if it's just a network error
             if (apiError?.status === 404) {
               console.warn('[AuthContext] User not found (404), clearing localStorage');

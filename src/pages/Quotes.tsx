@@ -6,12 +6,12 @@ import Navigation from "@/components/Navigation";
 import { userApi, quoteApi } from "@/services/api";
 
 const Quotes = () => {
-  const [quotes, setQuotes] = useState<any[]>([]);
-  const [user, setUser] = useState<any>(null);
+  const [quotes, setQuotes] = useState<{ id: string; text: string; author: string; liked?: boolean }[]>([]);
+  const [user, setUser] = useState<{ id: string; name: string; email: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [userQuoteViews, setUserQuoteViews] = useState<Map<string, boolean>>(new Map());
   const [showLikedOnly, setShowLikedOnly] = useState(false);
-  const [likedQuotes, setLikedQuotes] = useState<any[]>([]);
+  const [likedQuotes, setLikedQuotes] = useState<{ id: string; text: string; author: string }[]>([]);
 
   // Default user ID for demo purposes
   const defaultUserId = 'user@zenmindmate.com';

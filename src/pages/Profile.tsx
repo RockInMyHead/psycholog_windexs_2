@@ -10,7 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const Profile = () => {
   const { user: authUser, logout } = useAuth();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string; name: string; email: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

@@ -19,6 +19,15 @@ interface PoseAnalysisResult {
   feedback: string;
 }
 
+interface YogaPose {
+  id: string;
+  name: string;
+  description: string;
+  difficulty?: string;
+  benefits?: string[];
+  instructions?: string[];
+}
+
 const MeditationWithMarque = () => {
   const { user: authUser } = useAuth();
 
@@ -47,7 +56,7 @@ const MeditationWithMarque = () => {
   const getRandomQuote = () => wiseQuotes[Math.floor(Math.random() * wiseQuotes.length)];
 
   // Toggle pose selection
-  const togglePoseSelection = (pose: any) => {
+  const togglePoseSelection = (pose: YogaPose) => {
     setUserSelectedPoses(prev => {
       const isSelected = prev.some(p => p.id === pose.id);
       if (isSelected) {
@@ -58,10 +67,10 @@ const MeditationWithMarque = () => {
     });
   };
   const [poseResult, setPoseResult] = useState<PoseAnalysisResult | null>(null);
-  const [currentYogaPose, setCurrentYogaPose] = useState<any>(null);
+  const [currentYogaPose, setCurrentYogaPose] = useState<YogaPose | null>(null);
   const [poseStartTime, setPoseStartTime] = useState(0);
-  const [selectedYogaPoses, setSelectedYogaPoses] = useState<any[]>([]);
-  const [userSelectedPoses, setUserSelectedPoses] = useState<any[]>([]);
+  const [selectedYogaPoses, setSelectedYogaPoses] = useState<YogaPose[]>([]);
+  const [userSelectedPoses, setUserSelectedPoses] = useState<YogaPose[]>([]);
 
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);

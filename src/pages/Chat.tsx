@@ -22,7 +22,7 @@ const Chat = () => {
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(true);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string; name: string; email: string } | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);

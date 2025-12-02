@@ -128,7 +128,7 @@ type ConversationMemory = {
 const MAX_MEMORY_LENGTH = 2000;
 const PREMIUM_AUDIO_SESSIONS_LIMIT = 4;
 
-function ensureSubscriptionAudioUsage(subscription: any, now: Date): boolean {
+function ensureSubscriptionAudioUsage(subscription: { plan: string; status: string; audioSessionsLimit?: number | null }, now: Date): boolean {
   let changed = false;
   const nowIso = now.toISOString();
 
@@ -244,7 +244,7 @@ export const userService = {
     const existing = await this.getUserById(id);
     if (!existing) return undefined;
 
-    const updateData: any = { ...data };
+    const updateData = { ...data };
     if (Object.keys(updateData).length > 0) {
       updateData.updatedAt = new Date();
       await db.update(schema.users).set(updateData).where(eq(schema.users.id, id));
@@ -254,7 +254,7 @@ export const userService = {
   },
 
   async getOrCreateUser(email: string, name: string): Promise<User> {
-    let user = await this.getUserByEmail(email);
+    const user = await this.getUserByEmail(email);
     if (user) return user;
 
     return await this.createUser(email, name);
