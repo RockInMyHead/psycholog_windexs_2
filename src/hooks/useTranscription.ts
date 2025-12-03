@@ -210,15 +210,17 @@ export const useTranscription = ({
 
           // Check audio volume to filter out silence/background noise
           const volumeLevel = await checkAudioVolume(blob);
-          addDebugLog(`[Mobile] Audio volume: ${volumeLevel.toFixed(2)}%`);
+          addDebugLog(`[Mobile] Audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          // Only send if volume is above threshold (0.5% = user actually speaking)
-          if (volumeLevel < 0.5) {
-            addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(2)}%), skipping`);
+          // Only send if volume is above threshold
+          // Very low threshold for Safari/iOS devices that show very low volume values
+          const volumeThreshold = ios ? 0.005 : 0.5; // Even lower for iOS/Safari
+          if (volumeLevel < volumeThreshold) {
+            addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(4)}%), skipping (threshold: ${volumeThreshold.toFixed(4)}%)`);
             return;
           }
 
-          addDebugLog(`[Mobile] ✅ Sending ${blob.size} bytes to OpenAI...`);
+          addDebugLog(`[Mobile] ✅ Volume OK (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
 
           // Send to OpenAI with timeout (don't block recording!)
           const transcriptionPromise = transcribeWithOpenAI(blob);
@@ -278,21 +280,21 @@ export const useTranscription = ({
       const arrayBuffer = await audioBlob.arrayBuffer();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       
-      // Get average volume across all channels
-      let sum = 0;
+      // Calculate RMS (Root Mean Square) volume across all channels for better accuracy
+      let sumSquares = 0;
       let count = 0;
-      
+
       for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
         const channelData = audioBuffer.getChannelData(channel);
         for (let i = 0; i < channelData.length; i++) {
-          const abs = Math.abs(channelData[i]);
-          sum += abs;
+          const sample = channelData[i];
+          sumSquares += sample * sample;
           count++;
         }
       }
-      
-      const averageVolume = sum / count;
-      const volumePercent = averageVolume * 100; // Convert to percentage
+
+      const rms = Math.sqrt(sumSquares / count);
+      const volumePercent = rms * 100; // Convert to percentage
       
       audioContext.close();
       return volumePercent;
