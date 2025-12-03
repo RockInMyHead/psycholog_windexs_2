@@ -224,13 +224,14 @@ export const useTranscription = ({
 
           // Send to OpenAI with timeout (don't block recording!)
           const transcriptionPromise = transcribeWithOpenAI(blob);
-          
-          // Add 8 second timeout
+
+          // Add 12 second timeout for Safari (slower connections)
+          const timeoutMs = ios ? 12000 : 8000;
           const timeoutPromise = new Promise<null>((resolve) => {
             setTimeout(() => {
-              addDebugLog(`[Mobile] ⏱️ OpenAI timeout (8s), skipping`);
+              addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
               resolve(null);
-            }, 8000);
+            }, timeoutMs);
           });
 
           // Race between transcription and timeout
@@ -305,13 +306,15 @@ export const useTranscription = ({
   };
 
   // --- OpenAI Fallback Logic ---
-  const transcribeWithOpenAI = async (audioBlob: Blob): Promise<string | null> => {
+  const transcribeWithOpenAI = async (audioBlob: Blob, retryCount = 0): Promise<string | null> => {
+    const maxRetries = ios ? 2 : 1; // More retries for iOS due to connection issues
+
     try {
-      addDebugLog(`[OpenAI] Starting transcription: ${audioBlob.size} bytes`);
+      addDebugLog(`[OpenAI] Starting transcription: ${audioBlob.size} bytes (attempt ${retryCount + 1}/${maxRetries + 1})`);
       setTranscriptionStatus("Отправляю аудио в OpenAI...");
 
       const text = await psychologistAI.transcribeAudio(audioBlob);
-      
+
       if (text && text.trim()) {
         addDebugLog(`[OpenAI] ✅ Success: "${text.substring(0, 50)}..."`);
         return text.trim();
@@ -319,7 +322,21 @@ export const useTranscription = ({
       addDebugLog(`[OpenAI] ⚠️ Empty result`);
       return null;
     } catch (error: unknown) {
-      addDebugLog(`[OpenAI] ❌ Failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      addDebugLog(`[OpenAI] ❌ Failed (attempt ${retryCount + 1}): ${errorMessage}`);
+
+      // Retry on connection errors
+      if (retryCount < maxRetries && (
+        errorMessage.includes('Connection') ||
+        errorMessage.includes('Network') ||
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('fetch')
+      )) {
+        addDebugLog(`[OpenAI] 🔄 Retrying in 1s... (${retryCount + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return transcribeWithOpenAI(audioBlob, retryCount + 1);
+      }
+
       return null;
     } finally {
       setTranscriptionStatus("");
