@@ -305,34 +305,67 @@ export const useTranscription = ({
     }
   };
 
-  // --- OpenAI Fallback Logic ---
+  // --- OpenAI Fallback Logic (via server API) ---
   const transcribeWithOpenAI = async (audioBlob: Blob, retryCount = 0): Promise<string | null> => {
     const isIOS = isIOSDevice();
     const maxRetries = isIOS ? 2 : 1; // More retries for iOS due to connection issues
 
     try {
-      addDebugLog(`[OpenAI] Starting transcription: ${audioBlob.size} bytes (attempt ${retryCount + 1}/${maxRetries + 1})`);
-      setTranscriptionStatus("Отправляю аудио в OpenAI...");
+      addDebugLog(`[OpenAI] Starting transcription via server: ${audioBlob.size} bytes (attempt ${retryCount + 1}/${maxRetries + 1})`);
+      setTranscriptionStatus("Отправляю аудио на сервер...");
 
-      const text = await psychologistAI.transcribeAudio(audioBlob);
-      
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'voice.webm');
+      formData.append('model', 'whisper-1');
+      formData.append('language', 'ru');
+      formData.append('response_format', 'text');
+      formData.append('prompt', 'Разговор с психологом. Короткие фразы: Привет, Да, Нет, Хорошо, Понял.');
+
+      const response = await fetch('/api/audio/transcriptions', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData?.error?.message) {
+            errorMessage = `${errorMessage}: ${errorData.error.message}`;
+          }
+        } catch {
+          // ignore JSON parse errors
+        }
+        throw new Error(errorMessage);
+      }
+
+      const transcription = await response.json();
+      const text = (transcription.text || transcription).toString().trim();
+
       if (text && text.trim()) {
-        addDebugLog(`[OpenAI] ✅ Success: "${text.substring(0, 50)}..."`);
+        addDebugLog(`[OpenAI] ✅ Server transcription success: "${text.substring(0, 50)}..."`);
         return text.trim();
       }
-      addDebugLog(`[OpenAI] ⚠️ Empty result`);
+      addDebugLog(`[OpenAI] ⚠️ Empty transcription result from server`);
       return null;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       addDebugLog(`[OpenAI] ❌ Failed (attempt ${retryCount + 1}): ${errorMessage}`);
 
-      // Retry on connection errors
-      if (retryCount < maxRetries && (
-        errorMessage.includes('Connection') ||
-        errorMessage.includes('Network') ||
-        errorMessage.includes('timeout') ||
-        errorMessage.includes('fetch')
-      )) {
+      // Retry on connection / transient errors
+      if (
+        retryCount < maxRetries &&
+        (
+          errorMessage.includes('Connection') ||
+          errorMessage.includes('Network') ||
+          errorMessage.includes('timeout') ||
+          errorMessage.includes('fetch') ||
+          errorMessage.includes('HTTP 429') ||
+          errorMessage.includes('HTTP 500') ||
+          errorMessage.includes('HTTP 502') ||
+          errorMessage.includes('HTTP 503')
+        )
+      ) {
         addDebugLog(`[OpenAI] 🔄 Retrying in 1s... (${retryCount + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, 1000));
         return transcribeWithOpenAI(audioBlob, retryCount + 1);

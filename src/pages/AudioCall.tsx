@@ -25,11 +25,12 @@ interface SubscriptionInfo {
 }
 
 // Debug Logs Component
-const DebugLogs = ({ logs, isVisible, onToggle, onClear }: {
+const DebugLogs = ({ logs, isVisible, onToggle, onClear, onCopy }: {
   logs: string[];
   isVisible: boolean;
   onToggle: () => void;
   onClear: () => void;
+  onCopy: () => void;
 }) => {
   if (!isVisible) return null;
 
@@ -41,6 +42,14 @@ const DebugLogs = ({ logs, isVisible, onToggle, onClear }: {
           Debug Logs
         </span>
         <div className="flex gap-1">
+          <Button
+            onClick={onCopy}
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-xs text-gray-400 hover:text-white"
+          >
+            Copy
+          </Button>
           <Button
             onClick={onClear}
             size="sm"
@@ -112,6 +121,31 @@ const AudioCall = () => {
   const toggleDebugLogs = useCallback(() => {
     setShowDebugLogs(prev => !prev);
   }, []);
+
+  const copyDebugLogs = useCallback(() => {
+    const text = debugLogs.join('\n');
+    if (!text) return;
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        addDebugLog('[Debug] Logs copied to clipboard');
+      } else {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        addDebugLog('[Debug] Logs copied to clipboard (fallback)');
+      }
+    } catch (error) {
+      console.error('[Debug] Failed to copy logs:', error);
+    }
+  }, [debugLogs, addDebugLog]);
   
   // --- Hooks Initialization ---
   
@@ -495,6 +529,7 @@ const AudioCall = () => {
         isVisible={showDebugLogs}
         onToggle={toggleDebugLogs}
         onClear={clearDebugLogs}
+        onCopy={copyDebugLogs}
       />
     </div>
   );
