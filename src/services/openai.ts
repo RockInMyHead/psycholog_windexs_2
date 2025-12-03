@@ -224,61 +224,51 @@ class PsychologistAI {
       ...messages.slice(-10),
     ];
 
-    console.log('[Chat] Preparing request, messages count:', conversation.length);
+    const requestBody = {
+      model: 'gpt-5.1',
+      messages: conversation,
+      max_completion_tokens: 500,
+      temperature: 0.7,
+    };
 
-    // Try server API first (more reliable on mobile)
     try {
-      console.log('[Chat] Trying server API...');
-      const response = await fetch('/api/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: conversation,
-          max_tokens: 500,
-          temperature: 0.7,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(`Server API error: ${response.status} - ${JSON.stringify(errorData)}`);
-      }
-
-      const completion = await response.json();
-      const text = completion.choices?.[0]?.message?.content;
-
-      if (!text) {
-        throw new Error('No response from server API');
-      }
-
-      console.log('[Chat] Server API response received, length:', text.length);
-      return text;
-    } catch (serverError) {
-      console.warn('[Chat] Server API failed, trying direct OpenAI:', serverError);
-
-      // Fallback to direct OpenAI call
-      try {
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: conversation,
-          max_tokens: 500,
-          temperature: 0.7,
+      const completion = await withRetry(async () => {
+        const response = await fetch('/api/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
         });
 
-        const response = completion.choices[0]?.message?.content;
-        if (!response) {
-          throw new Error('No response from OpenAI');
+        if (!response.ok) {
+          let errorMessage = `HTTP ${response.status}`;
+          try {
+            const errorData = await response.json();
+            if (errorData?.error?.message) {
+              errorMessage = `${errorMessage}: ${errorData.error.message}`;
+            }
+          } catch {
+            // ignore JSON parse errors, keep basic status message
+          }
+          const error = new Error(errorMessage) as Error & { status?: number };
+          error.status = response.status;
+          throw error;
         }
 
-        console.log('[Chat] Direct OpenAI response received, length:', response.length);
-        return response;
-      } catch (openaiError) {
-        console.error('[Chat] Both API methods failed:', { serverError, openaiError });
-        throw openaiError;
+        return response.json();
+      }, 'chatCompletionViaServer');
+
+      const responseText = completion.choices?.[0]?.message?.content as string | undefined;
+      if (!responseText || !responseText.trim()) {
+        throw new Error('No response from OpenAI (via server)');
       }
+
+      return responseText;
+    } catch (error) {
+      console.error('Error getting AI response (via server):', error);
+      // Пробрасываем ошибку выше, чтобы UI мог показать fallback-сообщение
+      throw error;
     }
   }
 
