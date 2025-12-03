@@ -224,7 +224,7 @@ export const useTranscription = ({
 
           // Send to OpenAI with timeout (don't block recording!)
           const transcriptionPromise = transcribeWithOpenAI(blob);
-
+          
           // Add 12 second timeout for Safari (slower connections)
           const timeoutMs = ios ? 12000 : 8000;
           const timeoutPromise = new Promise<null>((resolve) => {
@@ -284,7 +284,7 @@ export const useTranscription = ({
       // Calculate RMS (Root Mean Square) volume across all channels for better accuracy
       let sumSquares = 0;
       let count = 0;
-
+      
       for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
         const channelData = audioBuffer.getChannelData(channel);
         for (let i = 0; i < channelData.length; i++) {
@@ -293,7 +293,7 @@ export const useTranscription = ({
           count++;
         }
       }
-
+      
       const rms = Math.sqrt(sumSquares / count);
       const volumePercent = rms * 100; // Convert to percentage
       
@@ -314,7 +314,7 @@ export const useTranscription = ({
       setTranscriptionStatus("Отправляю аудио в OpenAI...");
 
       const text = await psychologistAI.transcribeAudio(audioBlob);
-
+      
       if (text && text.trim()) {
         addDebugLog(`[OpenAI] ✅ Success: "${text.substring(0, 50)}..."`);
         return text.trim();

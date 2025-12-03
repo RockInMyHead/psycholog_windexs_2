@@ -406,7 +406,7 @@ const Chat = () => {
               } else if (errorMessage.includes('Connection') || errorMessage.includes('Network')) {
                 setAudioError("Проблема с интернет-соединением. Проверьте подключение.");
               } else {
-                setAudioError("Голосовое распознавание временно недоступно. Напишите сообщение текстом.");
+              setAudioError("Голосовое распознавание временно недоступно. Напишите сообщение текстом.");
               }
             }
           } else {
