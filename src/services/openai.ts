@@ -216,19 +216,19 @@ class PsychologistAI {
   }
 
   async getResponse(messages: ChatMessage[], memoryContext = ''): Promise<string> {
-    const conversation = [
-      { role: 'system' as const, content: this.systemPrompt },
-      ...(memoryContext
-        ? [{ role: 'system' as const, content: `Контекст прошлых бесед: ${memoryContext}` }]
-        : []),
-      ...messages.slice(-10),
-    ];
+      const conversation = [
+        { role: 'system' as const, content: this.systemPrompt },
+        ...(memoryContext
+          ? [{ role: 'system' as const, content: `Контекст прошлых бесед: ${memoryContext}` }]
+          : []),
+        ...messages.slice(-10),
+      ];
 
     const requestBody = {
-      model: 'gpt-5.1',
-      messages: conversation,
-      max_completion_tokens: 500,
-      temperature: 0.7,
+        model: 'gpt-4o',
+        messages: conversation,
+        max_tokens: 500,
+        temperature: 0.7,
     };
 
     try {
@@ -438,9 +438,9 @@ ${memoryContext}
       ];
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-5.1",
+        model: "gpt-4o",
         messages: conversation,
-        max_completion_tokens: fastMode ? 300 : 500, // Быстрый режим: 300 токенов, обычный: 500
+        max_tokens: fastMode ? 300 : 500, // Быстрый режим: 300 токенов, обычный: 500
         temperature: fastMode ? 0.5 : 0.6, // Быстрый режим: более детерминированные ответы
       });
 
