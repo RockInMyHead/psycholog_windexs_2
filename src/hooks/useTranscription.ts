@@ -179,15 +179,14 @@ export const useTranscription = ({
         return;
       }
 
-      const isIOS = isIOSDevice();
       const isAndroid = isAndroidDevice();
 
-      if (!isIOS && !isAndroid) {
-        addDebugLog(`[Timer] ❌ Not a mobile device (iOS: ${isIOS}, Android: ${isAndroid})`);
+      if (!isAndroid) {
+        addDebugLog(`[Timer] ❌ Not an Android device, skipping timer processing`);
         return;
       }
 
-      addDebugLog(`[Timer] ✅ Conditions met (iOS: ${isIOS}, Android: ${isAndroid}, TTS: off), processing audio...`);
+      addDebugLog(`[Timer] ✅ Conditions met (Android mobile, TTS: off), processing audio...`);
 
       try {
         addDebugLog(`[Timer] Stopping recording to get blob...`);
@@ -544,9 +543,15 @@ export const useTranscription = ({
     // Check Support
     const hasSupport = speechRecognitionSupport;
     const android = isAndroidDevice();
-    const shouldForceOpenAI = ios || android || !hasSupport;
 
-    addDebugLog(`[Strategy] ${shouldForceOpenAI ? 'OpenAI Mode' : 'Browser Mode'} | Reason: ${ios ? 'iOS' : android ? 'Android' : (!hasSupport ? 'No Support' : 'Native')}`);
+    // Desktop и iOS с поддержкой SpeechRecognition работают как desktop-версия (Browser Mode)
+    // OpenAI-режим оставляем только для Android или когда нет поддержки SpeechRecognition
+    const shouldForceOpenAI = android || !hasSupport;
+
+    addDebugLog(
+      `[Strategy] ${shouldForceOpenAI ? 'OpenAI Mode' : 'Browser Mode'} | Reason: ` +
+      (android ? 'Android' : (!hasSupport ? 'No SpeechRecognition Support' : 'Native/iOS with SpeechRecognition'))
+    );
 
     setForceOpenAI(shouldForceOpenAI);
 
@@ -600,15 +605,16 @@ export const useTranscription = ({
       startMediaRecording(stream);
       startVolumeMonitoring(stream);
 
-      // For iOS and Android, start periodic transcription timer
+      // Для Android используем таймер и отправку аудио в OpenAI/сервер,
+      // iOS работает как desktop (через браузерное распознавание) без таймера
       const android = isAndroidDevice();
       addDebugLog(`[Init] Checking mobile timer: iOS=${ios}, Android=${android}`);
 
-      if (ios || android) {
-        addDebugLog(`[Init] Starting mobile transcription timer`);
+      if (android) {
+        addDebugLog(`[Init] Starting mobile transcription timer (Android only)`);
         startMobileTranscriptionTimer();
       } else {
-        addDebugLog(`[Init] Not starting mobile timer (not iOS/Android)`);
+        addDebugLog(`[Init] Not starting mobile timer (iOS/Desktop)`);
       }
 
       // If forcing OpenAI, don't start browser recognition
