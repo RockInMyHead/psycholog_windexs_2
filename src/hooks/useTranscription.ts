@@ -214,7 +214,7 @@ export const useTranscription = ({
 
           // Only send if volume is above threshold
           // Very low threshold for Safari/iOS devices that show very low volume values
-          const volumeThreshold = ios ? 0.005 : 0.5; // Even lower for iOS/Safari
+          const volumeThreshold = isIOS ? 0.005 : 0.5; // Even lower for iOS/Safari
           if (volumeLevel < volumeThreshold) {
             addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(4)}%), skipping (threshold: ${volumeThreshold.toFixed(4)}%)`);
             return;
@@ -226,7 +226,7 @@ export const useTranscription = ({
           const transcriptionPromise = transcribeWithOpenAI(blob);
           
           // Add 12 second timeout for Safari (slower connections)
-          const timeoutMs = ios ? 12000 : 8000;
+          const timeoutMs = isIOS ? 12000 : 8000;
           const timeoutPromise = new Promise<null>((resolve) => {
             setTimeout(() => {
               addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
@@ -307,7 +307,8 @@ export const useTranscription = ({
 
   // --- OpenAI Fallback Logic ---
   const transcribeWithOpenAI = async (audioBlob: Blob, retryCount = 0): Promise<string | null> => {
-    const maxRetries = ios ? 2 : 1; // More retries for iOS due to connection issues
+    const isIOS = isIOSDevice();
+    const maxRetries = isIOS ? 2 : 1; // More retries for iOS due to connection issues
 
     try {
       addDebugLog(`[OpenAI] Starting transcription: ${audioBlob.size} bytes (attempt ${retryCount + 1}/${maxRetries + 1})`);
