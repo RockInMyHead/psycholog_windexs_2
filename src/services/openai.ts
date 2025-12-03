@@ -225,14 +225,22 @@ class PsychologistAI {
       ];
 
     const requestBody = {
-        model: 'gpt-4o',
+        model: 'gpt-5.1',
         messages: conversation,
-        max_tokens: 500,
+        max_completion_tokens: 500,
         temperature: 0.7,
     };
 
+    console.log('[OpenAI] getResponse called with', {
+      messageCount: messages.length,
+      memoryContextLength: memoryContext.length,
+      conversationLength: conversation.length,
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    });
+
     try {
       const completion = await withRetry(async () => {
+        console.log('[OpenAI] Making request to /api/chat/completions');
         const response = await fetch('/api/chat/completions', {
           method: 'POST',
           headers: {
@@ -241,32 +249,43 @@ class PsychologistAI {
           body: JSON.stringify(requestBody),
         });
 
+        console.log('[OpenAI] Response status:', response.status, response.statusText);
+
         if (!response.ok) {
           let errorMessage = `HTTP ${response.status}`;
+          let errorDetails = '';
           try {
             const errorData = await response.json();
+            console.error('[OpenAI] Error response body:', errorData);
             if (errorData?.error?.message) {
               errorMessage = `${errorMessage}: ${errorData.error.message}`;
+              errorDetails = JSON.stringify(errorData);
             }
-          } catch {
+          } catch (parseError) {
+            console.error('[OpenAI] Failed to parse error response:', parseError);
             // ignore JSON parse errors, keep basic status message
           }
-          const error = new Error(errorMessage) as Error & { status?: number };
+          const error = new Error(errorMessage) as Error & { status?: number; details?: string };
           error.status = response.status;
+          error.details = errorDetails;
           throw error;
         }
 
-        return response.json();
+        const responseJson = await response.json();
+        console.log('[OpenAI] Success response:', { id: responseJson.id, model: responseJson.model });
+        return responseJson;
       }, 'chatCompletionViaServer');
 
       const responseText = completion.choices?.[0]?.message?.content as string | undefined;
       if (!responseText || !responseText.trim()) {
+        console.error('[OpenAI] Empty response text:', completion);
         throw new Error('No response from OpenAI (via server)');
       }
 
+      console.log('[OpenAI] Response text length:', responseText.length);
       return responseText;
     } catch (error) {
-      console.error('Error getting AI response (via server):', error);
+      console.error('[OpenAI] Error getting AI response (via server):', error);
       // Пробрасываем ошибку выше, чтобы UI мог показать fallback-сообщение
       throw error;
     }
@@ -415,6 +434,14 @@ class PsychologistAI {
   }
 
   async getVoiceResponse(messages: ChatMessage[], memoryContext = '', fastMode = false): Promise<string> {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    console.log('[OpenAI] getVoiceResponse called with', {
+      messageCount: messages.length,
+      memoryContextLength: memoryContext.length,
+      fastMode,
+      isMobile
+    });
+
     return withRetry(async () => {
       // Формируем системный промпт с контекстом памяти
       const systemMessages: { role: 'system'; content: string }[] = [
@@ -437,20 +464,63 @@ ${memoryContext}
         ...messages.slice(-10),
       ];
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+      const requestBody = {
+        model: "gpt-5.1",
         messages: conversation,
-        max_tokens: fastMode ? 300 : 500, // Быстрый режим: 300 токенов, обычный: 500
+        max_completion_tokens: fastMode ? 300 : 500, // Быстрый режим: 300 токенов, обычный: 500
         temperature: fastMode ? 0.5 : 0.6, // Быстрый режим: более детерминированные ответы
+      };
+
+      console.log('[OpenAI] Making voice response request to /api/chat/completions', {
+        conversationLength: conversation.length,
+        maxTokens: fastMode ? 300 : 500,
+        temperature: fastMode ? 0.5 : 0.6,
+        isMobile
       });
 
-      const response = completion.choices[0]?.message?.content;
-      if (!response) {
-        throw new Error("No response from OpenAI (voice mode)");
+      // Используем серверный прокси для всех устройств, включая мобильные
+      const response = await fetch('/api/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      console.log('[OpenAI] Voice response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}`;
+        let errorDetails = '';
+        try {
+          const errorData = await response.json();
+          console.error('[OpenAI] Voice response error body:', errorData);
+          if (errorData?.error?.message) {
+            errorMessage = `${errorMessage}: ${errorData.error.message}`;
+            errorDetails = JSON.stringify(errorData);
+          }
+        } catch (parseError) {
+          console.error('[OpenAI] Failed to parse voice response error:', parseError);
+          // ignore JSON parse errors, keep basic status message
+        }
+        const error = new Error(errorMessage) as Error & { status?: number; details?: string };
+        error.status = response.status;
+        error.details = errorDetails;
+        throw error;
       }
 
-      return response;
-    }, "getVoiceResponse");
+      const completion = await response.json();
+      console.log('[OpenAI] Voice response success:', { id: completion.id, model: completion.model });
+
+      const responseText = completion.choices?.[0]?.message?.content as string | undefined;
+      if (!responseText || !responseText.trim()) {
+        console.error('[OpenAI] Empty voice response text:', completion);
+        throw new Error("No response from OpenAI (voice mode via server)");
+      }
+
+      console.log('[OpenAI] Voice response text length:', responseText.length);
+      return responseText;
+    }, "getVoiceResponseViaServer");
   }
 
   async synthesizeSpeech(text: string, options: { model?: string; voice?: string; format?: string } = {}): Promise<ArrayBuffer> {

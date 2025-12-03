@@ -470,7 +470,7 @@ const MeditationWithMarque = () => {
       console.log("🔍 Base64 data prepared, length:", base64Data.length);
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-5.1",
         messages: [
           {
             role: "user",
