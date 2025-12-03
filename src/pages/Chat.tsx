@@ -363,9 +363,28 @@ const Chat = () => {
           if (audioBlob && audioBlob.size > 0) {
             try {
               console.log('[Voice] Starting transcription...');
-              const transcription = await psychologistAI.transcribeAudio(audioBlob);
-              const text = transcription.trim();
-              console.log('[Voice] Transcription result:', text);
+
+              // Use server API instead of direct OpenAI call
+              const formData = new FormData();
+              formData.append('file', audioBlob, 'voice.webm');
+              formData.append('model', 'whisper-1');
+              formData.append('language', 'ru');
+              formData.append('response_format', 'text');
+              formData.append('prompt', 'Разговор с психологом. Короткие фразы: Привет, Да, Нет, Хорошо, Понял.');
+
+              const response = await fetch('/api/audio/transcriptions', {
+                method: 'POST',
+                body: formData
+              });
+
+              if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                throw new Error(`Server error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+              }
+
+              const transcription = await response.json();
+              const text = (transcription.text || transcription).toString().trim();
+              console.log('[Voice] Server transcription result:', text);
 
               if (text.length > 0) {
                 console.log('[Voice] Sending transcribed message:', text);
@@ -377,8 +396,18 @@ const Chat = () => {
               }
             } catch (error) {
               console.error('[Voice] Transcription error:', error);
-              // Fallback: show error but allow text input
-              setAudioError("Голосовое распознавание временно недоступно. Напишите сообщение текстом.");
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+              // More specific error messages
+              if (errorMessage.includes('401') || errorMessage.includes('403')) {
+                setAudioError("Ошибка авторизации OpenAI API. Проверьте настройки.");
+              } else if (errorMessage.includes('429')) {
+                setAudioError("Превышен лимит запросов к OpenAI. Попробуйте позже.");
+              } else if (errorMessage.includes('Connection') || errorMessage.includes('Network')) {
+                setAudioError("Проблема с интернет-соединением. Проверьте подключение.");
+              } else {
+                setAudioError("Голосовое распознавание временно недоступно. Напишите сообщение текстом.");
+              }
             }
           } else {
             console.log('[Voice] Audio blob is empty or invalid');
