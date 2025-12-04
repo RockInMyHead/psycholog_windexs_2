@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Play, Square, Heart, Music, MusicOff } from "lucide-react";
+import { Play, Square, Heart, Music, VolumeOff } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { psychologistAI, openai, type ChatMessage } from "@/services/openai";
@@ -1250,7 +1250,7 @@ const MeditationWithMarque = () => {
                       variant="outline"
                       className="px-8 mb-4"
                     >
-                      <MusicOff className="w-5 h-5 mr-2" />
+                      <VolumeOff className="w-5 h-5 mr-2" />
                       Выключить музыку
                     </Button>
                   ) : musicBlocked ? (
