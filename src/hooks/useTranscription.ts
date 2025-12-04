@@ -544,13 +544,16 @@ export const useTranscription = ({
     const hasSupport = speechRecognitionSupport;
     const android = isAndroidDevice();
 
-    // Desktop, iOS и Android с поддержкой SpeechRecognition работают в Browser Mode
-    // OpenAI-режим оставляем только когда вообще нет SpeechRecognition
-    const shouldForceOpenAI = !hasSupport;
+    // Desktop работает в Browser Mode для лучшей отзывчивости
+    // iOS и Android ВСЕГДА используют OpenAI STT для надежности и качества
+    // OpenAI-режим для остальных случаев без поддержки
+    const shouldForceOpenAI = !hasSupport || ios || android;
 
     addDebugLog(
       `[Strategy] ${shouldForceOpenAI ? 'OpenAI Mode' : 'Browser Mode'} | Reason: ` +
-      (!hasSupport ? 'No SpeechRecognition Support' : 'Native browser SpeechRecognition')
+      (ios ? 'iOS device (OpenAI STT)' :
+       android ? 'Android device (OpenAI STT)' :
+       !hasSupport ? 'No SpeechRecognition Support' : 'Desktop browser SpeechRecognition')
     );
 
     setForceOpenAI(shouldForceOpenAI);
