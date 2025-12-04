@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Play, Square, Heart } from "lucide-react";
+import { Play, Square, Heart, Music, MusicOff } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { psychologistAI, openai, type ChatMessage } from "@/services/openai";
@@ -40,6 +40,8 @@ const MeditationWithMarque = () => {
   const [sessionText, setSessionText] = useState<string>("");
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [meditationGuidanceStep, setMeditationGuidanceStep] = useState(0);
+  const [musicEnabled, setMusicEnabled] = useState(false);
+  const [musicBlocked, setMusicBlocked] = useState(false);
 
   // Wise quotes for meditation completion
   const wiseQuotes = [
@@ -808,21 +810,98 @@ const MeditationWithMarque = () => {
     setPoseStartTime(0);
     setElapsedTime(0);
     setPoseResult(null);
+    setMusicEnabled(false);
+    setMusicBlocked(false);
   };
 
   // Background music management
-  const startBackgroundMusic = () => {
-    const audio = new Audio("/de144d31b1f3b3f.mp3");
-    audio.loop = true;
-    audio.volume = 0.08;
-    audio.play().catch((e) => console.warn("Audio play error:", e));
-    audioElementRef.current = audio;
+  const startBackgroundMusic = async () => {
+    try {
+      const audio = new Audio("/de144d31b1f3b3f.mp3");
+      audio.loop = true;
+      audio.volume = 0.08;
+      audio.preload = "auto";
+
+      // For mobile devices, we need user interaction to start audio
+      // Try to play immediately, but handle NotAllowedError gracefully
+      await audio.play();
+      console.log("🎵 Background music started successfully");
+      audioElementRef.current = audio;
+      setMusicEnabled(true);
+      setMusicBlocked(false);
+    } catch (error: any) {
+      console.warn("🎵 Audio play blocked:", error.message);
+
+      // If autoplay is blocked (common on mobile), we'll try again after a short delay
+      // This gives time for the meditation UI to load and user to interact
+      if (error.name === 'NotAllowedError') {
+        console.log("🎵 Autoplay blocked, will retry after user interaction");
+        setMusicBlocked(true);
+
+        // Store audio element for later use
+        const audio = new Audio("/de144d31b1f3b3f.mp3");
+        audio.loop = true;
+        audio.volume = 0.08;
+        audio.preload = "auto";
+        audioElementRef.current = audio;
+
+        // Try to play again after a delay (user might have interacted with the page)
+        setTimeout(async () => {
+          try {
+            if (audioElementRef.current && !audioElementRef.current.paused) return; // Already playing
+            await audioElementRef.current.play();
+            console.log("🎵 Background music started after retry");
+            setMusicEnabled(true);
+            setMusicBlocked(false);
+          } catch (retryError: any) {
+            console.warn("🎵 Audio still blocked after retry:", retryError.message);
+            // On mobile, music will need manual start
+          }
+        }, 2000);
+      } else {
+        console.error("🎵 Audio loading error:", error);
+        setMusicBlocked(true);
+      }
+    }
   };
 
   const stopBackgroundMusic = () => {
     if (audioElementRef.current) {
       audioElementRef.current.pause();
       audioElementRef.current = null;
+    }
+    setMusicEnabled(false);
+    setMusicBlocked(false);
+  };
+
+  const playBackgroundMusic = async () => {
+    if (audioElementRef.current) {
+      try {
+        await audioElementRef.current.play();
+        setMusicEnabled(true);
+        setMusicBlocked(false);
+        console.log("🎵 Background music started manually");
+      } catch (error: any) {
+        console.error("🎵 Manual play failed:", error.message);
+        setMusicBlocked(true);
+      }
+    } else {
+      // Create new audio element if it doesn't exist
+      const audio = new Audio("/de144d31b1f3b3f.mp3");
+      audio.loop = true;
+      audio.volume = 0.08;
+      audio.preload = "auto";
+
+      try {
+        audioElementRef.current = audio;
+        await audio.play();
+        setMusicEnabled(true);
+        setMusicBlocked(false);
+        console.log("🎵 Background music created and started manually");
+      } catch (error: any) {
+        console.error("🎵 Manual play failed:", error.message);
+        setMusicBlocked(true);
+      }
     }
   };
 
@@ -1136,6 +1215,25 @@ const MeditationWithMarque = () => {
                       {formatTime(elapsedTime)} / {selectedTime}:00
                     </Badge>
                   </Card>
+
+                  {/* Music Control Button */}
+                  {musicBlocked && (
+                    <Button
+                      onClick={playBackgroundMusic}
+                      size="lg"
+                      className="bg-primary text-white hover:bg-primary/90 px-8 mb-4"
+                    >
+                      <Music className="w-5 h-5 mr-2" />
+                      {musicEnabled ? "Музыка включена" : "Включить музыку"}
+                    </Button>
+                  )}
+
+                  {!musicBlocked && musicEnabled && (
+                    <div className="flex items-center justify-center gap-2 mb-4 text-green-600">
+                      <Music className="w-5 h-5" />
+                      <span className="text-sm">Фоновая музыка играет</span>
+                    </div>
+                  )}
 
                   <Button
                     onClick={endMeditation}
