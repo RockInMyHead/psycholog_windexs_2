@@ -565,28 +565,66 @@ export const useTranscription = ({
     // Get Microphone Stream
     try {
       const isMobile = isMobileDevice();
-      const constraints = isMobile ? {
-        audio: {
+      const isAndroid = isAndroidDevice();
+
+      // Try different constraint sets for Android devices
+      let constraints;
+      let attemptNumber = 0;
+
+      const tryGetMicrophone = async (audioConstraints: any): Promise<MediaStream> => {
+        try {
+          addDebugLog(`[Mic] Attempt ${attemptNumber + 1}: ${JSON.stringify(audioConstraints).substring(0, 100)}...`);
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+          addDebugLog(`[Mic] ✅ Success on attempt ${attemptNumber + 1}`);
+          return stream;
+        } catch (error: any) {
+          if (error.name === 'NotReadableError' && attemptNumber < 2) {
+            attemptNumber++;
+            addDebugLog(`[Mic] ⚠️ NotReadableError on attempt ${attemptNumber}, trying simpler constraints...`);
+
+            // Try simpler constraints
+            const fallbackConstraints = attemptNumber === 1 ?
+              { echoCancellation: false, noiseSuppression: false, autoGainControl: false } :
+              {}; // Last attempt: minimal constraints
+
+            return tryGetMicrophone(fallbackConstraints);
+          }
+          throw error;
+        }
+      };
+
+      if (isAndroid) {
+        // Android-specific constraints with fallbacks
+        constraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: { ideal: 16000 }, // Lower sample rate for Android compatibility
+          channelCount: { ideal: 1 }
+        };
+      } else if (isMobile) {
+        // iOS constraints
+        constraints = {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
           sampleRate: { ideal: 44100 },
           channelCount: { ideal: 1 },
-          // Добавляем усиление для лучшей чувствительности
           volume: { ideal: 1.0, min: 0.5 }
-        }
-      } : {
-        audio: {
+        };
+      } else {
+        // Desktop constraints
+        constraints = {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
           volume: { ideal: 1.0, min: 0.5 }
-        }
-      };
+        };
+      }
 
-      addDebugLog(`[Mic] Requesting access | Mobile: ${isMobile} | Constraints: ${JSON.stringify(constraints).substring(0, 50)}...`);
+      addDebugLog(`[Mic] Requesting access | Mobile: ${isMobile} | Android: ${isAndroid} | Constraints: ${JSON.stringify(constraints).substring(0, 50)}...`);
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await tryGetMicrophone(constraints);
       addDebugLog(`[Mic] ✅ Access granted | Tracks: ${stream.getTracks().length} | Audio: ${stream.getAudioTracks().length}`);
 
       // Log track details
@@ -795,16 +833,20 @@ export const useTranscription = ({
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       addDebugLog(`[Mic] ❌ Failed: ${errorName} - ${errorMessage}`);
 
-      // More specific error messages for mobile
+      // Enhanced error handling for Android devices
       let userFriendlyErrorMessage = "Ошибка доступа к микрофону";
       if (error.name === 'NotAllowedError') {
-        userFriendlyErrorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера.";
+        userFriendlyErrorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера и приложения.";
       } else if (error.name === 'NotFoundError') {
-        userFriendlyErrorMessage = "Микрофон не найден. Проверьте подключение микрофона.";
+        userFriendlyErrorMessage = "Микрофон не найден. Проверьте подключение микрофона или используйте встроенный микрофон.";
       } else if (error.name === 'NotReadableError') {
-        userFriendlyErrorMessage = "Микрофон занят другим приложением.";
+        if (isAndroidDevice()) {
+          userFriendlyErrorMessage = "Микрофон занят или недоступен. Закройте другие приложения, использующие микрофон, и попробуйте перезагрузить страницу. Если проблема persists, попробуйте другой браузер (Chrome, Firefox).";
+        } else {
+          userFriendlyErrorMessage = "Микрофон занят другим приложением.";
+        }
       } else if (error.name === 'OverconstrainedError') {
-        userFriendlyErrorMessage = "Настройки микрофона не поддерживаются устройством.";
+        userFriendlyErrorMessage = "Настройки микрофона не поддерживаются устройством. Попробуйте другой браузер.";
       } else if (error.name === 'SecurityError') {
         userFriendlyErrorMessage = "Требуется HTTPS для доступа к микрофону.";
       } else if (error.name === 'AbortError') {
@@ -815,10 +857,13 @@ export const useTranscription = ({
         errorType: error.name,
         isMobile: isMobileDevice(),
         isIOS: isIOSDevice(),
+        isAndroid: isAndroidDevice(),
         httpsRequired: !window.isSecureContext,
-        suggestedAction: isIOSDevice() ?
+        suggestedAction: isAndroidDevice() ?
+          "На Android: Закройте другие аудио-приложения, перезагрузите браузер, попробуйте другой браузер" :
+          isIOSDevice() ?
           "На iOS: Убедитесь что Safari имеет доступ к микрофону в настройках" :
-          "На Android: Проверьте разрешения приложения и браузера"
+          "На десктопе: Проверьте разрешения браузера и подключение микрофона"
       });
 
       onError?.(userFriendlyErrorMessage);
