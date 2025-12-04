@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Play, Square, Heart, Music, VolumeOff } from "lucide-react";
+import { Play, Square, Heart, Music, VolumeOff, Mic, MicOff } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { psychologistAI, openai, type ChatMessage } from "@/services/openai";
@@ -42,6 +42,7 @@ const MeditationWithMarque = () => {
   const [meditationGuidanceStep, setMeditationGuidanceStep] = useState(0);
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [musicBlocked, setMusicBlocked] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
 
   // Wise quotes for meditation completion
   const wiseQuotes = [
@@ -486,7 +487,7 @@ const MeditationWithMarque = () => {
       setPoseResult(analysis);
 
       // Если поза неправильная, Марк дает рекомендацию напрямую
-      if (!analysis.isCorrect && analysis.feedback) {
+          if (!analysis.isCorrect && analysis.feedback) {
         // Для всех поз даем советы каждые 30 секунд
         const minInterval = 30000;
         const timeSinceLastFeedback = Date.now() - lastPoseFeedbackRef.current;
@@ -500,8 +501,8 @@ const MeditationWithMarque = () => {
             .replace(/\b(как|что|почему|зачем|когда)\s+/gi, '') // Убираем вопросительные слова
             .trim();
 
-          // Озвучиваем рекомендацию напрямую
-          await speakText(cleanFeedback || analysis.feedback);
+          // Озвучиваем рекомендацию напрямую (если включено голосовое сопровождение)
+          await speakIfEnabled(cleanFeedback || analysis.feedback);
         }
       }
     } catch (error) {
@@ -653,6 +654,12 @@ const MeditationWithMarque = () => {
     processTTSQueue();
   };
 
+  // Voice helper to respect user toggle
+  const speakIfEnabled = async (text: string | null | undefined) => {
+    if (!voiceEnabled || !text) return;
+    await speakText(text);
+  };
+
   // Change to next yoga pose
   const changeYogaPose = async () => {
     if (selectedYogaPoses.length === 0) {
@@ -672,7 +679,7 @@ const MeditationWithMarque = () => {
     // Announce pose change
     const poseDuration = nextPose.duration;
     const announcement = `Переходим к позе ${nextPose.name}. ${nextPose.instructions}. Удерживайте позу ${poseDuration} минут${poseDuration !== 1 ? '' : 'у'}.`;
-    await speakText(announcement);
+    await speakIfEnabled(announcement);
 
   };
 
@@ -702,7 +709,7 @@ const MeditationWithMarque = () => {
       { role: "assistant", content: greeting }
     ];
 
-    await speakText(greeting);
+    await speakIfEnabled(greeting);
 
     // Set up periodic guidance for regular meditation
     guidanceIntervalRef.current = window.setInterval(() => {
@@ -720,7 +727,7 @@ const MeditationWithMarque = () => {
 
         if (guidance) {
           console.log(`Speaking guidance step ${nextStep} for ${selectedMeditation.name}`);
-          speakText(guidance);
+          void speakIfEnabled(guidance);
         }
 
         return nextStep;
@@ -740,7 +747,7 @@ const MeditationWithMarque = () => {
       const markMessage = getMarkMessage(selectedMeditation.id);
       if (markMessage) {
         console.log(`Mark speaking personalized message for ${selectedMeditation.name}`);
-        speakText(markMessage);
+        void speakIfEnabled(markMessage);
       }
     }, 30000); // Every 30 seconds for Mark's messages
 
@@ -1242,13 +1249,33 @@ const MeditationWithMarque = () => {
                     </Badge>
                   </Card>
 
+                  {/* Voice Control */}
+                  <Button
+                    onClick={() => setVoiceEnabled(!voiceEnabled)}
+                    size="lg"
+                    variant="outline"
+                    className="px-8 mb-2"
+                  >
+                    {voiceEnabled ? (
+                      <>
+                        <MicOff className="w-5 h-5 mr-2" />
+                        Выключить голос Марка
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-5 h-5 mr-2" />
+                        Включить голос Марка
+                      </>
+                    )}
+                  </Button>
+
                   {/* Music Control Button */}
                   {musicEnabled ? (
                     <Button
                       onClick={pauseBackgroundMusic}
                       size="lg"
                       variant="outline"
-                      className="px-8 mb-4"
+                      className="px-8 mb-2"
                     >
                       <VolumeOff className="w-5 h-5 mr-2" />
                       Выключить музыку
@@ -1257,7 +1284,7 @@ const MeditationWithMarque = () => {
                     <Button
                       onClick={playBackgroundMusic}
                       size="lg"
-                      className="bg-primary text-white hover:bg-primary/90 px-8 mb-4"
+                      className="bg-primary text-white hover:bg-primary/90 px-8 mb-2"
                     >
                       <Music className="w-5 h-5 mr-2" />
                       Включить музыку
@@ -1267,7 +1294,7 @@ const MeditationWithMarque = () => {
                       onClick={playBackgroundMusic}
                       size="lg"
                       variant="outline"
-                      className="px-8 mb-4"
+                      className="px-8 mb-2"
                     >
                       <Music className="w-5 h-5 mr-2" />
                       Включить музыку
