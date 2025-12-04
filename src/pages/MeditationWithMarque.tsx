@@ -85,6 +85,7 @@ const MeditationWithMarque = () => {
   const isSpeakingRef = useRef(false);
   const lastPoseFeedbackRef = useRef<number>(0); // Timestamp of last pose feedback
   const guidanceIntervalRef = useRef<number | null>(null); // For regular meditation guidance
+  const markMessagesIntervalRef = useRef<number | null>(null); // For Mark's personalized messages
 
   /*
   // Yoga meditation plans for different durations
@@ -372,6 +373,51 @@ const MeditationWithMarque = () => {
     const sequence = meditationGuidanceSequences[meditationType as keyof typeof meditationGuidanceSequences];
     if (!sequence) return null;
     return sequence[step % sequence.length] || null;
+  };
+
+  // Mark's personalized messages for different meditation types
+  const markMessagesSequences = {
+    breathing: [
+      "Я Марк. Замечаю, как ваше дыхание становится более спокойным. Это прекрасный признак прогресса.",
+      "Марк здесь. Ваше дыхание - это якорь в настоящем моменте. Продолжайте наблюдать за ним.",
+      "Я вижу, как вы дышите осознанно. Это умение пригодится вам в повседневной жизни.",
+      "Марк: Ваше спокойное дыхание создает атмосферу мира вокруг вас.",
+      "Замечаю вашу сосредоточенность на дыхании. Это отличная практика осознанности."
+    ],
+    body_scan: [
+      "Марк: Вижу, как вы внимательно сканируете тело. Это помогает развить осознанность.",
+      "Я Марк. Ваше тело расслабляется под вашим внимательным взглядом. Продолжайте.",
+      "Замечаю вашу работу со сканированием тела. Это мощная практика для снятия напряжения.",
+      "Марк здесь. Ваше тело благодарно за такое внимательное отношение к нему.",
+      "Вижу, как вы тщательно исследуете ощущения в теле. Это путь к глубокому расслаблению."
+    ],
+    loving_kindness: [
+      "Марк: Ваша практика любящей доброты наполняет пространство теплом. Продолжайте.",
+      "Я Марк. Вижу, как ваше сердце открывается навстречу любви. Это прекрасная практика.",
+      "Замечаю вашу работу с любящей добротой. Это меняет не только вас, но и мир вокруг.",
+      "Марк здесь. Ваша доброта распространяется как круги на воде. Продолжайте делиться ею.",
+      "Вижу, как вы культивируете любовь и сострадание. Это настоящее искусство жизни."
+    ],
+    visualization: [
+      "Марк: Ваше воображение создает прекрасные миры. Наслаждайтесь этим путешествием.",
+      "Я Марк. Вижу, как вы погружаетесь в визуализацию. Это мощный инструмент для ума.",
+      "Замечаю вашу работу с воображением. Продолжайте создавать свое идеальное пространство.",
+      "Марк здесь. Ваша визуализация становится все более яркой и живой. Прекрасно.",
+      "Вижу, как вы мастерски используете силу воображения для создания внутреннего покоя."
+    ],
+    mindfulness: [
+      "Марк: Ваша осознанность в настоящем моменте впечатляет. Продолжайте эту практику.",
+      "Я Марк. Замечаю вашу внимательность к каждому мгновению. Это истинная мудрость.",
+      "Вижу, как вы живете в настоящем. Это самый ценный навык в нашей суетной жизни.",
+      "Марк здесь. Ваша осознанность освещает каждый момент жизни. Продолжайте.",
+      "Замечаю вашу глубокую связь с настоящим. Это путь к истинному счастью."
+    ]
+  };
+
+  const getMarkMessage = (meditationType: string): string | null => {
+    const messages = markMessagesSequences[meditationType as keyof typeof markMessagesSequences];
+    if (!messages) return null;
+    return messages[Math.floor(Math.random() * messages.length)];
   };
 
   // Start webcam
@@ -679,6 +725,23 @@ const MeditationWithMarque = () => {
       });
     }, 60000); // Every minute for regular meditations
 
+    // Set up Mark's personalized messages every 30 seconds
+    markMessagesIntervalRef.current = window.setInterval(() => {
+      if (!isSessionActive) {
+        if (markMessagesIntervalRef.current) {
+          clearInterval(markMessagesIntervalRef.current);
+          markMessagesIntervalRef.current = null;
+        }
+        return;
+      }
+
+      const markMessage = getMarkMessage(selectedMeditation.id);
+      if (markMessage) {
+        console.log(`Mark speaking personalized message for ${selectedMeditation.name}`);
+        speakText(markMessage);
+      }
+    }, 30000); // Every 30 seconds for Mark's messages
+
     // Start background music for all types
     startBackgroundMusic();
 
@@ -716,6 +779,7 @@ const MeditationWithMarque = () => {
     if (photoIntervalRef.current) clearInterval(photoIntervalRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
     if (guidanceIntervalRef.current) clearInterval(guidanceIntervalRef.current);
+    if (markMessagesIntervalRef.current) clearInterval(markMessagesIntervalRef.current);
 
     /*
     // Stop webcam only for yoga meditation
@@ -801,6 +865,9 @@ const MeditationWithMarque = () => {
     return () => {
       if (guidanceIntervalRef.current) {
         clearInterval(guidanceIntervalRef.current);
+      }
+      if (markMessagesIntervalRef.current) {
+        clearInterval(markMessagesIntervalRef.current);
       }
     };
   }, []);
