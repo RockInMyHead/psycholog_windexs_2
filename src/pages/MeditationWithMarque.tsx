@@ -816,14 +816,42 @@ const MeditationWithMarque = () => {
 
   // Background music management
   const startBackgroundMusic = async () => {
+    // For mobile devices, skip autoplay entirely and rely on manual start
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      console.log("🎵 Mobile device detected, skipping autoplay - music will need manual start");
+      setMusicBlocked(true);
+      return;
+    }
+
+    // For desktop, try autoplay
     try {
       const audio = new Audio("/de144d31b1f3b3f.mp3");
       audio.loop = true;
       audio.volume = 0.08;
       audio.preload = "auto";
 
-      // For mobile devices, we need user interaction to start audio
-      // Try to play immediately, but handle NotAllowedError gracefully
+      // Add event listeners to handle interruptions
+      audio.addEventListener('pause', () => {
+        console.log("🎵 Audio paused unexpectedly");
+        if (audioElementRef.current === audio && !audio.ended) {
+          setMusicEnabled(false);
+          setMusicBlocked(true);
+        }
+      });
+
+      audio.addEventListener('ended', () => {
+        console.log("🎵 Audio ended");
+        setMusicEnabled(false);
+      });
+
+      audio.addEventListener('error', (e) => {
+        console.error("🎵 Audio error:", e);
+        setMusicEnabled(false);
+        setMusicBlocked(true);
+      });
+
       await audio.play();
       console.log("🎵 Background music started successfully");
       audioElementRef.current = audio;
@@ -831,37 +859,7 @@ const MeditationWithMarque = () => {
       setMusicBlocked(false);
     } catch (error: any) {
       console.warn("🎵 Audio play blocked:", error.message);
-
-      // If autoplay is blocked (common on mobile), we'll try again after a short delay
-      // This gives time for the meditation UI to load and user to interact
-      if (error.name === 'NotAllowedError') {
-        console.log("🎵 Autoplay blocked, will retry after user interaction");
-        setMusicBlocked(true);
-
-        // Store audio element for later use
-        const audio = new Audio("/de144d31b1f3b3f.mp3");
-        audio.loop = true;
-        audio.volume = 0.08;
-        audio.preload = "auto";
-        audioElementRef.current = audio;
-
-        // Try to play again after a delay (user might have interacted with the page)
-        setTimeout(async () => {
-          try {
-            if (audioElementRef.current && !audioElementRef.current.paused) return; // Already playing
-            await audioElementRef.current.play();
-            console.log("🎵 Background music started after retry");
-            setMusicEnabled(true);
-            setMusicBlocked(false);
-          } catch (retryError: any) {
-            console.warn("🎵 Audio still blocked after retry:", retryError.message);
-            // On mobile, music will need manual start
-          }
-        }, 2000);
-      } else {
-        console.error("🎵 Audio loading error:", error);
-        setMusicBlocked(true);
-      }
+      setMusicBlocked(true);
     }
   };
 
@@ -874,13 +872,21 @@ const MeditationWithMarque = () => {
     setMusicBlocked(false);
   };
 
+  const pauseBackgroundMusic = () => {
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      setMusicEnabled(false);
+      console.log("🎵 Background music paused manually");
+    }
+  };
+
   const playBackgroundMusic = async () => {
     if (audioElementRef.current) {
       try {
         await audioElementRef.current.play();
         setMusicEnabled(true);
         setMusicBlocked(false);
-        console.log("🎵 Background music started manually");
+        console.log("🎵 Background music resumed manually");
       } catch (error: any) {
         console.error("🎵 Manual play failed:", error.message);
         setMusicBlocked(true);
@@ -891,6 +897,26 @@ const MeditationWithMarque = () => {
       audio.loop = true;
       audio.volume = 0.08;
       audio.preload = "auto";
+
+      // Add event listeners to handle interruptions
+      audio.addEventListener('pause', () => {
+        console.log("🎵 Audio paused unexpectedly");
+        if (audioElementRef.current === audio && !audio.ended) {
+          setMusicEnabled(false);
+          setMusicBlocked(true);
+        }
+      });
+
+      audio.addEventListener('ended', () => {
+        console.log("🎵 Audio ended");
+        setMusicEnabled(false);
+      });
+
+      audio.addEventListener('error', (e) => {
+        console.error("🎵 Audio error:", e);
+        setMusicEnabled(false);
+        setMusicBlocked(true);
+      });
 
       try {
         audioElementRef.current = audio;
@@ -1217,22 +1243,35 @@ const MeditationWithMarque = () => {
                   </Card>
 
                   {/* Music Control Button */}
-                  {musicBlocked && (
+                  {musicEnabled ? (
+                    <Button
+                      onClick={pauseBackgroundMusic}
+                      size="lg"
+                      variant="outline"
+                      className="px-8 mb-4"
+                    >
+                      <MusicOff className="w-5 h-5 mr-2" />
+                      Выключить музыку
+                    </Button>
+                  ) : musicBlocked ? (
                     <Button
                       onClick={playBackgroundMusic}
                       size="lg"
                       className="bg-primary text-white hover:bg-primary/90 px-8 mb-4"
                     >
                       <Music className="w-5 h-5 mr-2" />
-                      {musicEnabled ? "Музыка включена" : "Включить музыку"}
+                      Включить музыку
                     </Button>
-                  )}
-
-                  {!musicBlocked && musicEnabled && (
-                    <div className="flex items-center justify-center gap-2 mb-4 text-green-600">
-                      <Music className="w-5 h-5" />
-                      <span className="text-sm">Фоновая музыка играет</span>
-                    </div>
+                  ) : (
+                    <Button
+                      onClick={playBackgroundMusic}
+                      size="lg"
+                      variant="outline"
+                      className="px-8 mb-4"
+                    >
+                      <Music className="w-5 h-5 mr-2" />
+                      Включить музыку
+                    </Button>
                   )}
 
                   <Button
