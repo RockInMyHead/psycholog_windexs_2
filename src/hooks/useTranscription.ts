@@ -111,7 +111,8 @@ export const useTranscription = ({
 
   const hasEchoProblems = useCallback(() => {
     const userAgent = navigator.userAgent.toLowerCase();
-    return /chrome|chromium|edg\/|opera|brave/.test(userAgent);
+    // Добавляем Yandex Browser к списку, т.к. он на Chromium и дает эхо TTS->STT
+    return /chrome|chromium|edg\/|opera|brave|yabrowser|yaapp/.test(userAgent);
   }, []);
 
   const isIOSDevice = useCallback(() => {
