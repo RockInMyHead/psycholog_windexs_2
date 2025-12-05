@@ -121,6 +121,14 @@ export const useTranscription = ({
            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }, []);
 
+  const isLegacyIOS = useCallback(() => {
+    // Простая эвристика: старые iOS 10–12 чаще на iPhone 6/7 и дают сбои с аудио
+    const match = navigator.userAgent.match(/OS (\d+)_/);
+    if (!match) return false;
+    const major = parseInt(match[1], 10);
+    return major > 0 && major <= 12;
+  }, []);
+
   const isAndroidDevice = useCallback(() => {
     const userAgent = navigator.userAgent.toLowerCase();
     return /android/.test(userAgent);
@@ -604,14 +612,15 @@ export const useTranscription = ({
           channelCount: { ideal: 1 }
         };
       } else if (isMobile) {
-        // iOS constraints
+        const legacyIOS = isIOSDevice() && isLegacyIOS();
+        // iOS constraints (legacy iPhone 6/7: lower sample rate, simpler setup)
         constraints = {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: { ideal: 44100 },
+          sampleRate: legacyIOS ? { ideal: 16000 } : { ideal: 44100 },
           channelCount: { ideal: 1 },
-          volume: { ideal: 1.0, min: 0.5 }
+          ...(legacyIOS ? {} : { volume: { ideal: 1.0, min: 0.5 } })
         };
       } else {
         // Desktop constraints
