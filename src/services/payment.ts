@@ -57,7 +57,8 @@ class PaymentService {
         },
         capture: true,
         confirmation: {
-          type: 'qr',
+          // Для показа QR на стороне ЮMoney/ЮKassa используем redirect
+          type: 'redirect',
           return_url: this.config.returnUrl,
         },
         payment_method_data: {
