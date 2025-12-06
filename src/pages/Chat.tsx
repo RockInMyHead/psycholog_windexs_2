@@ -431,16 +431,22 @@ const Chat = () => {
   };
 
   const audioContextRef = useRef<AudioContext | null>(null);
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  // Для TTS воспроизведения в чате
+  const chatAudioRef = useRef<HTMLAudioElement | null>(null);
+  const chatAudioUrlRef = useRef<string | null>(null);
 
   const stopSpeaking = () => {
-    if (audioSourceRef.current) {
+    if (chatAudioRef.current) {
       try {
-        audioSourceRef.current.stop();
-      } catch (e) {
-        // Ignore errors if already stopped
+        chatAudioRef.current.pause();
+      } catch {
+        // ignore
       }
-      audioSourceRef.current = null;
+      chatAudioRef.current = null;
+    }
+    if (chatAudioUrlRef.current) {
+      URL.revokeObjectURL(chatAudioUrlRef.current);
+      chatAudioUrlRef.current = null;
     }
     setSpeakingMessageId(null);
   };
@@ -474,20 +480,20 @@ const Chat = () => {
 
       // Use HTML5 Audio for playback (more reliable than Web Audio API)
       const audio = new Audio(url);
+      chatAudioRef.current = audio;
+      chatAudioUrlRef.current = url;
       audio.volume = 1.0; // Maximum volume
 
       console.log('[Chat TTS] Audio element created, volume:', audio.volume);
 
       audio.onended = () => {
         console.log('[Chat TTS] Playback ended');
-        URL.revokeObjectURL(url);
-        setSpeakingMessageId(null);
+        stopSpeaking();
       };
 
       audio.onerror = (e) => {
         console.error('[Chat TTS] Audio playback error:', e);
-        URL.revokeObjectURL(url);
-        setSpeakingMessageId(null);
+        stopSpeaking();
       };
 
       console.log('[Chat TTS] Starting playback...');
@@ -499,6 +505,20 @@ const Chat = () => {
       setSpeakingMessageId(null);
     }
   };
+
+  // Останавливаем TTS при уходе со страницы/размонтаже
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopSpeaking();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      stopSpeaking();
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-calm-gradient">
