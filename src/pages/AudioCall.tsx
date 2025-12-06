@@ -93,6 +93,7 @@ const AudioCall = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState(0);
+  const isCallActiveRef = useRef(false);
 
   // Debug Logs State
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
@@ -223,9 +224,11 @@ const AudioCall = () => {
         // Во время TTS глушим запись/распознавание (кроме Safari — логика внутри useTranscription)
         pauseRecordingForTTS?.();
       } else {
-        // Возвращаем запись/распознавание после TTS
-        resumeRecordingAfterTTS?.();
-        console.log('[TTS] TTS session ended, ready for new text');
+        // Возвращаем запись/распознавание только если звонок еще активен
+        if (isCallActiveRef.current) {
+          resumeRecordingAfterTTS?.();
+          console.log('[TTS] TTS session ended, ready for new text');
+        }
       }
     }
   });
@@ -243,6 +246,10 @@ const AudioCall = () => {
       }
     }
   }, [isTTSPlaying, isTTSSynthesizing]);
+
+  useEffect(() => {
+    isCallActiveRef.current = isCallActive;
+  }, [isCallActive]);
 
   // --- Lifecycle & Logic ---
 
@@ -323,6 +330,10 @@ const AudioCall = () => {
   };
 
   const endCall = async () => {
+    // Сразу помечаем, что звонок завершен, чтобы TTS не возобновлял запись
+    isCallActiveRef.current = false;
+    setIsCallActive(false);
+
     stopTTS();
     cleanupRecognition();
     
