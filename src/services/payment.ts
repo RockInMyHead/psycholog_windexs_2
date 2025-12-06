@@ -28,8 +28,10 @@ export interface YookassaPaymentResponse {
   id: string;
   status: 'pending' | 'succeeded' | 'canceled';
   confirmation: {
-    type: 'redirect';
-    confirmation_url: string;
+    type: 'redirect' | 'qr';
+    confirmation_url?: string;
+    confirmation_token?: string;
+    confirmation_data?: string;
   };
 }
 
@@ -47,7 +49,7 @@ class PaymentService {
       localStorage.removeItem('pending_payment_user');
       localStorage.removeItem('pending_payment_plan');
 
-      // Create payment request for Yookassa API
+      // Create payment request for Yookassa API with QR code for SBP
       const yookassaPayload = {
         amount: {
           value: paymentData.amount.toFixed(2),
@@ -55,7 +57,7 @@ class PaymentService {
         },
         capture: true,
         confirmation: {
-          type: 'redirect',
+          type: 'qr',
           return_url: this.config.returnUrl,
         },
         description: paymentData.description,
