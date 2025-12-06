@@ -159,6 +159,18 @@ export const useTTS = ({ onPlaybackStatusChange }: UseTTSProps = {}) => {
     }
   };
 
+  // Ensure playback is started/resumed when queue has items
+  const ensurePlayback = async () => {
+    try {
+      await initializeAudioContext();
+      if (!isPlayingAudioRef.current && audioQueueRef.current.length > 0) {
+        void playQueuedAudio();
+      }
+    } catch (error) {
+      console.warn("[TTS] ensurePlayback failed:", error);
+    }
+  };
+
   const speak = useCallback(async (text: string) => {
     const callId = Date.now(); // Unique ID for this speak call
     console.log(`[TTS] speak called (ID: ${callId}) with text: "${text?.substring(0, 50)}..."`);
@@ -228,9 +240,10 @@ export const useTTS = ({ onPlaybackStatusChange }: UseTTSProps = {}) => {
           if (audioBuffer && audioBuffer.byteLength > 0) {
             audioQueueRef.current.push(audioBuffer);
             console.log(`[TTS] Added to queue (ID: ${callId}): ${audioBuffer.byteLength} bytes`);
+            // Запускаем воспроизведение, если сейчас не играет
             if (!isPlayingAudioRef.current) {
               console.log(`[TTS] Starting playback (ID: ${callId})`);
-              void playQueuedAudio();
+              void ensurePlayback();
             }
           }
         } catch (error) {
