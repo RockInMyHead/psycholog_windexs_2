@@ -43,6 +43,7 @@ const MeditationWithMarque = () => {
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [musicBlocked, setMusicBlocked] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const isSessionActiveRef = useRef(false);
 
   // Wise quotes for meditation completion
   const wiseQuotes = [
@@ -86,9 +87,14 @@ const MeditationWithMarque = () => {
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const ttsQueueRef = useRef<string[]>([]);
   const isSpeakingRef = useRef(false);
+  const ttsSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const bgSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const bgBufferRef = useRef<AudioBuffer | null>(null);
+  const bgGainRef = useRef<GainNode | null>(null);
   const lastPoseFeedbackRef = useRef<number>(0); // Timestamp of last pose feedback
   const guidanceIntervalRef = useRef<number | null>(null); // For regular meditation guidance
   const markMessagesIntervalRef = useRef<number | null>(null); // For Mark's personalized messages
+  const markMessagePoolRef = useRef<string[]>([]); // Shuffled non-repeating Mark messages per session
 
   /*
   // Yoga meditation plans for different durations
@@ -381,46 +387,54 @@ const MeditationWithMarque = () => {
   // Mark's personalized messages for different meditation types
   const markMessagesSequences = {
     breathing: [
-      "Я Марк. Каждый вдох мягко уводит вас от навязчивых мыслей, оставляя проблемы за пределами сознания.",
-      "Марк здесь. Дыхание — ваш путь от забот к спокойствию, позвольте волнениям уходить с каждым выдохом.",
-      "Я вижу, как вы дышите осознанно. Пусть проблемы растворяются, пока внимание на дыхании.",
-      "Марк: Спокойное дыхание отдаляет суету, делая место тишине внутри.",
-      "Замечаю вашу сосредоточенность. Оставьте тревоги за дверью и дышите свободно."
+      "Каждый вдох мягко уводит вас от навязчивых мыслей, оставляя проблемы за пределами сознания.",
+      "Дыхание — ваш путь от забот к спокойствию, позвольте волнениям уходить с каждым выдохом.",
+      "Вы дышите осознанно. Пусть проблемы растворяются, пока внимание на дыхании.",
+      "Спокойное дыхание отдаляет суету, делая место тишине внутри.",
+      "Сосредоточенность на дыхании оставляет тревоги за дверью — дышите свободно."
     ],
     body_scan: [
-      "Марк: Пока вы сканируете тело, отпускайте проблемы — пусть они остаются вне вашего внимания.",
-      "Я Марк. Расслабляя тело, вы отдаляетесь от тревог, давая им раствориться в фоне.",
-      "Замечаю, как вы проходите вниманием по телу. Вместе с этим уходят зажимы и лишние мысли.",
-      "Марк здесь. Ваше тело отдыхает, а заботы становятся все дальше, как далекие звуки.",
-      "Вижу, как вы исследуете ощущения. Позвольте каждой области отпустить напряжение и проблемы."
+      "Пока вы сканируете тело, отпускайте проблемы — пусть они остаются вне вашего внимания.",
+      "Расслабляя тело, вы отдаляетесь от тревог, давая им раствориться в фоне.",
+      "Проходя вниманием по телу, отпускайте зажимы и лишние мысли.",
+      "Тело отдыхает, а заботы становятся все дальше, как далекие звуки.",
+      "Исследуя ощущения, позвольте каждой области отпустить напряжение и проблемы."
     ],
     loving_kindness: [
-      "Марк: Направляя доброту внутрь, вы мягко отходите от проблем и тревог.",
-      "Я Марк. Ваше сердце раскрывается, а проблемы остаются позади, теряя важность.",
-      "Замечаю вашу практику доброты — она заменяет тревоги теплом и поддержкой.",
-      "Марк здесь. Пусть волны доброты уносят беспокойства все дальше от вас.",
-      "Вижу, как вы культивируете сострадание. Вместе с этим уходят лишние переживания."
+      "Направляя доброту внутрь, вы мягко отходите от проблем и тревог.",
+      "Сердце раскрывается, а проблемы остаются позади, теряя важность.",
+      "Практика доброты заменяет тревоги теплом и поддержкой.",
+      "Волны доброты уносят беспокойства все дальше от вас.",
+      "Культивируя сострадание, отпускайте лишние переживания."
     ],
     visualization: [
-      "Марк: Ваше воображение переносит вас туда, где нет места проблемам — только покой.",
-      "Я Марк. В вашей визуализации заботы остаются позади, вы идёте в безопасное пространство.",
-      "Замечаю, как вы создаете место тишины. Пусть тревоги растворятся в этом пейзаже.",
-      "Марк здесь. Каждая деталь вашего воображаемого мира отдаляет вас от суеты и проблем.",
-      "Вижу, как вы используете воображение, чтобы оставить беспокойства далеко за горизонтом."
+      "Воображение переносит вас туда, где нет места проблемам — только покой.",
+      "В визуализации заботы остаются позади, вы идёте в безопасное пространство.",
+      "Создавая место тишины, позволяйте тревогам раствориться в этом пейзаже.",
+      "Каждая деталь воображаемого мира отдаляет от суеты и проблем.",
+      "Используйте воображение, чтобы оставить беспокойства далеко за горизонтом."
     ],
     mindfulness: [
-      "Марк: Внимание к настоящему моменту отдаляет вас от проблем — они не живут в «сейчас».",
-      "Я Марк. Замечаю, как вы удерживаете внимание здесь и сейчас, оставляя тревоги в стороне.",
-      "Вижу, как вы выбираете присутствие вместо пережевывания проблем — это облегчает дыхание.",
-      "Марк здесь. Осознанность делает заботы тише, позволяя вам опираться на спокойствие момента.",
-      "Замечаю вашу связь с настоящим. Здесь нет проблем, только факты и ваше спокойствие."
+      "Внимание к настоящему моменту отдаляет вас от проблем — они не живут в «сейчас».",
+      "Удерживая внимание здесь и сейчас, оставляйте тревоги в стороне.",
+      "Выбирая присутствие вместо пережевывания проблем, вы облегчаете дыхание.",
+      "Осознанность делает заботы тише, позволяя опираться на спокойствие момента.",
+      "Связь с настоящим — здесь нет проблем, только факты и ваше спокойствие."
     ]
   };
 
   const getMarkMessage = (meditationType: string): string | null => {
     const messages = markMessagesSequences[meditationType as keyof typeof markMessagesSequences];
     if (!messages) return null;
-    return messages[Math.floor(Math.random() * messages.length)];
+    // Refill pool if empty (start or exhausted)
+    if (markMessagePoolRef.current.length === 0) {
+      const shuffled = [...messages].sort(() => Math.random() - 0.5);
+      markMessagePoolRef.current = shuffled;
+    }
+
+    // Pop the next message to avoid immediate repeats
+    const nextMessage = markMessagePoolRef.current.shift();
+    return nextMessage || null;
   };
 
   // Start webcam
@@ -624,26 +638,26 @@ const MeditationWithMarque = () => {
 
     try {
       const audioBuffer = await psychologistAI.synthesizeSpeech(text);
-      const audioBlob = new Blob([audioBuffer], { type: "audio/mpeg" });
-      const audioUrl = URL.createObjectURL(audioBlob);
+      const ctx = audioContextRef.current || new AudioContext();
+      audioContextRef.current = ctx;
 
-      const audio = new Audio(audioUrl);
+      const decoded = await ctx.decodeAudioData(audioBuffer.slice(0));
+      const source = ctx.createBufferSource();
+      source.buffer = decoded;
+      source.connect(ctx.destination);
+      ttsSourceRef.current = source;
 
-      audio.onended = () => {
+      source.onended = () => {
         isSpeakingRef.current = false;
-        // Process next item in queue
-        setTimeout(() => processTTSQueue(), 500); // Small delay between messages
+        ttsSourceRef.current = null;
+        setTimeout(() => processTTSQueue(), 300);
       };
 
-      audio.onerror = () => {
-        isSpeakingRef.current = false;
-        setTimeout(() => processTTSQueue(), 500);
-      };
-
-      await audio.play();
+      source.start(0);
     } catch (error) {
       console.error("TTS error:", error);
       isSpeakingRef.current = false;
+      ttsSourceRef.current = null;
       setTimeout(() => processTTSQueue(), 500);
     }
   };
@@ -696,8 +710,12 @@ const MeditationWithMarque = () => {
 
     setStep("meditating");
     setIsSessionActive(true);
+    isSessionActiveRef.current = true;
     console.log("✅ Set isSessionActive to true");
     setElapsedTime(0);
+
+    // Reset Mark's message pool for this session to avoid repeats
+    markMessagePoolRef.current = [];
 
     // Regular meditation - start with first guidance
     setMeditationGuidanceStep(0);
@@ -713,7 +731,7 @@ const MeditationWithMarque = () => {
 
     // Set up periodic guidance for regular meditation
     guidanceIntervalRef.current = window.setInterval(() => {
-      if (!isSessionActive) {
+      if (!isSessionActiveRef.current) {
         if (guidanceIntervalRef.current) {
           clearInterval(guidanceIntervalRef.current);
           guidanceIntervalRef.current = null;
@@ -736,7 +754,7 @@ const MeditationWithMarque = () => {
 
     // Set up Mark's personalized messages every 30 seconds
     markMessagesIntervalRef.current = window.setInterval(() => {
-      if (!isSessionActive) {
+      if (!isSessionActiveRef.current) {
         if (markMessagesIntervalRef.current) {
           clearInterval(markMessagesIntervalRef.current);
           markMessagesIntervalRef.current = null;
@@ -784,6 +802,7 @@ const MeditationWithMarque = () => {
   const endMeditation = () => {
     console.log("🏁 END MEDITATION called - stopping session");
     setIsSessionActive(false);
+    isSessionActiveRef.current = false;
 
     if (photoIntervalRef.current) clearInterval(photoIntervalRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
@@ -821,121 +840,86 @@ const MeditationWithMarque = () => {
     setMusicBlocked(false);
   };
 
+  // Stop music whenever сессия завершается
+  useEffect(() => {
+    if (!isSessionActive) {
+      stopBackgroundMusic();
+    }
+    return () => {
+      stopBackgroundMusic();
+    };
+  }, [isSessionActive]);
+
   // Background music management
   const startBackgroundMusic = async () => {
-    // For mobile devices, skip autoplay entirely and rely on manual start
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-    if (isMobile) {
-      console.log("🎵 Mobile device detected, skipping autoplay - music will need manual start");
-      setMusicBlocked(true);
-      return;
-    }
-
-    // For desktop, try autoplay
     try {
-      const audio = new Audio("/de144d31b1f3b3f.mp3");
-      audio.loop = true;
-      audio.volume = 0.08;
-      audio.preload = "auto";
+      const ctx = audioContextRef.current || new AudioContext();
+      audioContextRef.current = ctx;
 
-      // Add event listeners to handle interruptions
-      audio.addEventListener('pause', () => {
-        console.log("🎵 Audio paused unexpectedly");
-        if (audioElementRef.current === audio && !audio.ended) {
-          setMusicEnabled(false);
-          setMusicBlocked(true);
-        }
-      });
+      if (!bgBufferRef.current) {
+        const resp = await fetch("/de144d31b1f3b3f.mp3");
+        const arr = await resp.arrayBuffer();
+        bgBufferRef.current = await ctx.decodeAudioData(arr.slice(0));
+      }
 
-      audio.addEventListener('ended', () => {
-        console.log("🎵 Audio ended");
-        setMusicEnabled(false);
-      });
+      const source = ctx.createBufferSource();
+      source.buffer = bgBufferRef.current;
+      source.loop = true;
 
-      audio.addEventListener('error', (e) => {
-        console.error("🎵 Audio error:", e);
-        setMusicEnabled(false);
-        setMusicBlocked(true);
-      });
+      const gain = ctx.createGain();
+      gain.gain.value = 0.08;
 
-      await audio.play();
-      console.log("🎵 Background music started successfully");
-      audioElementRef.current = audio;
+      source.connect(gain).connect(ctx.destination);
+      source.start(0);
+
+      bgSourceRef.current = source;
+      bgGainRef.current = gain;
       setMusicEnabled(true);
       setMusicBlocked(false);
+      console.log("🎵 Background music started successfully (Web Audio)");
     } catch (error: any) {
-      console.warn("🎵 Audio play blocked:", error.message);
+      console.warn("🎵 Audio play blocked:", error?.message);
       setMusicBlocked(true);
     }
   };
 
   const stopBackgroundMusic = () => {
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
-      audioElementRef.current = null;
+    if (bgSourceRef.current) {
+      try {
+        bgSourceRef.current.stop();
+      } catch {
+        // ignore
+      }
+      bgSourceRef.current.disconnect();
+      bgSourceRef.current = null;
+    }
+    if (bgGainRef.current) {
+      try {
+        bgGainRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+      bgGainRef.current = null;
     }
     setMusicEnabled(false);
     setMusicBlocked(false);
   };
 
   const pauseBackgroundMusic = () => {
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
+    if (bgSourceRef.current) {
+      try {
+        bgSourceRef.current.stop();
+      } catch {
+        // ignore
+      }
+      bgSourceRef.current = null;
       setMusicEnabled(false);
       console.log("🎵 Background music paused manually");
     }
   };
 
   const playBackgroundMusic = async () => {
-    if (audioElementRef.current) {
-      try {
-        await audioElementRef.current.play();
-        setMusicEnabled(true);
-        setMusicBlocked(false);
-        console.log("🎵 Background music resumed manually");
-      } catch (error: any) {
-        console.error("🎵 Manual play failed:", error.message);
-        setMusicBlocked(true);
-      }
-    } else {
-      // Create new audio element if it doesn't exist
-      const audio = new Audio("/de144d31b1f3b3f.mp3");
-      audio.loop = true;
-      audio.volume = 0.08;
-      audio.preload = "auto";
-
-      // Add event listeners to handle interruptions
-      audio.addEventListener('pause', () => {
-        console.log("🎵 Audio paused unexpectedly");
-        if (audioElementRef.current === audio && !audio.ended) {
-          setMusicEnabled(false);
-          setMusicBlocked(true);
-        }
-      });
-
-      audio.addEventListener('ended', () => {
-        console.log("🎵 Audio ended");
-        setMusicEnabled(false);
-      });
-
-      audio.addEventListener('error', (e) => {
-        console.error("🎵 Audio error:", e);
-        setMusicEnabled(false);
-        setMusicBlocked(true);
-      });
-
-      try {
-        audioElementRef.current = audio;
-        await audio.play();
-        setMusicEnabled(true);
-        setMusicBlocked(false);
-        console.log("🎵 Background music created and started manually");
-      } catch (error: any) {
-        console.error("🎵 Manual play failed:", error.message);
-        setMusicBlocked(true);
-      }
-    }
+    await startBackgroundMusic();
   };
 
   // Timer format

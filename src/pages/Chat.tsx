@@ -194,17 +194,6 @@ const Chat = () => {
       if (sessionTimerRef.current) {
         clearInterval(sessionTimerRef.current);
       }
-      // Cleanup audio
-      if (audioSourceRef.current) {
-        try {
-          audioSourceRef.current.stop();
-        } catch (e) {
-          // Ignore
-        }
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
     };
   }, []);
 
@@ -434,6 +423,7 @@ const Chat = () => {
   // Для TTS воспроизведения в чате
   const chatAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatAudioUrlRef = useRef<string | null>(null);
+  const [ttsStatus, setTtsStatus] = useState<"idle" | "thinking" | "speaking">("idle");
 
   const stopSpeaking = () => {
     if (chatAudioRef.current) {
@@ -449,6 +439,7 @@ const Chat = () => {
       chatAudioUrlRef.current = null;
     }
     setSpeakingMessageId(null);
+    setTtsStatus("idle");
   };
 
   const speakMessage = async (messageId: string, text: string) => {
@@ -465,6 +456,7 @@ const Chat = () => {
 
     try {
       setSpeakingMessageId(messageId);
+      setTtsStatus("thinking");
       console.log('[Chat TTS] Starting speech synthesis');
 
       // Get audio buffer from TTS
@@ -498,11 +490,13 @@ const Chat = () => {
 
       console.log('[Chat TTS] Starting playback...');
       await audio.play();
+      setTtsStatus("speaking");
       console.log('[Chat TTS] Playback started successfully');
 
     } catch (error) {
       console.error('[Chat TTS] Error speaking message:', error);
       setSpeakingMessageId(null);
+      setTtsStatus("idle");
     }
   };
 
@@ -601,7 +595,13 @@ const Chat = () => {
                               title={speakingMessageId === message.id ? "Остановить озвучку" : "Озвучить сообщение"}
                             >
                               {speakingMessageId === message.id ? (
+                                ttsStatus === "thinking" ? (
+                                  <span className="text-xs animate-pulse">Думаю</span>
+                                ) : ttsStatus === "speaking" ? (
+                                  <span className="text-xs">Говорю</span>
+                                ) : (
                                 <VolumeX className="w-4 h-4" />
+                                )
                               ) : (
                                 <Volume2 className="w-4 h-4" />
                               )}
