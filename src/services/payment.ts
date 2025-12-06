@@ -60,6 +60,9 @@ class PaymentService {
           type: 'qr',
           return_url: this.config.returnUrl,
         },
+        payment_method_data: {
+          type: 'sbp',
+        },
         description: paymentData.description,
         metadata: {
           userId: paymentData.userId,
