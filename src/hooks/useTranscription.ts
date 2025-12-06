@@ -409,6 +409,10 @@ export const useTranscription = ({
       recordedChunksRef.current = [];
 
       recorder.ondataavailable = (e) => {
+        // Во время TTS глушим запись (кроме Safari, где оставляем старое поведение)
+        if (!isSafari() && isTTSActiveRef.current) {
+          return;
+        }
         if (e.data.size > 0) {
           recordedChunksRef.current.push(e.data);
           addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
@@ -926,6 +930,27 @@ export const useTranscription = ({
       } catch (e) {
         // Ignore start errors
       }
+    },
+    pauseRecordingForTTS: () => {
+      if (isSafari()) return; // Safari оставляем как раньше
+      recognitionActiveRef.current = false;
+      recognitionRef.current?.stop();
+      stopMediaRecording();
+      recordedChunksRef.current = [];
+    },
+    resumeRecordingAfterTTS: () => {
+      if (isSafari()) return; // Safari оставляем как раньше
+      setTimeout(() => {
+        if (audioStreamRef.current) {
+          startMediaRecording(audioStreamRef.current);
+        }
+        recognitionActiveRef.current = true;
+        try {
+          recognitionRef.current?.start();
+        } catch (e) {
+          // Ignore start errors
+        }
+      }, 400); // небольшой буфер, чтобы не поймать хвост TTS
     }
   };
 };

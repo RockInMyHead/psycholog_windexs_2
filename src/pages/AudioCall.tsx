@@ -149,44 +149,10 @@ const AudioCall = () => {
   
   // --- Hooks Initialization ---
   
-  // 1. TTS Service (Speech Synthesis)
-  const {
-    speak,
-    stop: stopTTS,
-    resetDeduplication,
-    isPlaying: isTTSPlaying,
-    isSynthesizing: isTTSSynthesizing,
-    isPlayingRef: isTTSPlayingRef, // Needed for transcription hook ref
-    isSynthesizingRef: isTTSSynthesizingRef // Needed for logic
-  } = useTTS({
-    onPlaybackStatusChange: (isActive) => {
-      // Reset TTS deduplication when TTS stops
-      if (!isActive) {
-        console.log('[TTS] TTS session ended, ready for new text');
-      }
-    }
-  });
-
-  // Combined ref for "Is Assistant Speaking" to pass to transcription hook
-  // We use a manual ref sync or just pass a getter. 
-  // `useTranscription` needs a ref to know if it should ignore input for echo cancellation.
+  // Общий ref для статуса "Ассистент говорит"
   const isAssistantSpeakingRef = useRef(false);
-  
-  useEffect(() => {
-    isAssistantSpeakingRef.current = isTTSPlaying || isTTSSynthesizing;
-    
-    // Update video based on TTS state
-    if (videoRef.current) {
-      if (isAssistantSpeakingRef.current) {
-        videoRef.current.play().catch(() => {});
-    } else {
-        videoRef.current.pause();
-        videoRef.current.currentTime = 0;
-      }
-    }
-  }, [isTTSPlaying, isTTSSynthesizing]);
 
-  // 2. LLM Service (Logic)
+  // 1. LLM Service (Logic)
   const {
     processUserMessage,
     loadUserProfile,
@@ -202,7 +168,7 @@ const AudioCall = () => {
     onError: (err) => setError(err)
   });
 
-  // 3. Transcription Service (Speech Recognition)
+  // 2. Transcription Service (Speech Recognition)
   const {
     initializeRecognition,
     cleanup: cleanupRecognition,
@@ -211,6 +177,8 @@ const AudioCall = () => {
     microphonePermissionStatus,
     forceOpenAI,
     isIOS,
+    pauseRecordingForTTS,
+    resumeRecordingAfterTTS,
     stopRecognition,
     startRecognition
   } = useTranscription({
@@ -239,6 +207,42 @@ const AudioCall = () => {
     },
     onError: (err) => setError(err)
   });
+
+  // 3. TTS Service (Speech Synthesis)
+  const {
+    speak,
+    stop: stopTTS,
+    resetDeduplication,
+    isPlaying: isTTSPlaying,
+    isSynthesizing: isTTSSynthesizing,
+    isPlayingRef: isTTSPlayingRef, // Needed for transcription hook ref
+    isSynthesizingRef: isTTSSynthesizingRef // Needed for logic
+  } = useTTS({
+    onPlaybackStatusChange: (isActive) => {
+      if (isActive) {
+        // Во время TTS глушим запись/распознавание (кроме Safari — логика внутри useTranscription)
+        pauseRecordingForTTS?.();
+      } else {
+        // Возвращаем запись/распознавание после TTS
+        resumeRecordingAfterTTS?.();
+        console.log('[TTS] TTS session ended, ready for new text');
+      }
+    }
+  });
+
+  useEffect(() => {
+    isAssistantSpeakingRef.current = isTTSPlaying || isTTSSynthesizing;
+    
+    // Update video based on TTS state
+    if (videoRef.current) {
+      if (isAssistantSpeakingRef.current) {
+        videoRef.current.play().catch(() => {});
+    } else {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+      }
+    }
+  }, [isTTSPlaying, isTTSSynthesizing]);
 
   // --- Lifecycle & Logic ---
 
@@ -447,7 +451,11 @@ const AudioCall = () => {
 
                   {(isTTSPlaying || isTTSSynthesizing) && (
                     <Button
-                      onClick={stopTTS}
+                      onClick={() => {
+                        stopTTS();
+                        resetDeduplication();
+                        resumeRecordingAfterTTS?.();
+                      }}
                       size="lg"
                       variant="destructive"
                       className="rounded-full w-16 h-16 p-0 animate-pulse"
