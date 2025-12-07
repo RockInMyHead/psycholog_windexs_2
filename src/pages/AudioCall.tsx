@@ -486,6 +486,19 @@ const AudioCall = () => {
                   </Button>
                 </div>
 
+                {/* Debug Logs Toggle */}
+                <div className="mt-4 flex justify-center">
+                  <Button
+                    onClick={toggleDebugLogs}
+                    size="sm"
+                    variant="outline"
+                    className="flex items-center gap-2 text-xs"
+                  >
+                    <Bug className="w-3 h-3" />
+                    {showDebugLogs ? 'Скрыть логи' : 'Показать логи'}
+                  </Button>
+                </div>
+
                 {/* Mobile/No-Mic Text Fallback */}
                 {!microphoneAccessGranted && (
                    <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">

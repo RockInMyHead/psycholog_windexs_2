@@ -87,9 +87,6 @@ const Subscription = () => {
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const paymentHandledRef = useRef(false); // Защита от повторной обработки
-  const [qrCodeData, setQrCodeData] = useState<string | null>(null);
-  const [paymentId, setPaymentId] = useState<string | null>(null);
-  const paymentCheckIntervalRef = useRef<number | null>(null);
   const [currentSubscription, setCurrentSubscription] = useState<{ plan: string; status: string } | null>(null);
   const [audioAccess, setAudioAccess] = useState<{ hasAccess: boolean; remaining: number; limit: number } | null>(null);
   const [meditationAccess, setMeditationAccess] = useState<{ hasAccess: boolean } | null>(null);
@@ -172,41 +169,6 @@ const Subscription = () => {
       loadAccessInfo();
     }
   }, [searchParams, user]);
-
-  // Автоматическая проверка статуса платежа при наличии QR-кода
-  useEffect(() => {
-    if (paymentId && qrCodeData && showPaymentDialog && user) {
-      // Проверяем статус платежа каждые 3 секунды
-      paymentCheckIntervalRef.current = window.setInterval(async () => {
-        try {
-          const response = await fetch(`/api/payments/verify/${paymentId}`);
-          if (response.ok) {
-            const paymentData = await response.json();
-            if (paymentData.status === 'succeeded') {
-              // Платеж успешен
-              if (paymentCheckIntervalRef.current) {
-                clearInterval(paymentCheckIntervalRef.current);
-                paymentCheckIntervalRef.current = null;
-              }
-              await handlePaymentSuccess(paymentId, user.id);
-              setShowPaymentDialog(false);
-              setQrCodeData(null);
-              setPaymentId(null);
-            }
-          }
-        } catch (error) {
-          console.error('Error checking payment status:', error);
-        }
-      }, 3000);
-    }
-
-    return () => {
-      if (paymentCheckIntervalRef.current) {
-        clearInterval(paymentCheckIntervalRef.current);
-        paymentCheckIntervalRef.current = null;
-      }
-    };
-  }, [paymentId, qrCodeData, showPaymentDialog, user]);
 
   const loadCurrentSubscription = async () => {
     if (!user) return;
@@ -333,34 +295,15 @@ const Subscription = () => {
     try {
       setPaymentProcessing(true);
       setPaymentError(null);
-      setQrCodeData(null);
-      setPaymentId(null);
       setShowPaymentDialog(true);
 
       const response = await paymentService.createPayment(paymentData);
 
-      // Сохраняем payment ID для проверки статуса
-      if (response.id) {
-        setPaymentId(response.id);
-      }
-
-      // Если есть QR-код, показываем его
-      // В ответе от Юмани при типе 'qr' может быть confirmation_data или confirmation_token
-      if (response.confirmation?.type === 'qr') {
-        // Для СБП QR-код может быть в confirmation_data или нужно использовать confirmation_token
-        const qrData = response.confirmation.confirmation_data || response.confirmation.confirmation_token;
-        if (qrData) {
-          setQrCodeData(qrData);
-          setPaymentProcessing(false);
-        } else {
-          setPaymentError('Не удалось получить QR-код для оплаты');
-          setPaymentProcessing(false);
-        }
-      } else if (response.confirmation?.confirmation_url) {
-        // Если нет QR-кода, но есть URL, перенаправляем на ЮKassa
+      if (response.confirmation?.confirmation_url) {
+        // Перенаправляем на ЮKassa
         window.location.href = response.confirmation.confirmation_url;
       } else {
-        setPaymentError('Не удалось получить данные для оплаты');
+        setPaymentError('Не удалось получить ссылку на оплату');
         setPaymentProcessing(false);
       }
     } catch (error: unknown) {
@@ -648,27 +591,15 @@ const Subscription = () => {
 
 
           {/* Payment Dialog */}
-          <Dialog open={showPaymentDialog} onOpenChange={(open) => {
-            setShowPaymentDialog(open);
-            if (!open) {
-              // Очищаем состояние при закрытии
-              setQrCodeData(null);
-              setPaymentId(null);
-              setPaymentError(null);
-              if (paymentCheckIntervalRef.current) {
-                clearInterval(paymentCheckIntervalRef.current);
-                paymentCheckIntervalRef.current = null;
-              }
-            }
-          }}>
-            <DialogContent className="sm:max-w-lg">
+          <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+            <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <CreditCard className="w-5 h-5" />
-                  Оплата через СБП
+                  Оплата подписки
                 </DialogTitle>
                 <DialogDescription>
-                  Отсканируйте QR-код или выберите банк для оплаты
+                  Вы будете перенаправлены на страницу оплаты ЮKassa
                 </DialogDescription>
               </DialogHeader>
 
@@ -686,83 +617,13 @@ const Subscription = () => {
                     <div className="text-center">
                       <p className="font-medium text-foreground mb-1">Создание платежа...</p>
                       <p className="text-sm text-muted-foreground">
-                        Пожалуйста, подождите.
+                        Пожалуйста, подождите. Вы будете перенаправлены на страницу оплаты.
                       </p>
                     </div>
                   </div>
                 )}
 
-                {!paymentProcessing && qrCodeData && (
-                  <div className="space-y-6">
-                    {/* QR Code */}
-                    <div className="flex flex-col items-center gap-4">
-                      <div className="p-4 bg-white rounded-lg border-2 border-gray-200">
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrCodeData)}`}
-                          alt="QR код для оплаты"
-                          className="w-64 h-64"
-                        />
-                      </div>
-                      <p className="text-sm text-muted-foreground text-center">
-                        Отсканируйте QR-код в приложении вашего банка
-                      </p>
-                      {paymentId && (
-                        <p className="text-xs text-muted-foreground text-center">
-                          Номер платежа: {paymentId.substring(0, 20)}...
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Bank Selection */}
-                    <div className="border-t pt-4">
-                      <p className="text-sm font-medium text-foreground mb-3 text-center">
-                        Или выберите банк:
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { name: 'Сбербанк', id: 'sberbank' },
-                          { name: 'ВТБ', id: 'vtb' },
-                          { name: 'Альфа-Банк', id: 'alfabank' },
-                          { name: 'Тинькофф', id: 'tinkoff' },
-                          { name: 'Райффайзен', id: 'raiffeisen' },
-                          { name: 'Газпромбанк', id: 'gazprombank' },
-                        ].map((bank) => (
-                          <Button
-                            key={bank.id}
-                            variant="outline"
-                            className="h-auto py-3 flex flex-col items-center gap-1"
-                            onClick={() => {
-                              // Открываем ссылку на оплату через выбранный банк
-                              if (paymentId) {
-                                // Используем виджет Checkout Юмани для выбора банка
-                                window.open(`https://yoomoney.ru/checkout/payments/v2/contract?orderId=${paymentId}`, '_blank');
-                              }
-                            }}
-                          >
-                            <span className="text-xs font-medium">{bank.name}</span>
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => {
-                          setShowPaymentDialog(false);
-                          setQrCodeData(null);
-                          setPaymentId(null);
-                        }}
-                      >
-                        <X className="w-4 h-4 mr-2" />
-                        Закрыть
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {!paymentProcessing && !qrCodeData && paymentError && (
+                {!paymentProcessing && paymentError && (
                   <div className="flex gap-2 pt-4">
                     <Button
                       variant="outline"

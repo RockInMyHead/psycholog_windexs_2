@@ -809,7 +809,7 @@ app.put('/api/user-profiles/:userId/concerns', async (req, res) => {
 // Shop ID: 1183996, Token: live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg
 app.post('/api/payments/create', async (req, res) => {
   try {
-    const { amount, confirmation, description, metadata, receipt, payment_method_data } = req.body;
+    const { amount, confirmation, description, metadata, receipt } = req.body;
 
     logger.debug('PAYMENT', `Creating payment: ${amount} руб`, { metadata });
 
@@ -820,8 +820,6 @@ app.post('/api/payments/create', async (req, res) => {
       description: description || 'Оплата психологических услуг',
       metadata: metadata || {},
       receipt,
-      // Для СБП передаем payment_method_data.type = 'sbp', если пришло из клиента
-      ...(payment_method_data ? { payment_method_data } : {}),
     };
 
     logger.debug('PAYMENT', 'Sending payment to YooKassa', { amount: yookassaPayload.amount });
