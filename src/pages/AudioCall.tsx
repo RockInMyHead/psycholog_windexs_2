@@ -505,29 +505,12 @@ const AudioCall = () => {
                      <h3 className="text-sm font-medium mb-3 text-red-800">
                        🚫 Проблема с микрофоном
                      </h3>
-                     <p className="text-sm text-red-600 mb-3">
-                       {forceOpenAI ?
-                         "Используется текстовый режим (OpenAI)" :
-                         "Микрофон недоступен. Проверьте разрешения."}
+                     <p className="text-sm text-red-600 mb-1">
+                       Ваш микрофон занят
                      </p>
-                     <div className="text-xs text-gray-500 mb-3 space-y-1">
-                       <div>📱 Устройство: iOS={isIOS ? 'Да' : 'Нет'} | Мобильный={isMobile ? 'Да' : 'Нет'}</div>
-                       <div>🎯 Режим: OpenAI={forceOpenAI ? 'Включен' : 'Отключен'}</div>
-                       <div>🔐 Разрешения: {microphonePermissionStatus}</div>
-                       <div>🔍 Проверьте консоль (F12) для детальных логов</div>
-                     </div>
-                     {forceOpenAI && (
-                      <Button
-                        onClick={() => {
-                           const msg = prompt("Сообщение:");
-                           if(msg) processUserMessage(msg);
-                         }}
-                        variant="outline"
-                        size="sm"
-                      >
-                         Отправить сообщение
-                      </Button>
-                    )}
+                     <p className="text-xs text-gray-500">
+                       Проверьте, не используется ли микрофон другим приложением или вкладкой.
+                     </p>
                   </div>
                 )}
 
