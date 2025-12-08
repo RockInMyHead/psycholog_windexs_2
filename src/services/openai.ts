@@ -4,9 +4,9 @@ const apiKey = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API
 
 // Конфигурация повторных попыток
 const RETRY_CONFIG = {
-  maxRetries: 3,
-  baseDelay: 1000, // 1 секунда
-  maxDelay: 10000, // Максимум 10 секунд
+  maxRetries: 2, // Уменьшаем количество попыток
+  baseDelay: 500, // 0.5 секунды
+  maxDelay: 2000, // Максимум 2 секунды
   backoffFactor: 2, // Экспоненциальный рост задержки
 };
 

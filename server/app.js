@@ -267,7 +267,7 @@ const createAxiosInstance = () => {
       'Content-Type': 'application/json',
       'X-Forwarded-For': 'client'
     },
-    timeout: 30000
+    timeout: 5000
   });
 };
 
