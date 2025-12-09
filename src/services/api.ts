@@ -78,6 +78,29 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
   }
 }
 
+// Auth service
+export const authApi = {
+  async register(email: string, password: string, name: string) {
+    return await apiCall('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, name }),
+    });
+  },
+
+  async login(email: string, password: string) {
+    return await apiCall('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  async logout() {
+    return await apiCall('/auth/logout', {
+      method: 'POST',
+    });
+  },
+};
+
 // User service
 export const userApi = {
   async getOrCreateUser(email: string, name: string) {
@@ -100,7 +123,8 @@ export const userApi = {
         }
       );
     } catch (error: unknown) {
-      if (error?.status === 404) {
+      const status = (error as { status?: number })?.status;
+      if (status === 404) {
         return null;
       }
       throw error;
@@ -351,7 +375,7 @@ export const userProfileApi = {
   async updateUserProfile(userId: string, updates: Partial<UserProfile>): Promise<UserProfile> {
     const response = await apiCall(`/user-profiles/${userId}`, {
       method: 'PUT',
-      body: updates,
+      body: JSON.stringify(updates),
     });
     return response.profile;
   },
@@ -366,7 +390,7 @@ export const userProfileApi = {
   async addDiscussedTopic(userId: string, topic: string): Promise<UserProfile> {
     const response = await apiCall(`/user-profiles/${userId}/add-topic`, {
       method: 'POST',
-      body: { topic },
+      body: JSON.stringify({ topic }),
     });
     return response.profile;
   },
@@ -374,7 +398,7 @@ export const userProfileApi = {
   async updateEmotionalState(userId: string, emotionalState: string): Promise<UserProfile> {
     const response = await apiCall(`/user-profiles/${userId}/emotional-state`, {
       method: 'PUT',
-      body: { emotionalState },
+      body: JSON.stringify({ emotionalState }),
     });
     return response.profile;
   },
@@ -382,7 +406,7 @@ export const userProfileApi = {
   async updateCurrentConcerns(userId: string, concerns: string): Promise<UserProfile> {
     const response = await apiCall(`/user-profiles/${userId}/concerns`, {
       method: 'PUT',
-      body: { concerns },
+      body: JSON.stringify({ concerns }),
     });
     return response.profile;
   },

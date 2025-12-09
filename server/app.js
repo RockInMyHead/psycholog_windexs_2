@@ -73,6 +73,7 @@ async function initializeDatabase() {
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         avatar TEXT,
+        password_hash TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -211,6 +212,15 @@ async function initializeDatabase() {
 
     // Execute the SQL to create tables
     sqlite.exec(createTablesSQL);
+
+  // Ensure password_hash column exists for legacy databases
+  try {
+    sqlite.exec('ALTER TABLE users ADD COLUMN password_hash TEXT;');
+  } catch (error) {
+    if (!error.message.includes('duplicate column name')) {
+      throw error;
+    }
+  }
 
     // Добавляем новые поля в таблицу subscriptions, если они не существуют
     try {
@@ -591,13 +601,82 @@ app.post('/api/test-transcription', upload.single('file'), async (req, res) => {
 });
 
 // Database API endpoints
+function sanitizeUser(user) {
+  if (!user) return user;
+  const { passwordHash, ...safeUser } = user;
+  return safeUser;
+}
+
+// Auth endpoints
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password, name } = req.body || {};
+
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: 'Email, name, and password are required' });
+    }
+
+    if (typeof password !== 'string' || password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+
+    const existingUser = await userService.getUserByEmail(email);
+    if (existingUser && existingUser.passwordHash) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
+
+    let user = existingUser;
+    if (existingUser && !existingUser.passwordHash) {
+      user = await userService.setPassword(existingUser.id, password);
+      if (name && name !== existingUser.name) {
+        user = await userService.updateUser(existingUser.id, { name });
+      }
+    } else {
+      user = await userService.createUser(email, name, password);
+    }
+
+    res.status(existingUser ? 200 : 201).json({ user: sanitizeUser(user) });
+  } catch (error) {
+    console.error('[Auth] Error registering user:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const user = await userService.verifyCredentials(email, password);
+    if (!user) {
+      const existingUser = await userService.getUserByEmail(email);
+      if (existingUser && !existingUser.passwordHash) {
+        return res.status(400).json({ error: 'Account does not have a password set. Please register again to set one.' });
+      }
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    res.json({ user: sanitizeUser(user) });
+  } catch (error) {
+    console.error('[Auth] Error during login:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/logout', (_req, res) => {
+  res.status(204).send();
+});
+
 
 // User endpoints
 app.post('/api/users', async (req, res) => {
   try {
     const { email, name } = req.body;
     const user = await userService.getOrCreateUser(email, name);
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (error) {
     console.error('Error creating user:', error);
     res.status(500).json({ error: error.message });
@@ -625,7 +704,7 @@ app.get('/api/users/by-email', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (error) {
     console.error('[User] Error getting user by email:', error);
     res.status(500).json({ error: error.message });
@@ -639,7 +718,7 @@ app.get('/api/users/:userId', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (error) {
     console.error('Error getting user:', error);
     res.status(500).json({ error: error.message });
@@ -653,7 +732,7 @@ app.put('/api/users/:userId', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (error) {
     console.error('Error updating user:', error);
     res.status(500).json({ error: error.message });

@@ -4,6 +4,7 @@
 const Database = require('better-sqlite3');
 const { drizzle } = require('drizzle-orm/better-sqlite3');
 const { eq, and, desc, sql } = require('drizzle-orm');
+const crypto = require('crypto');
 const logger = require('./logger');
 
 // Define schema inline for server use
@@ -14,6 +15,7 @@ const users = sqliteTable('users', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   avatar: text('avatar'),
+  passwordHash: text('password_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -175,6 +177,23 @@ const db = drizzle(sqlite, { schema });
 // Enable foreign keys
 sqlite.pragma('foreign_keys = ON');
 
+// Ensure new auth columns exist when migrating older databases
+function ensureUserPasswordColumn() {
+  try {
+    const columns = sqlite.prepare('PRAGMA table_info(users);').all();
+    const hasPasswordHash = columns.some((column) => column.name === 'password_hash');
+    if (!hasPasswordHash) {
+      sqlite.exec('ALTER TABLE users ADD COLUMN password_hash TEXT;');
+      logger.info('DB', 'Added password_hash column to users table');
+    }
+  } catch (error) {
+    logger.error('DB', 'Failed to ensure password_hash column', error);
+    throw error;
+  }
+}
+
+ensureUserPasswordColumn();
+
 // Utility functions
 function toDate(value) {
   return value ? new Date(value) : undefined;
@@ -188,40 +207,71 @@ function toTimestamp(value) {
   return value.getTime();
 }
 
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedHash) {
+  if (!storedHash) {
+    return false;
+  }
+
+  const [salt, key] = storedHash.split(':');
+  if (!salt || !key) {
+    return false;
+  }
+
+  const hashedBuffer = crypto.scryptSync(password, salt, 64);
+  const keyBuffer = Buffer.from(key, 'hex');
+
+  // constant-time comparison
+  return crypto.timingSafeEqual(hashedBuffer, keyBuffer);
+}
+
+function normalizeUser(user) {
+  if (!user) return undefined;
+
+  return {
+    ...user,
+    createdAt: toDateRequired(user.createdAt),
+    updatedAt: toDateRequired(user.updatedAt),
+  };
+}
+
+function toPublicUser(user) {
+  if (!user) return undefined;
+  const { passwordHash, ...safeUser } = user;
+  return safeUser;
+}
+
 // User service
 const userService = {
   async getUserById(id) {
     const result = await db.select().from(schema.users).where(eq(schema.users.id, id));
     if (result.length === 0) return undefined;
 
-    const user = result[0];
-    return {
-      ...user,
-      createdAt: toDateRequired(user.createdAt),
-      updatedAt: toDateRequired(user.updatedAt),
-    };
+    return normalizeUser(result[0]);
   },
 
   async getUserByEmail(email) {
     const result = await db.select().from(users).where(eq(users.email, email));
     if (result.length === 0) return undefined;
 
-    const user = result[0];
-    return {
-      ...user,
-      createdAt: toDateRequired(user.createdAt),
-      updatedAt: toDateRequired(user.updatedAt),
-    };
+    return normalizeUser(result[0]);
   },
 
-  async createUser(email, name) {
+  async createUser(email, name, password) {
     const now = new Date();
     const userId = `user_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+    const passwordHash = password ? hashPassword(password) : null;
 
     await db.insert(schema.users).values({
       id: userId,
       name,
       email,
+      passwordHash,
       createdAt: toTimestamp(now),
       updatedAt: toTimestamp(now),
     });
@@ -247,6 +297,7 @@ const userService = {
       id: userId,
       name,
       email,
+      passwordHash,
       createdAt: now,
       updatedAt: now,
     };
@@ -257,6 +308,9 @@ const userService = {
     if (!existing) return undefined;
 
     const updateData = { ...data };
+    delete updateData.password;
+    delete updateData.passwordHash;
+
     if (Object.keys(updateData).length > 0) {
       updateData.updatedAt = toTimestamp(new Date());
       await db.update(schema.users).set(updateData).where(eq(schema.users.id, id));
@@ -265,12 +319,12 @@ const userService = {
     return await this.getUserById(id);
   },
 
-  async getOrCreateUser(email, name) {
+  async getOrCreateUser(email, name, password) {
     let user = await this.getUserByEmail(email);
     if (user) return user;
 
     // Создаем пользователя
-    user = await this.createUser(email, name);
+    user = await this.createUser(email, name, password);
 
     // Создаем бесплатную подписку для нового пользователя
     try {
@@ -284,6 +338,26 @@ const userService = {
 
     return user;
   },
+
+  async setPassword(userId, password) {
+    const passwordHash = hashPassword(password);
+    await db.update(schema.users)
+      .set({ passwordHash, updatedAt: toTimestamp(new Date()) })
+      .where(eq(schema.users.id, userId));
+    return this.getUserById(userId);
+  },
+
+  async verifyCredentials(email, password) {
+    const user = await this.getUserByEmail(email);
+    if (!user || !user.passwordHash) {
+      return undefined;
+    }
+
+    const isValid = verifyPassword(password, user.passwordHash);
+    return isValid ? user : undefined;
+  },
+
+  toPublicUser,
 };
 
 // Chat service

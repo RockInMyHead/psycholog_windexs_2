@@ -33,6 +33,7 @@ async function createTables() {
       name TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
       avatar TEXT,
+      password_hash TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -135,6 +136,14 @@ async function createTables() {
   // Execute the SQL to create tables
   const dbInstance = db.$client;
   dbInstance.exec(createTablesSQL);
+
+  try {
+    dbInstance.exec('ALTER TABLE users ADD COLUMN password_hash TEXT;');
+  } catch (error: any) {
+    if (!error.message?.includes('duplicate column name')) {
+      throw error;
+    }
+  }
 
   console.log('Database tables created successfully!');
 }

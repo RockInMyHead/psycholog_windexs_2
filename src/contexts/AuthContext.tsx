@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { userApi, subscriptionApi } from '@/services/api';
+import { authApi, userApi, subscriptionApi } from '@/services/api';
 
 interface User {
   id: string;
@@ -107,19 +107,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
       console.log('[AuthContext] Login attempt for:', email);
-      // In a real app, you'd validate password hash
-      // For demo purposes, we'll just check if user exists
-      const dbUser = await userApi.getUserByEmail(email);
-      if (dbUser) {
-        console.log('[AuthContext] User found, logging in:', dbUser.email);
-        setUser(dbUser);
-        localStorage.setItem('auth_user', JSON.stringify(dbUser));
+      const response = await authApi.login(email, password);
+      const authenticatedUser = response?.user || response;
+
+      if (authenticatedUser) {
+        console.log('[AuthContext] User authenticated:', authenticatedUser.email);
+        setUser(authenticatedUser);
+        localStorage.setItem('auth_user', JSON.stringify(authenticatedUser));
         console.log('[AuthContext] User saved to localStorage');
         
         // Load user subscription
         try {
-        const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
-        setSubscription(userSubscription);
+          const userSubscription = await subscriptionApi.getUserSubscription(authenticatedUser.id);
+          setSubscription(userSubscription);
           console.log('[AuthContext] User subscription loaded');
         } catch (subError) {
           console.error('[AuthContext] Error loading subscription during login:', subError);
@@ -127,9 +127,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
         return true;
       }
-      console.warn('[AuthContext] User not found for email:', email);
+
+      console.warn('[AuthContext] User not authenticated for email:', email);
       return false;
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.status === 401 || error?.status === 400) {
+        console.warn('[AuthContext] Invalid credentials or missing password for:', email);
+        return false;
+      }
       console.error('[AuthContext] Login error:', error);
       return false;
     }
@@ -139,19 +144,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       console.log('[AuthContext] Registration attempt for:', email, name);
       
-      // Check if user already exists
-      // getUserByEmail returns null if user not found (404), or throws on other errors
-      const existingUser = await userApi.getUserByEmail(email);
-
-      if (existingUser) {
-        console.log('[AuthContext] User already exists:', existingUser.email);
-        return false;
-      }
-
-      console.log('[AuthContext] User does not exist, creating new user');
-
-      // Create new user
-      const newUser = await userApi.getOrCreateUser(email, name);
+      const response = await authApi.register(email, password, name);
+      const newUser = response?.user || response;
       console.log('[AuthContext] User created successfully:', newUser.email);
       
       setUser(newUser);
@@ -160,15 +154,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       
       // Load user subscription (new users start with free plan)
       try {
-      const userSubscription = await subscriptionApi.getUserSubscription(newUser.id);
-      setSubscription(userSubscription);
+        const userSubscription = await subscriptionApi.getUserSubscription(newUser.id);
+        setSubscription(userSubscription);
         console.log('[AuthContext] User subscription loaded');
       } catch (subError) {
         console.error('[AuthContext] Error loading subscription during registration:', subError);
         // Don't fail registration if subscription loading fails
       }
       return true;
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.status === 409) {
+        console.warn('[AuthContext] User already exists:', email);
+        return false;
+      }
       console.error('[AuthContext] Registration error:', error);
       return false;
     }
