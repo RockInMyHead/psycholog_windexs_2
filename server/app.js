@@ -297,10 +297,10 @@ app.use(express.json());
 
 // Proxy configuration
 const proxyConfig = {
-  host: process.env.PROXY_HOST || '185.68.187.20',
+  host: process.env.PROXY_HOST || '185.68.186.158',
   port: process.env.PROXY_PORT || 8000,
-  username: process.env.PROXY_USERNAME || 'rBD9e6',
-  password: process.env.PROXY_PASSWORD || 'jZdUnJ'
+  username: process.env.PROXY_USERNAME || '7BwWCS',
+  password: process.env.PROXY_PASSWORD || 'BBBvb6'
 };
 
 const useProxy = process.env.USE_PROXY === 'true';
