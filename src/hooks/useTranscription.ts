@@ -39,9 +39,9 @@ export const useTranscription = ({
   const [transcriptionMode, setTranscriptionMode] = useState<'browser' | 'openai'>('browser');
   const [microphoneAccessGranted, setMicrophoneAccessGranted] = useState(false);
   const [microphonePermissionStatus, setMicrophonePermissionStatus] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
+  const [isTranscribing, setIsTranscribing] = useState(false); // Prevent multiple concurrent OpenAI requests
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
-  const isTranscribingRef = useRef(false); // Prevent concurrent transcriptions
-
+  
   // Refs
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const recognitionActiveRef = useRef(false);
@@ -183,16 +183,10 @@ export const useTranscription = ({
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    addDebugLog(`[Mobile] Starting transcription timer (5s intervals)`);
+    addDebugLog(`[Mobile] Starting transcription timer (3s intervals)`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
       addDebugLog(`[Timer] ⏰ Tick - checking conditions...`);
-
-      // Prevent concurrent transcriptions
-      if (isTranscribingRef.current) {
-        addDebugLog(`[Timer] ⏳ Already transcribing, skipping this tick`);
-        return;
-      }
 
       if (!mediaRecorderRef.current) {
         addDebugLog(`[Timer] ❌ No media recorder active`);
@@ -203,9 +197,13 @@ export const useTranscription = ({
       const isIOS = isIOSDevice();
       addDebugLog(`[Timer] ✅ Conditions met (Mobile, iOS=${isIOS}, Android=${isAndroid}), processing audio...`);
 
-      try {
-        isTranscribingRef.current = true; // Mark as transcribing
+      // Prevent multiple concurrent transcriptions
+      if (isTranscribing) {
+        addDebugLog(`[Timer] ⏳ Already transcribing, skipping this cycle...`);
+        return;
+      }
 
+      try {
         addDebugLog(`[Timer] Stopping recording to get blob...`);
         const blob = await stopMediaRecording();
         addDebugLog(`[Timer] Got blob: ${blob?.size || 0} bytes`);
@@ -239,34 +237,42 @@ export const useTranscription = ({
 
           addDebugLog(`[Mobile] ✅ Volume OK (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
 
-          // Send to OpenAI with timeout (don't block recording!)
-          const transcriptionPromise = transcribeWithOpenAI(blob);
-          
-          // Add 12 second timeout for Safari (slower connections)
-          const timeoutMs = isIOS ? 12000 : 8000;
-          const timeoutPromise = new Promise<null>((resolve) => {
-            setTimeout(() => {
-              addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
-              resolve(null);
-            }, timeoutMs);
-          });
+          // Set transcribing flag to prevent concurrent requests
+          setIsTranscribing(true);
 
-          // Race between transcription and timeout
-          const text = await Promise.race([transcriptionPromise, timeoutPromise]);
+          try {
+            // Send to OpenAI with timeout (don't block recording!)
+            const transcriptionPromise = transcribeWithOpenAI(blob);
 
-          if (text && text.trim()) {
-            // Filter out hallucinated responses
-            const filteredText = filterHallucinatedText(text.trim());
-            if (filteredText) {
-              addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
-              onTranscriptionComplete(filteredText, 'openai');
+            // Add 12 second timeout for Safari (slower connections)
+            const timeoutMs = isIOS ? 12000 : 8000;
+            const timeoutPromise = new Promise<null>((resolve) => {
+              setTimeout(() => {
+                addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
+                resolve(null);
+              }, timeoutMs);
+            });
+
+            // Race between transcription and timeout
+            const text = await Promise.race([transcriptionPromise, timeoutPromise]);
+
+            if (text && text.trim()) {
+              // Filter out hallucinated responses
+              const filteredText = filterHallucinatedText(text.trim());
+              if (filteredText) {
+                addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
+                onTranscriptionComplete(filteredText, 'openai');
+              } else {
+                addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
+              }
+            } else if (text === null) {
+              // Timeout occurred, already logged
             } else {
-              addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
+              addDebugLog(`[Mobile] ⚠️ Empty result`);
             }
-          } else if (text === null) {
-            // Timeout occurred, already logged
-          } else {
-            addDebugLog(`[Mobile] ⚠️ Empty result`);
+          } finally {
+            // Always reset transcribing flag
+            setIsTranscribing(false);
           }
         } else {
           addDebugLog(`[Mobile] Audio too short: ${blob?.size || 0} bytes`);
@@ -278,11 +284,9 @@ export const useTranscription = ({
           addDebugLog(`[Timer] 🔄 Restarting after error...`);
           startMediaRecording(audioStreamRef.current);
         }
-      } finally {
-        isTranscribingRef.current = false; // Reset transcribing flag
       }
-    }, 5000); // Every 5 seconds - reduced frequency to avoid rate limits
-  }, [isIOSDevice]);
+    }, 3000); // Every 3 seconds - faster response after user speaks
+  }, [isIOSDevice, isTranscribing]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) {
@@ -290,6 +294,8 @@ export const useTranscription = ({
       clearInterval(mobileTranscriptionTimerRef.current);
       mobileTranscriptionTimerRef.current = null;
     }
+    // Reset transcribing flag when stopping timer
+    setIsTranscribing(false);
   }, []);
 
   // Check audio volume level to filter out silence/noise
@@ -385,13 +391,8 @@ export const useTranscription = ({
           errorMessage.includes('HTTP 503')
         )
       ) {
-        // Exponential backoff: 1s, 2s, 4s... but cap at 5s for rate limits
-        const delayMs = errorMessage.includes('HTTP 429')
-          ? Math.min(1000 * Math.pow(2, retryCount), 5000) // 1s, 2s, 4s, 5s...
-          : 1000; // 1s for other errors
-
-        addDebugLog(`[OpenAI] 🔄 Retrying in ${delayMs}ms... (${retryCount + 1}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        addDebugLog(`[OpenAI] 🔄 Retrying in 1s... (${retryCount + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
         return transcribeWithOpenAI(audioBlob, retryCount + 1);
       }
 
