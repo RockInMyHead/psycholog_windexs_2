@@ -7,7 +7,13 @@ const path = require('path');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const multer = require('multer');
 const FormData = require('form-data');
+const OpenAI = require('openai');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
 require('dotenv').config();
+
+// Set ffmpeg path
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // Configure Multer for memory storage
 const upload = multer({ storage: multer.memoryStorage() });
@@ -15,6 +21,53 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Import database services
 const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, db, schema, sqlite } = require('./database');
 const logger = require('./logger');
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
+  ...(useProxy ? {
+    httpAgent: new HttpsProxyAgent(`http://${encodeURIComponent(proxyConfig.username)}:${encodeURIComponent(proxyConfig.password)}@${proxyConfig.host}:${proxyConfig.port}`)
+  } : {})
+});
+
+// Audio conversion function
+const convertAudioToWav = (inputBuffer, inputFormat) => {
+  return new Promise((resolve, reject) => {
+    const tempInputPath = path.join(__dirname, `temp_input_${Date.now()}.${inputFormat}`);
+    const tempOutputPath = path.join(__dirname, `temp_output_${Date.now()}.wav`);
+
+    // Write input buffer to temp file
+    fs.writeFileSync(tempInputPath, inputBuffer);
+
+    ffmpeg(tempInputPath)
+      .toFormat('wav')
+      .audioCodec('pcm_s16le')
+      .audioChannels(1)
+      .audioFrequency(16000)
+      .on('end', () => {
+        try {
+          const outputBuffer = fs.readFileSync(tempOutputPath);
+          // Clean up temp files
+          fs.unlinkSync(tempInputPath);
+          fs.unlinkSync(tempOutputPath);
+          resolve(outputBuffer);
+        } catch (error) {
+          reject(error);
+        }
+      })
+      .on('error', (err) => {
+        // Clean up temp files on error
+        try {
+          if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
+          if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
+        } catch (cleanupError) {
+          logger.warn('CLEANUP', `Failed to cleanup temp files: ${cleanupError.message}`);
+        }
+        reject(err);
+      })
+      .save(tempOutputPath);
+  });
+};
 
 // Initialize database function
 async function initializeDatabase() {
@@ -253,14 +306,17 @@ const useProxy = process.env.USE_PROXY === 'true';
 // Create axios instance with proxy
 const createAxiosInstance = () => {
   let agent = undefined;
-  
+
   if (useProxy) {
     // HttpsProxyAgent requires a full URL string with authentication
     const proxyUrl = `http://${encodeURIComponent(proxyConfig.username)}:${encodeURIComponent(proxyConfig.password)}@${proxyConfig.host}:${proxyConfig.port}`;
     agent = new HttpsProxyAgent(proxyUrl);
+    logger.debug('PROXY', `Using proxy: ${proxyConfig.host}:${proxyConfig.port}`);
+  } else {
+    logger.debug('PROXY', 'Direct connection to OpenAI (no proxy)');
   }
 
-  return axios.create({
+  const instance = axios.create({
     httpsAgent: agent,
     headers: {
       'Authorization': `Bearer ${process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY}`,
@@ -269,6 +325,22 @@ const createAxiosInstance = () => {
     },
     timeout: 5000
   });
+
+  // Add response interceptor for debugging
+  instance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      logger.error('AXIOS', `Request failed: ${error.config?.method?.toUpperCase()} ${error.config?.url}`, {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        proxyUsed: useProxy
+      });
+      return Promise.reject(error);
+    }
+  );
+
+  return instance;
 };
 
 // Chat completions endpoint
@@ -287,18 +359,51 @@ app.post('/api/chat/completions', async (req, res) => {
 
 // Audio transcription endpoint
 app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) => {
+  let convertedBuffer = null;
+
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
+    logger.debug('TRANSCRIPTION', `Received file: ${req.file.originalname}, size: ${req.file.size} bytes, type: ${req.file.mimetype}`);
+
     const axiosInstance = createAxiosInstance();
     const formData = new FormData();
 
+    let audioBuffer = req.file.buffer;
+    let filename = req.file.originalname || 'audio.wav';
+    let mimetype = req.file.mimetype;
+
+    // Convert MP4 to WAV for better OpenAI Whisper compatibility
+    if (req.file.mimetype === 'audio/mp4') {
+      logger.debug('TRANSCRIPTION', 'Converting MP4 to WAV for better compatibility...');
+      try {
+        convertedBuffer = await convertAudioToWav(req.file.buffer, 'mp4');
+        audioBuffer = convertedBuffer;
+        filename = filename.replace(/\.[^/.]+$/, '.wav');
+        mimetype = 'audio/wav';
+        logger.debug('TRANSCRIPTION', `Conversion successful: ${convertedBuffer.length} bytes`);
+      } catch (conversionError) {
+        logger.warn('TRANSCRIPTION', `MP4 conversion failed, using original: ${conversionError.message}`);
+        // Continue with original MP4 file if conversion fails
+        filename = filename.replace(/\.[^/.]+$/, '.mp4');
+      }
+    } else {
+      // Ensure correct extension for other formats
+      if (req.file.mimetype === 'audio/webm') {
+        filename = filename.replace(/\.[^/.]+$/, '.webm');
+      } else if (req.file.mimetype === 'audio/wav') {
+        filename = filename.replace(/\.[^/.]+$/, '.wav');
+      } else if (req.file.mimetype === 'audio/mpeg' || req.file.mimetype === 'audio/mp3') {
+        filename = filename.replace(/\.[^/.]+$/, '.mp3');
+      }
+    }
+
     // Add the file to form data
-    formData.append('file', req.file.buffer, {
-      filename: req.file.originalname || 'audio.wav',
-      contentType: req.file.mimetype
+    formData.append('file', audioBuffer, {
+      filename: filename,
+      contentType: mimetype
     });
 
     // Force whisper-1 model as it's the only one for transcription
@@ -309,19 +414,35 @@ app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) =>
     if (req.body.response_format) formData.append('response_format', req.body.response_format);
     if (req.body.prompt) formData.append('prompt', req.body.prompt);
 
+    logger.debug('TRANSCRIPTION', `Sending to OpenAI: model=whisper-1, language=${req.body.language}, format=${req.body.response_format}, final_type=${mimetype}`);
     logger.openai.request('transcription', null);
 
     const response = await axiosInstance.post('https://api.openai.com/v1/audio/transcriptions', formData, {
       headers: {
         ...formData.getHeaders(),
-        // We don't need to set Authorization here as it's set in createAxiosInstance, 
-        // but createAxiosInstance sets Content-Type: application/json which we need to override
         'Content-Type': undefined // Let axios/form-data set the correct Content-Type with boundary
-      }
+      },
+      timeout: 30000 // 30 second timeout for transcription
     });
 
+    logger.debug('TRANSCRIPTION', `OpenAI response received successfully`);
     res.json(response.data);
+
   } catch (error) {
+    logger.error('TRANSCRIPTION', `Transcription failed: ${error.message}`, {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      fileInfo: req.file ? {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      } : null,
+      proxyEnabled: useProxy,
+      converted: convertedBuffer !== null,
+      stack: error.stack
+    });
+
     logger.openai.error('transcription', error);
     res.status(error.response?.status || 500).json({
       error: error.response?.data || { message: error.message }
@@ -361,6 +482,88 @@ app.get('/api/models', async (req, res) => {
     logger.openai.error('models request', error);
     res.status(error.response?.status || 500).json({
       error: error.response?.data || { message: error.message }
+    });
+  }
+});
+
+// Test OpenAI transcription endpoint
+app.post('/api/test-transcription', upload.single('file'), async (req, res) => {
+  let convertedBuffer = null;
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    logger.info('TEST', `Testing transcription with file: ${req.file.originalname}, size: ${req.file.size}, type: ${req.file.mimetype}`);
+
+    const axiosInstance = createAxiosInstance();
+
+    let audioBuffer = req.file.buffer;
+    let filename = 'test.mp4';
+    let mimetype = 'audio/mp4';
+
+    // Convert MP4 to WAV for testing
+    if (req.file.mimetype === 'audio/mp4') {
+      logger.info('TEST', 'Converting MP4 to WAV for testing...');
+      try {
+        convertedBuffer = await convertAudioToWav(req.file.buffer, 'mp4');
+        audioBuffer = convertedBuffer;
+        filename = 'test.wav';
+        mimetype = 'audio/wav';
+        logger.info('TEST', `Conversion successful: ${convertedBuffer.length} bytes`);
+      } catch (conversionError) {
+        logger.warn('TEST', `MP4 conversion failed: ${conversionError.message}`);
+        // Continue with original
+      }
+    }
+
+    // Create test form data
+    const testFormData = new FormData();
+    testFormData.append('file', audioBuffer, {
+      filename: filename,
+      contentType: mimetype
+    });
+    testFormData.append('model', 'whisper-1');
+    testFormData.append('language', 'ru');
+
+    logger.info('TEST', `Sending test request to OpenAI with ${mimetype}...`);
+
+    const response = await axiosInstance.post('https://api.openai.com/v1/audio/transcriptions', testFormData, {
+      headers: {
+        ...testFormData.getHeaders(),
+        'Content-Type': undefined
+      },
+      timeout: 30000
+    });
+
+    logger.info('TEST', 'Test successful!');
+    res.json({
+      success: true,
+      transcription: response.data,
+      fileInfo: {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        converted: convertedBuffer !== null,
+        finalType: mimetype
+      }
+    });
+
+  } catch (error) {
+    logger.error('TEST', `Test failed: ${error.message}`, {
+      status: error.response?.status,
+      data: error.response?.data,
+      proxyUsed: useProxy,
+      converted: convertedBuffer !== null
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data,
+      proxyUsed: useProxy,
+      converted: convertedBuffer !== null
     });
   }
 });
