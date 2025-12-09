@@ -22,14 +22,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, db, schema, sqlite } = require('./database');
 const logger = require('./logger');
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
-  ...(useProxy ? {
-    httpAgent: new HttpsProxyAgent(`http://${encodeURIComponent(proxyConfig.username)}:${encodeURIComponent(proxyConfig.password)}@${proxyConfig.host}:${proxyConfig.port}`)
-  } : {})
-});
-
 // Audio conversion function
 const convertAudioToWav = (inputBuffer, inputFormat) => {
   return new Promise((resolve, reject) => {
@@ -302,6 +294,14 @@ const proxyConfig = {
 };
 
 const useProxy = process.env.USE_PROXY === 'true';
+
+// Initialize OpenAI client (after proxy flags are defined)
+const openai = new OpenAI({
+  apiKey: process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
+  ...(useProxy ? {
+    httpAgent: new HttpsProxyAgent(`http://${encodeURIComponent(proxyConfig.username)}:${encodeURIComponent(proxyConfig.password)}@${proxyConfig.host}:${proxyConfig.port}`)
+  } : {})
+});
 
 // Create axios instance with proxy
 const createAxiosInstance = () => {
