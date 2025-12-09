@@ -347,9 +347,31 @@ const createAxiosInstance = () => {
 app.post('/api/chat/completions', async (req, res) => {
   try {
     const axiosInstance = createAxiosInstance();
-    const response = await axiosInstance.post('https://api.openai.com/v1/chat/completions', req.body);
+
+    const body = req.body || {};
+    const msgCount = Array.isArray(body.messages) ? body.messages.length : 0;
+    const model = body.model || 'unknown';
+
+    logger.debug('CHAT', `Sending chat completion | model=${model} | messages=${msgCount} | max_tokens=${body.max_tokens || 'default'} | temperature=${body.temperature ?? 'default'}`);
+
+    const response = await axiosInstance.post('https://api.openai.com/v1/chat/completions', body, {
+      timeout: 30000 // allow longer for audio/TTS use-cases
+    });
     res.json(response.data);
   } catch (error) {
+    logger.error('CHAT', `Chat completion failed: ${error.message}`, {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      proxyUsed: useProxy,
+      requestSummary: {
+        model: req.body?.model,
+        messages: Array.isArray(req.body?.messages) ? req.body.messages.length : 0,
+        max_tokens: req.body?.max_tokens,
+        temperature: req.body?.temperature
+      }
+    });
+
     logger.openai.error('chat completion', error);
     res.status(error.response?.status || 500).json({
       error: error.response?.data || { message: error.message }
