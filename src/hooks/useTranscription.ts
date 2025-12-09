@@ -39,7 +39,6 @@ export const useTranscription = ({
   const [transcriptionMode, setTranscriptionMode] = useState<'browser' | 'openai'>('browser');
   const [microphoneAccessGranted, setMicrophoneAccessGranted] = useState(false);
   const [microphonePermissionStatus, setMicrophonePermissionStatus] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
-  const [isTranscribing, setIsTranscribing] = useState(false); // Prevent multiple concurrent OpenAI requests
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
   
   // Refs
@@ -197,11 +196,8 @@ export const useTranscription = ({
       const isIOS = isIOSDevice();
       addDebugLog(`[Timer] ✅ Conditions met (Mobile, iOS=${isIOS}, Android=${isAndroid}), processing audio...`);
 
-      // Prevent multiple concurrent transcriptions
-      if (isTranscribing) {
-        addDebugLog(`[Timer] ⏳ Already transcribing, skipping this cycle...`);
-        return;
-      }
+      // Stop the timer temporarily to prevent concurrent requests
+      stopMobileTranscriptionTimer();
 
       try {
         addDebugLog(`[Timer] Stopping recording to get blob...`);
@@ -237,9 +233,6 @@ export const useTranscription = ({
 
           addDebugLog(`[Mobile] ✅ Volume OK (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
 
-          // Set transcribing flag to prevent concurrent requests
-          setIsTranscribing(true);
-
           try {
             // Send to OpenAI with timeout (don't block recording!)
             const transcriptionPromise = transcribeWithOpenAI(blob);
@@ -271,8 +264,9 @@ export const useTranscription = ({
               addDebugLog(`[Mobile] ⚠️ Empty result`);
             }
           } finally {
-            // Always reset transcribing flag
-            setIsTranscribing(false);
+            // Always restart the timer after transcription completes
+            addDebugLog(`[Timer] 🔄 Restarting mobile transcription timer after processing`);
+            startMobileTranscriptionTimer();
           }
         } else {
           addDebugLog(`[Mobile] Audio too short: ${blob?.size || 0} bytes`);
@@ -286,7 +280,7 @@ export const useTranscription = ({
         }
       }
     }, 3000); // Every 3 seconds - faster response after user speaks
-  }, [isIOSDevice, isTranscribing]);
+  }, [isIOSDevice]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) {
@@ -294,8 +288,6 @@ export const useTranscription = ({
       clearInterval(mobileTranscriptionTimerRef.current);
       mobileTranscriptionTimerRef.current = null;
     }
-    // Reset transcribing flag when stopping timer
-    setIsTranscribing(false);
   }, []);
 
   // Check audio volume level to filter out silence/noise
