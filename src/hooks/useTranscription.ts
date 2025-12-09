@@ -40,7 +40,8 @@ export const useTranscription = ({
   const [microphoneAccessGranted, setMicrophoneAccessGranted] = useState(false);
   const [microphonePermissionStatus, setMicrophonePermissionStatus] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
-  
+  const isTranscribingRef = useRef(false); // Prevent concurrent transcriptions
+
   // Refs
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const recognitionActiveRef = useRef(false);
@@ -182,10 +183,16 @@ export const useTranscription = ({
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    addDebugLog(`[Mobile] Starting transcription timer (3s intervals)`);
+    addDebugLog(`[Mobile] Starting transcription timer (5s intervals)`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
       addDebugLog(`[Timer] ⏰ Tick - checking conditions...`);
+
+      // Prevent concurrent transcriptions
+      if (isTranscribingRef.current) {
+        addDebugLog(`[Timer] ⏳ Already transcribing, skipping this tick`);
+        return;
+      }
 
       if (!mediaRecorderRef.current) {
         addDebugLog(`[Timer] ❌ No media recorder active`);
@@ -197,6 +204,8 @@ export const useTranscription = ({
       addDebugLog(`[Timer] ✅ Conditions met (Mobile, iOS=${isIOS}, Android=${isAndroid}), processing audio...`);
 
       try {
+        isTranscribingRef.current = true; // Mark as transcribing
+
         addDebugLog(`[Timer] Stopping recording to get blob...`);
         const blob = await stopMediaRecording();
         addDebugLog(`[Timer] Got blob: ${blob?.size || 0} bytes`);
@@ -269,8 +278,10 @@ export const useTranscription = ({
           addDebugLog(`[Timer] 🔄 Restarting after error...`);
           startMediaRecording(audioStreamRef.current);
         }
+      } finally {
+        isTranscribingRef.current = false; // Reset transcribing flag
       }
-    }, 3000); // Every 3 seconds - faster response after user speaks
+    }, 5000); // Every 5 seconds - reduced frequency to avoid rate limits
   }, [isIOSDevice]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
@@ -374,8 +385,13 @@ export const useTranscription = ({
           errorMessage.includes('HTTP 503')
         )
       ) {
-        addDebugLog(`[OpenAI] 🔄 Retrying in 1s... (${retryCount + 1}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Exponential backoff: 1s, 2s, 4s... but cap at 5s for rate limits
+        const delayMs = errorMessage.includes('HTTP 429')
+          ? Math.min(1000 * Math.pow(2, retryCount), 5000) // 1s, 2s, 4s, 5s...
+          : 1000; // 1s for other errors
+
+        addDebugLog(`[OpenAI] 🔄 Retrying in ${delayMs}ms... (${retryCount + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
         return transcribeWithOpenAI(audioBlob, retryCount + 1);
       }
 
