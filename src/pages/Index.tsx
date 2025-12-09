@@ -5,6 +5,20 @@ import { Card } from "@/components/ui/card";
 import { MessageCircle, Phone, Lightbulb, PlayCircle, Sparkles, RefreshCw, Shield, Clock, Heart, Users, Brain, Zap, Star, CheckCircle } from "lucide-react";
 import Navigation from "@/components/Navigation";
 
+const TelegramIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <path
+      d="M21 3L3 10.2l5.4 2.1L17 7l-6.4 6.1-.2 4.9 2.6-3.1 4.9 3.8L21 3z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
 const quotes = [
   "Единственный способ сделать что-то хорошо — полюбить то, что вы делаете.",
   "Жизнь — это то, что происходит с вами, пока вы строите другие планы.",
@@ -147,6 +161,21 @@ const Index = () => {
                   Аудио звонок
                 </Button>
               </Link>
+              <a
+                href="https://t.me/WindexsGroup"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="border-2 border-primary text-primary hover:bg-primary/10 text-lg px-10 py-7 animate-scale-in"
+                  style={{ animationDelay: '200ms' }}
+                >
+                  <TelegramIcon className="w-6 h-6 mr-2" />
+                  Спросить
+                </Button>
+              </a>
             </div>
 
             {/* Stats Section */}
