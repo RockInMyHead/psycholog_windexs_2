@@ -1,6 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { psychologistAI } from '@/services/openai';
 
+// Minimal SpeechRecognition type shims for browsers (Safari/Chrome)
+type SpeechRecognitionErrorEvent = Event & { error: string };
+type SpeechRecognitionEvent = Event & { results: SpeechRecognitionResultList; resultIndex: number };
+type SpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onspeechstart?: () => void;
+  onerror?: (event: SpeechRecognitionErrorEvent) => void;
+  onend?: () => void;
+};
+
 interface UseTranscriptionProps {
   onTranscriptionComplete: (text: string, source: 'browser' | 'openai' | 'manual') => void;
   onSpeechStart?: () => void;
@@ -166,22 +182,10 @@ export const useTranscription = ({
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    // Don't start timer if TTS is active
-    if (isTTSActiveRef.current) {
-      addDebugLog(`[Mobile] TTS active - not starting transcription timer`);
-      return;
-    }
-
     addDebugLog(`[Mobile] Starting transcription timer (3s intervals)`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
       addDebugLog(`[Timer] ⏰ Tick - checking conditions...`);
-
-      // Skip if TTS is playing (echo prevention)
-      if (isTTSActiveRef.current) {
-        addDebugLog(`[Timer] ⏸️ TTS active - skipping to prevent echo`);
-        return;
-      }
 
       if (!mediaRecorderRef.current) {
         addDebugLog(`[Timer] ❌ No media recorder active`);
@@ -189,13 +193,8 @@ export const useTranscription = ({
       }
 
       const isAndroid = isAndroidDevice();
-
-      if (!isAndroid) {
-        addDebugLog(`[Timer] ❌ Not an Android device, skipping timer processing`);
-        return;
-      }
-
-      addDebugLog(`[Timer] ✅ Conditions met (Android mobile, TTS: off), processing audio...`);
+      const isIOS = isIOSDevice();
+      addDebugLog(`[Timer] ✅ Conditions met (Mobile, iOS=${isIOS}, Android=${isAndroid}), processing audio...`);
 
       try {
         addDebugLog(`[Timer] Stopping recording to get blob...`);
@@ -210,12 +209,6 @@ export const useTranscription = ({
 
         // Minimum 5KB for meaningful audio
         if (blob && blob.size > 5000) {
-          // Additional TTS check before sending to OpenAI
-          if (isTTSActiveRef.current) {
-            addDebugLog(`[Mobile] ❌ TTS active, skipping`);
-            return;
-          }
-
           // Check audio volume to filter out silence/background noise
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
@@ -226,6 +219,13 @@ export const useTranscription = ({
           if (volumeLevel < volumeThreshold) {
             addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(4)}%), skipping (threshold: ${volumeThreshold.toFixed(4)}%)`);
             return;
+          }
+
+          // If TTS is playing and user speaks loudly enough — barge-in: stop TTS first
+          if (isTTSActiveRef.current) {
+            addDebugLog(`[Mobile] 🛑 TTS active but voice detected (vol: ${volumeLevel.toFixed(4)}%) — interrupting`);
+            isTTSActiveRef.current = false;
+            onInterruption?.();
           }
 
           addDebugLog(`[Mobile] ✅ Volume OK (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
@@ -849,26 +849,26 @@ export const useTranscription = ({
 
       // Enhanced error handling for Android devices
       let userFriendlyErrorMessage = "Ошибка доступа к микрофону";
-      if (error.name === 'NotAllowedError') {
+      if (errorName === 'NotAllowedError') {
         userFriendlyErrorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера и приложения.";
-      } else if (error.name === 'NotFoundError') {
+      } else if (errorName === 'NotFoundError') {
         userFriendlyErrorMessage = "Микрофон не найден. Проверьте подключение микрофона или используйте встроенный микрофон.";
-      } else if (error.name === 'NotReadableError') {
+      } else if (errorName === 'NotReadableError') {
         if (isAndroidDevice()) {
           userFriendlyErrorMessage = "Микрофон занят или недоступен. Закройте другие приложения, использующие микрофон, и попробуйте перезагрузить страницу. Если проблема persists, попробуйте другой браузер (Chrome, Firefox).";
         } else {
           userFriendlyErrorMessage = "Микрофон занят другим приложением.";
         }
-      } else if (error.name === 'OverconstrainedError') {
+      } else if (errorName === 'OverconstrainedError') {
         userFriendlyErrorMessage = "Настройки микрофона не поддерживаются устройством. Попробуйте другой браузер.";
-      } else if (error.name === 'SecurityError') {
+      } else if (errorName === 'SecurityError') {
         userFriendlyErrorMessage = "Требуется HTTPS для доступа к микрофону.";
-      } else if (error.name === 'AbortError') {
+      } else if (errorName === 'AbortError') {
         userFriendlyErrorMessage = "Доступ к микрофону был прерван.";
       }
 
       console.error(`[Transcription] 📱 Mobile-specific error analysis:`, {
-        errorType: error.name,
+        errorType: errorName,
         isMobile: isMobileDevice(),
         isIOS: isIOSDevice(),
         isAndroid: isAndroidDevice(),

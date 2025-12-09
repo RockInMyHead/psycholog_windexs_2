@@ -37,3 +37,4 @@ free -h && echo "" && uptime
 echo ""
 
 echo "=== Конец диагностики ==="
+
