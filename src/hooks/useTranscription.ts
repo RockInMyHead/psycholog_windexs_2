@@ -196,9 +196,6 @@ export const useTranscription = ({
       const isIOS = isIOSDevice();
       addDebugLog(`[Timer] ✅ Conditions met (Mobile, iOS=${isIOS}, Android=${isAndroid}), processing audio...`);
 
-      // Stop the timer temporarily to prevent concurrent requests
-      stopMobileTranscriptionTimer();
-
       try {
         addDebugLog(`[Timer] Stopping recording to get blob...`);
         const blob = await stopMediaRecording();
@@ -233,40 +230,34 @@ export const useTranscription = ({
 
           addDebugLog(`[Mobile] ✅ Volume OK (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
 
-          try {
-            // Send to OpenAI with timeout (don't block recording!)
-            const transcriptionPromise = transcribeWithOpenAI(blob);
+          // Send to OpenAI with timeout (don't block recording!)
+          const transcriptionPromise = transcribeWithOpenAI(blob);
+          
+          // Add 12 second timeout for Safari (slower connections)
+          const timeoutMs = isIOS ? 12000 : 8000;
+          const timeoutPromise = new Promise<null>((resolve) => {
+            setTimeout(() => {
+              addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
+              resolve(null);
+            }, timeoutMs);
+          });
 
-            // Add 12 second timeout for Safari (slower connections)
-            const timeoutMs = isIOS ? 12000 : 8000;
-            const timeoutPromise = new Promise<null>((resolve) => {
-              setTimeout(() => {
-                addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
-                resolve(null);
-              }, timeoutMs);
-            });
+          // Race between transcription and timeout
+          const text = await Promise.race([transcriptionPromise, timeoutPromise]);
 
-            // Race between transcription and timeout
-            const text = await Promise.race([transcriptionPromise, timeoutPromise]);
-
-            if (text && text.trim()) {
-              // Filter out hallucinated responses
-              const filteredText = filterHallucinatedText(text.trim());
-              if (filteredText) {
-                addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
-                onTranscriptionComplete(filteredText, 'openai');
-              } else {
-                addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
-              }
-            } else if (text === null) {
-              // Timeout occurred, already logged
+          if (text && text.trim()) {
+            // Filter out hallucinated responses
+            const filteredText = filterHallucinatedText(text.trim());
+            if (filteredText) {
+              addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
+              onTranscriptionComplete(filteredText, 'openai');
             } else {
-              addDebugLog(`[Mobile] ⚠️ Empty result`);
+              addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
             }
-          } finally {
-            // Always restart the timer after transcription completes
-            addDebugLog(`[Timer] 🔄 Restarting mobile transcription timer after processing`);
-            startMobileTranscriptionTimer();
+          } else if (text === null) {
+            // Timeout occurred, already logged
+          } else {
+            addDebugLog(`[Mobile] ⚠️ Empty result`);
           }
         } else {
           addDebugLog(`[Mobile] Audio too short: ${blob?.size || 0} bytes`);
