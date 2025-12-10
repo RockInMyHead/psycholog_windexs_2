@@ -240,11 +240,11 @@ export const useTranscription = ({
         }
 
         // Only process if we have meaningful audio data
-        if (blob && blob.size > 1000) { // Lower threshold for accumulated audio
+        if (blob && blob.size > 5000) { // Higher threshold for accumulated audio to ensure quality
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          const volumeThreshold = isIOS ? 0.002 : 0.5; // Very low threshold for accumulated audio
+          const volumeThreshold = isIOS ? 0.015 : 0.5; // Higher threshold to avoid noise detection
 
           if (volumeLevel >= volumeThreshold) {
             // Voice detected in accumulated audio - send it!
@@ -289,7 +289,7 @@ export const useTranscription = ({
             // Silence detected - update VAD but don't send
             isVoiceActiveRef.current = false;
             setIsVoiceActive(false);
-            addDebugLog(`[Mobile] 🔇 Silence in accumulated audio (${volumeLevel.toFixed(4)}% < ${volumeThreshold.toFixed(4)}%), not sending`);
+            addDebugLog(`[Mobile] 🔇 Low volume in accumulated audio (${volumeLevel.toFixed(4)}% < ${volumeThreshold.toFixed(4)}%), not sending`);
           }
         } else {
           addDebugLog(`[Mobile] Audio too small: ${blob?.size || 0} bytes, skipping`);
