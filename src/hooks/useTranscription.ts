@@ -198,8 +198,10 @@ export const useTranscription = ({
       const gracePeriod = 8000; // 8 seconds to start speaking
       const vadTimeout = timeSinceLastVoice > gracePeriod ? 15000 : 25000; // Longer timeout during grace period
 
+      addDebugLog(`[VAD] Check: timeSinceLastVoice=${(timeSinceLastVoice/1000).toFixed(1)}s, isVoiceActive=${isVoiceActive}, timeout=${vadTimeout/1000}s`);
+
       if (timeSinceLastVoice > vadTimeout && !isVoiceActive) {
-        addDebugLog(`[VAD] No voice activity for ${vadTimeout/1000}s${timeSinceLastVoice <= gracePeriod ? ' (including grace period)' : ''}, stopping timer`);
+        addDebugLog(`[VAD] ❌ No voice activity for ${vadTimeout/1000}s${timeSinceLastVoice <= gracePeriod ? ' (including grace period)' : ''}, stopping timer`);
         stopMobileTranscriptionTimer();
         return;
       }
@@ -230,17 +232,20 @@ export const useTranscription = ({
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
+          // Update VAD state first - we got audio data even if quiet
+          const now = Date.now();
+          setLastVoiceActivityTime(now); // Update time even for quiet audio to keep timer running
+          
           // Only send if volume is above threshold
           // Very low threshold for Safari/iOS devices that show very low volume values
           const volumeThreshold = isIOS ? 0.005 : 0.5; // Even lower for iOS/Safari
           if (volumeLevel < volumeThreshold) {
-            addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(4)}%), skipping (threshold: ${volumeThreshold.toFixed(4)}%)`);
-            setIsVoiceActive(false); // Mark as no voice activity
+            addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(4)}%), skipping send but keeping timer (threshold: ${volumeThreshold.toFixed(4)}%)`);
+            setIsVoiceActive(false); // Mark as no voice activity but keep timer running
             return;
           }
 
-          // Voice detected - update VAD state
-          const now = Date.now();
+          // Voice detected - mark as active
           const timeSinceLastVoice = now - lastVoiceActivityTime;
 
           // If timer was stopped due to silence and we detect new voice, restart it
@@ -248,8 +253,8 @@ export const useTranscription = ({
             restartTimerIfNeeded();
           }
 
-          setLastVoiceActivityTime(now);
           setIsVoiceActive(true);
+          addDebugLog(`[VAD] ✅ Voice active - lastActivity updated`);
 
           // If TTS is playing and user speaks loudly enough — barge-in: stop TTS first
           if (isTTSActiveRef.current) {
@@ -530,11 +535,15 @@ export const useTranscription = ({
           const currentTime = Date.now();
 
           if (average > threshold) {
+             // Update VAD state when voice is detected
+             setLastVoiceActivityTime(currentTime);
+             setIsVoiceActive(true);
+             
              setSafariSpeechDetectionCount(prev => {
                const newCount = prev + 1;
                if (newCount >= SAFARI_SPEECH_CONFIRMATION_FRAMES) {
                  if (currentTime - lastSafariSpeechTime > SAFARI_SPEECH_DEBOUNCE) {
-                   addDebugLog(`[Volume] 🎤 Voice interruption (vol: ${average.toFixed(1)})`);
+                   addDebugLog(`[Volume] 🎤 Voice detected (vol: ${average.toFixed(1)}) - VAD updated`);
                    setLastSafariSpeechTime(currentTime);
                    onInterruption?.();
                    return 0;
@@ -544,6 +553,10 @@ export const useTranscription = ({
              });
           } else {
             setSafariSpeechDetectionCount(0);
+            // Reset voice active state when volume drops below threshold
+            if (currentTime - lastVoiceActivityTime > 1000) {
+              setIsVoiceActive(false);
+            }
           }
         }
         volumeMonitorRef.current = requestAnimationFrame(checkVolume);
