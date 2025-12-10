@@ -5,8 +5,10 @@
 
 set -e
 
-echo "🔄 DEPLOYING REVERT TO ORIGINAL VAD IMPLEMENTATION (e719b24)"
+echo "🔄 DEPLOYING EXACT ORIGINAL VAD FROM e719b24 (WORKING VERSION)"
 echo "======================================================"
+echo ""
+echo "⚠️  This is the EXACT copy from commit e719b24 - NO modifications!"
 echo ""
 
 # Server details - update these for your server
@@ -15,14 +17,15 @@ SERVER_USER="your-username"
 REMOTE_PATH="/path/to/your/app"
 
 echo "📋 What this deployment does:"
-echo "  ✅ Copies src/hooks/useTranscription.ts with fixed VAD logic"
+echo "  ✅ Deploys EXACT copy from commit e719b24 (working version)"
 echo "  ✅ Timer intervals: 3 seconds"
 echo "  ✅ Audio sent every 3 seconds when voice detected"
-echo "  ✅ VAD timeout: 20 seconds (gives user time to start speaking)"
-echo "  ✅ lastVoiceActivityTime properly initialized with Date.now()"
-echo "  ✅ Fixed immediate timer stop bug"
+echo "  ✅ VAD timeout: 4 seconds"
+echo "  ✅ lastVoiceActivityTime initialized with 0 (original)"
+echo "  ✅ VAD initialized only in init block (original behavior)"
+echo "  ✅ NO modifications - exact working version"
 echo ""
-echo "🎯 This fixes iPhone voice call issues by properly initializing VAD state"
+echo "🎯 This is the version that ACTUALLY WORKED on iPhone for the user"
 echo ""
 
 # Colors for output
@@ -63,11 +66,11 @@ ssh "${SERVER_USER}@${SERVER_HOST}" "cd ${REMOTE_PATH} && docker-compose logs --
 echo ""
 echo "🎉 DEPLOYMENT COMPLETE!"
 echo ""
-echo "📱 Test iPhone voice calls now - VAD timer should work properly"
+echo "📱 Test iPhone voice calls now - EXACT WORKING VERSION from e719b24"
 echo "   - Timer runs every 3 seconds"
 echo "   - Audio sent when voice detected"
-echo "   - VAD stops after 20s of silence (gives time to speak)"
-echo "   - No more immediate timer stops"
+echo "   - VAD stops after 4s of silence"
+echo "   - This is the version that worked before!"
 echo ""
 echo "🐛 If issues persist, check server logs with:"
 echo "   ssh ${SERVER_USER}@${SERVER_HOST} 'cd ${REMOTE_PATH} && docker-compose logs psycholog-psy-server-1'"
