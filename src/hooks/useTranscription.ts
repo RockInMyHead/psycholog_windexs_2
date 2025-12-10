@@ -125,6 +125,7 @@ export const useTranscription = ({
   const lastVoiceActivityRef = useRef(0);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const isVoiceActiveRef = useRef(false);
+  const lastSendTimeRef = useRef(0);
 
   // --- Browser Detection Helpers ---
   const isSafari = useCallback(() => {
@@ -184,11 +185,11 @@ export const useTranscription = ({
     }
   }, []);
 
-  // Mobile-specific transcription timer (sends audio to OpenAI every 5 seconds for smaller chunks)
+  // Mobile-specific transcription timer (checks silence every 2s, sends only when voice detected)
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    addDebugLog(`[Mobile] Starting transcription timer (3s intervals with VAD, 15s timeout)`);
+    addDebugLog(`[Mobile] Starting transcription timer (2s check interval, 15s timeout, voice-triggered sending)`);
 
     // Ensure VAD baseline timestamps are fresh when timer starts
     const now = Date.now();
@@ -198,11 +199,12 @@ export const useTranscription = ({
     setIsVoiceActive(false);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
-      addDebugLog(`[Timer] ⏰ Tick - checking conditions...`);
-
-      // Voice Activity Detection: stop timer if no voice activity for 15 seconds (give user time to start speaking)
       const now = Date.now();
       const timeSinceLastVoice = now - lastVoiceActivityRef.current;
+
+      addDebugLog(`[Timer] ⏰ Check: timeSinceLastVoice=${(timeSinceLastVoice/1000).toFixed(1)}s, isVoiceActive=${isVoiceActiveRef.current}`);
+
+      // Voice Activity Detection: stop timer if no voice activity for 15 seconds (give user time to start speaking)
       const vadTimeout = 15000; // 15 seconds total timeout
       if (timeSinceLastVoice > vadTimeout && !isVoiceActiveRef.current) {
         addDebugLog(`[VAD] No voice activity for ${vadTimeout/1000}s, stopping timer`);
@@ -215,102 +217,92 @@ export const useTranscription = ({
         return;
       }
 
+      // Only process audio if we haven't sent recently (prevent spam)
+      // Wait at least 2 seconds after last successful send
+      const timeSinceLastSend = now - (lastSendTimeRef.current || 0);
+      if (timeSinceLastSend < 2000) {
+        addDebugLog(`[Timer] ⏸️ Too soon since last send (${timeSinceLastSend}ms), skipping`);
+        return;
+      }
+
       const isAndroid = isAndroidDevice();
       const isIOS = isIOSDevice();
-      addDebugLog(`[Timer] ✅ Conditions met (Mobile, iOS=${isIOS}, Android=${isAndroid}), processing audio...`);
+      addDebugLog(`[Timer] ✅ Checking audio (iOS=${isIOS}, Android=${isAndroid})...`);
 
       try {
-        addDebugLog(`[Timer] Stopping recording to get blob...`);
+        // Stop recording to get current accumulated audio
         const blob = await stopMediaRecording();
-        addDebugLog(`[Timer] Got blob: ${blob?.size || 0} bytes`);
+        addDebugLog(`[Timer] Got accumulated blob: ${blob?.size || 0} bytes`);
 
-        // IMMEDIATELY restart recording - don't wait for OpenAI!
+        // IMMEDIATELY restart recording for next segment
         if (audioStreamRef.current) {
-          addDebugLog(`[Timer] 🔄 Restarting recording immediately...`);
           startMediaRecording(audioStreamRef.current);
         }
 
-        // Minimum 5KB for meaningful audio
-        if (blob && blob.size > 5000) {
-          // Check audio volume to filter out silence/background noise
+        // Only process if we have meaningful audio data
+        if (blob && blob.size > 1000) { // Lower threshold for accumulated audio
           const volumeLevel = await checkAudioVolume(blob);
-          addDebugLog(`[Mobile] Audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
+          addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          // Only send if volume is above threshold
-          // Very low threshold for Safari/iOS devices that show very low volume values
-          const volumeThreshold = isIOS ? 0.005 : 0.5; // Even lower for iOS/Safari
-          if (volumeLevel < volumeThreshold) {
-            addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(4)}%), skipping (threshold: ${volumeThreshold.toFixed(4)}%)`);
-            isVoiceActiveRef.current = false;
-            setIsVoiceActive(false); // Mark as no voice activity
-            return;
-          }
+          const volumeThreshold = isIOS ? 0.002 : 0.5; // Very low threshold for accumulated audio
 
-          // Voice detected - update VAD state
-          const now = Date.now();
-          const timeSinceLastVoice = now - lastVoiceActivityRef.current;
+          if (volumeLevel >= volumeThreshold) {
+            // Voice detected in accumulated audio - send it!
+            addDebugLog(`[Mobile] 🎤 Voice detected in accumulated audio (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
 
-          // If timer was stopped due to silence and we detect new voice, restart it
-          if (timeSinceLastVoice > 15000 && !mobileTranscriptionTimerRef.current) {
-            restartTimerIfNeeded();
-          }
+            // Update VAD state - voice is active
+            lastVoiceActivityRef.current = now;
+            setLastVoiceActivityTime(now);
+            isVoiceActiveRef.current = true;
+            setIsVoiceActive(true);
+            lastSendTimeRef.current = now;
 
-          lastVoiceActivityRef.current = now;
-          setLastVoiceActivityTime(now);
-          isVoiceActiveRef.current = true;
-          setIsVoiceActive(true);
-
-          // If TTS is playing and user speaks loudly enough — barge-in: stop TTS first
-          if (isTTSActiveRef.current) {
-            addDebugLog(`[Mobile] 🛑 TTS active but voice detected (vol: ${volumeLevel.toFixed(4)}%) — interrupting`);
-            isTTSActiveRef.current = false;
-            onInterruption?.();
-          }
-
-          addDebugLog(`[Mobile] ✅ Volume OK (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
-
-          // Send to OpenAI with timeout (don't block recording!)
-          const transcriptionPromise = transcribeWithOpenAI(blob);
-          
-          // Add 12 second timeout for Safari (slower connections)
-          const timeoutMs = isIOS ? 12000 : 8000;
-          const timeoutPromise = new Promise<null>((resolve) => {
-            setTimeout(() => {
-              addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
-              resolve(null);
-            }, timeoutMs);
-          });
-
-          // Race between transcription and timeout
-          const text = await Promise.race([transcriptionPromise, timeoutPromise]);
-
-          if (text && text.trim()) {
-            // Filter out hallucinated responses
-            const filteredText = filterHallucinatedText(text.trim());
-            if (filteredText) {
-              addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
-              onTranscriptionComplete(filteredText, 'openai');
-            } else {
-              addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
+            // If TTS is playing and user speaks — barge-in
+            if (isTTSActiveRef.current) {
+              addDebugLog(`[Mobile] 🛑 TTS active but voice detected — interrupting`);
+              isTTSActiveRef.current = false;
+              onInterruption?.();
             }
-          } else if (text === null) {
-            // Timeout occurred, already logged
+
+            // Send to OpenAI
+            const transcriptionPromise = transcribeWithOpenAI(blob);
+            const timeoutMs = isIOS ? 12000 : 8000;
+            const timeoutPromise = new Promise<null>((resolve) => {
+              setTimeout(() => {
+                addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
+                resolve(null);
+              }, timeoutMs);
+            });
+
+            const text = await Promise.race([transcriptionPromise, timeoutPromise]);
+
+            if (text && text.trim()) {
+              const filteredText = filterHallucinatedText(text.trim());
+              if (filteredText) {
+                addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
+                onTranscriptionComplete(filteredText, 'openai');
+              } else {
+                addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
+              }
+            }
           } else {
-            addDebugLog(`[Mobile] ⚠️ Empty result`);
+            // Silence detected - update VAD but don't send
+            isVoiceActiveRef.current = false;
+            setIsVoiceActive(false);
+            addDebugLog(`[Mobile] 🔇 Silence in accumulated audio (${volumeLevel.toFixed(4)}% < ${volumeThreshold.toFixed(4)}%), not sending`);
           }
         } else {
-          addDebugLog(`[Mobile] Audio too short: ${blob?.size || 0} bytes`);
+          addDebugLog(`[Mobile] Audio too small: ${blob?.size || 0} bytes, skipping`);
         }
       } catch (error) {
-        addDebugLog(`[Mobile] Error: ${error}`);
-        // Make sure recording restarts even on error
+        addDebugLog(`[Mobile] Error in timer: ${error}`);
+        // Restart recording on error
         if (audioStreamRef.current && !mediaRecorderRef.current) {
-          addDebugLog(`[Timer] 🔄 Restarting after error...`);
           startMediaRecording(audioStreamRef.current);
         }
       }
-    }, 3000); // Every 3 seconds - faster response after user speaks
-  }, [isIOSDevice, lastVoiceActivityTime, isVoiceActive]);
+    }, 2000); // Check every 2 seconds for voice activity
+  }, [isIOSDevice]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) {
@@ -371,10 +363,11 @@ export const useTranscription = ({
   // Fallback volume estimation when Web Audio decoding fails (common on iOS audio/mp4)
   const estimateVolumeFromBlob = (audioBlob: Blob): number => {
     const size = audioBlob.size;
-    if (size < 2000) return 0.001;      // Very likely silence
-    if (size < 10000) return 0.01;      // Quiet voice
-    if (size < 30000) return 0.03;      // Normal voice
-    return 0.06;                        // Loud voice
+    if (size < 1000) return 0.001;       // Very small - likely silence
+    if (size < 5000) return 0.002;       // Small chunks - quiet
+    if (size < 15000) return 0.01;       // Medium chunks - some voice
+    if (size < 30000) return 0.03;       // Large chunks - normal voice
+    return 0.06;                         // Very large - loud voice
   };
 
   // --- OpenAI Fallback Logic (via server API) ---
