@@ -123,6 +123,7 @@ export const useTranscription = ({
   // Voice Activity Detection (VAD) State
   const [lastVoiceActivityTime, setLastVoiceActivityTime] = useState(Date.now());
   const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [consecutiveSilenceCount, setConsecutiveSilenceCount] = useState(0);
 
   // --- Browser Detection Helpers ---
   const isSafari = useCallback(() => {
@@ -206,7 +207,9 @@ export const useTranscription = ({
 
       // Only send audio when user has been silent for 4+ seconds
       const silenceThreshold = 4000; // 4 seconds of silence before sending
-      const shouldSendAudio = !isVoiceActive && timeSinceLastVoice >= silenceThreshold && timeSinceLastVoice < silenceThreshold + 1500;
+      const shouldSendAudio = !isVoiceActive && timeSinceLastVoice >= silenceThreshold;
+
+      addDebugLog(`[Timer] VAD state: isVoiceActive=${isVoiceActive}, silenceCount=${consecutiveSilenceCount}, shouldSend=${shouldSendAudio}`);
       
       if (!shouldSendAudio) {
         // Still recording, waiting for silence or already sent
@@ -299,15 +302,26 @@ export const useTranscription = ({
   // Check audio volume level to filter out silence/noise
   const checkAudioVolume = async (audioBlob: Blob): Promise<number> => {
     try {
+      // For iOS audio/mp4, try Web Audio API first
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const audioContext = new AudioContextClass();
       const arrayBuffer = await audioBlob.arrayBuffer();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      
+
+      // Try to decode with Web Audio API
+      let audioBuffer;
+      try {
+        audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      } catch (decodeError) {
+        // If decoding fails (common with iOS audio/mp4), use fallback method
+        addDebugLog(`[VolumeCheck] Web Audio decode failed, using fallback: ${decodeError}`);
+        audioContext.close();
+        return estimateVolumeFromBlob(audioBlob);
+      }
+
       // Calculate RMS (Root Mean Square) volume across all channels for better accuracy
       let sumSquares = 0;
       let count = 0;
-      
+
       for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
         const channelData = audioBuffer.getChannelData(channel);
         for (let i = 0; i < channelData.length; i++) {
@@ -316,15 +330,40 @@ export const useTranscription = ({
           count++;
         }
       }
-      
+
       const rms = Math.sqrt(sumSquares / count);
       const volumePercent = rms * 100; // Convert to percentage
-      
+
       audioContext.close();
       return volumePercent;
     } catch (error) {
       addDebugLog(`[VolumeCheck] Error checking volume: ${error}`);
-      return 0;
+      // Fallback to blob-based estimation
+      return estimateVolumeFromBlob(audioBlob);
+    }
+  };
+
+  // Fallback volume estimation for iOS audio/mp4 that can't be decoded
+  const estimateVolumeFromBlob = async (audioBlob: Blob): Promise<number> => {
+    try {
+      // Simple estimation based on blob size variation
+      // This is a rough estimate - better than nothing for iOS
+      const size = audioBlob.size;
+
+      // Base estimation: larger blobs likely have more audio data
+      // Typical 1-second chunks: 10KB-50KB for voice, smaller for silence
+      if (size < 2000) {
+        return 0.001; // Very small chunks are likely silence
+      } else if (size < 10000) {
+        return 0.005; // Small chunks might be quiet voice
+      } else if (size < 30000) {
+        return 0.02;  // Medium chunks likely have voice
+      } else {
+        return 0.05;  // Large chunks definitely have voice
+      }
+    } catch (error) {
+      addDebugLog(`[VolumeFallback] Error estimating volume: ${error}`);
+      return 0.001; // Default to silence
     }
   };
 
@@ -433,25 +472,35 @@ export const useTranscription = ({
           addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
           
           // Analyze volume in real-time to update VAD state
-          if (e.data.size > 5000) { // Only analyze meaningful chunks
+          if (e.data.size > 1000) { // Lower threshold for iOS
             try {
               const volumeLevel = await checkAudioVolume(e.data);
               const isIOS = isIOSDevice();
-              const volumeThreshold = isIOS ? 0.005 : 0.5;
-              
+              const volumeThreshold = isIOS ? 0.003 : 0.5; // Even lower threshold for iOS
+
               if (volumeLevel >= volumeThreshold) {
                 // Voice detected!
                 const now = Date.now();
                 setLastVoiceActivityTime(now);
                 setIsVoiceActive(true);
+                setConsecutiveSilenceCount(0); // Reset silence counter
                 addDebugLog(`[VAD] 🎤 Voice detected in chunk (vol: ${volumeLevel.toFixed(4)}%)`);
               } else {
-                // Silence detected
-                setIsVoiceActive(false);
-                addDebugLog(`[VAD] 🔇 Silence in chunk (vol: ${volumeLevel.toFixed(4)}%)`);
+                // Silence detected - count consecutive silence chunks
+                setConsecutiveSilenceCount(prev => {
+                  const newCount = prev + 1;
+                  if (newCount >= 3) { // After 3 consecutive quiet chunks, consider silence
+                    setIsVoiceActive(false);
+                    addDebugLog(`[VAD] 🔇 Silence confirmed after ${newCount} quiet chunks`);
+                  } else {
+                    addDebugLog(`[VAD] 🔇 Low volume in chunk (vol: ${volumeLevel.toFixed(4)}%), count: ${newCount}`);
+                  }
+                  return newCount;
+                });
               }
             } catch (error) {
-              // Ignore volume check errors
+              addDebugLog(`[VAD] ⚠️ Volume check failed for chunk: ${error}`);
+              // Don't update VAD state on error - keep current state
             }
           }
         }
