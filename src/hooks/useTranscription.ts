@@ -121,7 +121,7 @@ export const useTranscription = ({
   const [lastSafariSpeechTime, setLastSafariSpeechTime] = useState(0);
 
   // Voice Activity Detection (VAD) State
-  const [lastVoiceActivityTime, setLastVoiceActivityTime] = useState(0);
+  const [lastVoiceActivityTime, setLastVoiceActivityTime] = useState(Date.now());
   const [isVoiceActive, setIsVoiceActive] = useState(false);
 
   // --- Browser Detection Helpers ---
