@@ -122,7 +122,9 @@ export const useTranscription = ({
 
   // Voice Activity Detection (VAD) State
   const [lastVoiceActivityTime, setLastVoiceActivityTime] = useState(0);
+  const lastVoiceActivityRef = useRef(0);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const isVoiceActiveRef = useRef(false);
 
   // --- Browser Detection Helpers ---
   const isSafari = useCallback(() => {
@@ -188,14 +190,21 @@ export const useTranscription = ({
 
     addDebugLog(`[Mobile] Starting transcription timer (3s intervals with VAD, 15s timeout)`);
 
+    // Ensure VAD baseline timestamps are fresh when timer starts
+    const now = Date.now();
+    lastVoiceActivityRef.current = now;
+    setLastVoiceActivityTime(now);
+    isVoiceActiveRef.current = false;
+    setIsVoiceActive(false);
+
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
       addDebugLog(`[Timer] ⏰ Tick - checking conditions...`);
 
       // Voice Activity Detection: stop timer if no voice activity for 15 seconds (give user time to start speaking)
       const now = Date.now();
-      const timeSinceLastVoice = now - lastVoiceActivityTime;
+      const timeSinceLastVoice = now - lastVoiceActivityRef.current;
       const vadTimeout = 15000; // 15 seconds total timeout
-      if (timeSinceLastVoice > vadTimeout && !isVoiceActive) {
+      if (timeSinceLastVoice > vadTimeout && !isVoiceActiveRef.current) {
         addDebugLog(`[VAD] No voice activity for ${vadTimeout/1000}s, stopping timer`);
         stopMobileTranscriptionTimer();
         return;
@@ -232,20 +241,23 @@ export const useTranscription = ({
           const volumeThreshold = isIOS ? 0.005 : 0.5; // Even lower for iOS/Safari
           if (volumeLevel < volumeThreshold) {
             addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(4)}%), skipping (threshold: ${volumeThreshold.toFixed(4)}%)`);
+            isVoiceActiveRef.current = false;
             setIsVoiceActive(false); // Mark as no voice activity
             return;
           }
 
           // Voice detected - update VAD state
           const now = Date.now();
-          const timeSinceLastVoice = now - lastVoiceActivityTime;
+          const timeSinceLastVoice = now - lastVoiceActivityRef.current;
 
           // If timer was stopped due to silence and we detect new voice, restart it
           if (timeSinceLastVoice > 15000 && !mobileTranscriptionTimerRef.current) {
             restartTimerIfNeeded();
           }
 
+          lastVoiceActivityRef.current = now;
           setLastVoiceActivityTime(now);
+          isVoiceActiveRef.current = true;
           setIsVoiceActive(true);
 
           // If TTS is playing and user speaks loudly enough — barge-in: stop TTS first
@@ -314,7 +326,7 @@ export const useTranscription = ({
       addDebugLog(`[VAD] Voice detected after silence, restarting timer`);
       startMobileTranscriptionTimer();
     }
-  }, []);
+  }, [startMobileTranscriptionTimer]);
 
   // Check audio volume level to filter out silence/noise
   const checkAudioVolume = async (audioBlob: Blob): Promise<number> => {
@@ -718,7 +730,10 @@ export const useTranscription = ({
 
       if (shouldForceOpenAI && isMobile) {
         // Initialize VAD state for mobile transcription
-        setLastVoiceActivityTime(Date.now());
+        const now = Date.now();
+        lastVoiceActivityRef.current = now;
+        setLastVoiceActivityTime(now);
+        isVoiceActiveRef.current = false;
         setIsVoiceActive(false);
 
         addDebugLog(`[Init] Starting mobile transcription timer (fallback OpenAI mode on mobile)`);
