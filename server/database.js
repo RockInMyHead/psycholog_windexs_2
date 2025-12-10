@@ -179,6 +179,11 @@ sqlite.pragma('foreign_keys = ON');
 
 // Ensure new auth columns exist when migrating older databases
 function ensureUserPasswordColumn() {
+  // This function is now called from app.js after tables are created
+  return;
+}
+
+function _ensureUserPasswordColumn() {
   try {
     const columns = sqlite.prepare('PRAGMA table_info(users);').all();
     const hasPasswordHash = columns.some((column) => column.name === 'password_hash');
@@ -192,7 +197,7 @@ function ensureUserPasswordColumn() {
   }
 }
 
-ensureUserPasswordColumn();
+// ensureUserPasswordColumn(); // Now called from app.js after tables are created
 
 // Utility functions
 function toDate(value) {
@@ -1312,6 +1317,7 @@ module.exports = {
   userProfileService,
   conversationHistoryService,
   accessService,
+  _ensureUserPasswordColumn,
   db,
   schema,
   sqlite,

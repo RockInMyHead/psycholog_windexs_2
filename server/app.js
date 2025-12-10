@@ -19,7 +19,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Import database services
-const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, db, schema, sqlite } = require('./database');
+const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, _ensureUserPasswordColumn, db, schema, sqlite } = require('./database');
 const logger = require('./logger');
 
 // Audio conversion function
@@ -214,13 +214,7 @@ async function initializeDatabase() {
     sqlite.exec(createTablesSQL);
 
   // Ensure password_hash column exists for legacy databases
-  try {
-    sqlite.exec('ALTER TABLE users ADD COLUMN password_hash TEXT;');
-  } catch (error) {
-    if (!error.message.includes('duplicate column name')) {
-      throw error;
-    }
-  }
+  _ensureUserPasswordColumn();
 
     // Добавляем новые поля в таблицу subscriptions, если они не существуют
     try {
