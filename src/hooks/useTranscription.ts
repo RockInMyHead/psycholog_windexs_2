@@ -186,16 +186,20 @@ export const useTranscription = ({
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    addDebugLog(`[Mobile] Starting transcription timer (3s intervals with VAD)`);
+    addDebugLog(`[Mobile] Starting transcription timer (3s intervals with VAD, 15s timeout)`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
       addDebugLog(`[Timer] ⏰ Tick - checking conditions...`);
 
-      // Voice Activity Detection: stop timer if no voice activity for 4 seconds
+      // Voice Activity Detection: stop timer if no voice activity for 15 seconds
+      // But give user 8 seconds grace period after starting call
       const now = Date.now();
       const timeSinceLastVoice = now - lastVoiceActivityTime;
-      if (timeSinceLastVoice > 4000 && !isVoiceActive) {
-        addDebugLog(`[VAD] No voice activity for 4s, stopping timer`);
+      const gracePeriod = 8000; // 8 seconds to start speaking
+      const vadTimeout = timeSinceLastVoice > gracePeriod ? 15000 : 25000; // Longer timeout during grace period
+
+      if (timeSinceLastVoice > vadTimeout && !isVoiceActive) {
+        addDebugLog(`[VAD] No voice activity for ${vadTimeout/1000}s${timeSinceLastVoice <= gracePeriod ? ' (including grace period)' : ''}, stopping timer`);
         stopMobileTranscriptionTimer();
         return;
       }
@@ -240,7 +244,7 @@ export const useTranscription = ({
           const timeSinceLastVoice = now - lastVoiceActivityTime;
 
           // If timer was stopped due to silence and we detect new voice, restart it
-          if (timeSinceLastVoice > 4000 && !mobileTranscriptionTimerRef.current) {
+          if (timeSinceLastVoice > 8000 && !mobileTranscriptionTimerRef.current) {
             restartTimerIfNeeded();
           }
 
