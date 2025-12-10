@@ -182,27 +182,34 @@ export const useTranscription = ({
     }
   }, []);
 
-  // Mobile-specific transcription timer (sends audio to OpenAI every 5 seconds for smaller chunks)
+  // Mobile-specific transcription timer (checks every 1s, sends audio when user is silent for 4s)
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    addDebugLog(`[Mobile] Starting transcription timer (3s intervals with VAD, 15s timeout)`);
+    addDebugLog(`[Mobile] Starting transcription timer (1s check interval, 4s silence threshold, 30s timeout)`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
-      addDebugLog(`[Timer] ⏰ Tick - checking conditions...`);
-
-      // Voice Activity Detection: stop timer if no voice activity for 15 seconds
-      // But give user 8 seconds grace period after starting call
       const now = Date.now();
       const timeSinceLastVoice = now - lastVoiceActivityTime;
-      const gracePeriod = 8000; // 8 seconds to start speaking
-      const vadTimeout = timeSinceLastVoice > gracePeriod ? 15000 : 25000; // Longer timeout during grace period
+      
+      addDebugLog(`[Timer] ⏰ Check: timeSinceLastVoice=${(timeSinceLastVoice/1000).toFixed(1)}s, isVoiceActive=${isVoiceActive}`);
 
-      addDebugLog(`[VAD] Check: timeSinceLastVoice=${(timeSinceLastVoice/1000).toFixed(1)}s, isVoiceActive=${isVoiceActive}, timeout=${vadTimeout/1000}s`);
-
+      // Stop timer if no voice activity for 30 seconds (user left the call)
+      const gracePeriod = 8000; // 8 seconds grace period when starting
+      const vadTimeout = timeSinceLastVoice > gracePeriod ? 30000 : 35000;
+      
       if (timeSinceLastVoice > vadTimeout && !isVoiceActive) {
-        addDebugLog(`[VAD] ❌ No voice activity for ${vadTimeout/1000}s${timeSinceLastVoice <= gracePeriod ? ' (including grace period)' : ''}, stopping timer`);
+        addDebugLog(`[VAD] ❌ No voice activity for ${vadTimeout/1000}s, stopping timer (user left)`);
         stopMobileTranscriptionTimer();
+        return;
+      }
+
+      // Only send audio when user has been silent for 4+ seconds
+      const silenceThreshold = 4000; // 4 seconds of silence before sending
+      const shouldSendAudio = !isVoiceActive && timeSinceLastVoice >= silenceThreshold && timeSinceLastVoice < silenceThreshold + 1500;
+      
+      if (!shouldSendAudio) {
+        // Still recording, waiting for silence or already sent
         return;
       }
 
@@ -213,7 +220,7 @@ export const useTranscription = ({
 
       const isAndroid = isAndroidDevice();
       const isIOS = isIOSDevice();
-      addDebugLog(`[Timer] ✅ Conditions met (Mobile, iOS=${isIOS}, Android=${isAndroid}), processing audio...`);
+      addDebugLog(`[Timer] ✅ Silence detected (${(timeSinceLastVoice/1000).toFixed(1)}s), processing audio... (iOS=${isIOS}, Android=${isAndroid})`);
 
       try {
         addDebugLog(`[Timer] Stopping recording to get blob...`);
@@ -228,42 +235,7 @@ export const useTranscription = ({
 
         // Minimum 5KB for meaningful audio
         if (blob && blob.size > 5000) {
-          // Check audio volume to filter out silence/background noise
-          const volumeLevel = await checkAudioVolume(blob);
-          addDebugLog(`[Mobile] Audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
-
-          // Update VAD state first - we got audio data even if quiet
-          const now = Date.now();
-          setLastVoiceActivityTime(now); // Update time even for quiet audio to keep timer running
-          
-          // Only send if volume is above threshold
-          // Very low threshold for Safari/iOS devices that show very low volume values
-          const volumeThreshold = isIOS ? 0.005 : 0.5; // Even lower for iOS/Safari
-          if (volumeLevel < volumeThreshold) {
-            addDebugLog(`[Mobile] ⚠️ Too quiet (${volumeLevel.toFixed(4)}%), skipping send but keeping timer (threshold: ${volumeThreshold.toFixed(4)}%)`);
-            setIsVoiceActive(false); // Mark as no voice activity but keep timer running
-            return;
-          }
-
-          // Voice detected - mark as active
-          const timeSinceLastVoice = now - lastVoiceActivityTime;
-
-          // If timer was stopped due to silence and we detect new voice, restart it
-          if (timeSinceLastVoice > 8000 && !mobileTranscriptionTimerRef.current) {
-            restartTimerIfNeeded();
-          }
-
-          setIsVoiceActive(true);
-          addDebugLog(`[VAD] ✅ Voice active - lastActivity updated`);
-
-          // If TTS is playing and user speaks loudly enough — barge-in: stop TTS first
-          if (isTTSActiveRef.current) {
-            addDebugLog(`[Mobile] 🛑 TTS active but voice detected (vol: ${volumeLevel.toFixed(4)}%) — interrupting`);
-            isTTSActiveRef.current = false;
-            onInterruption?.();
-          }
-
-          addDebugLog(`[Mobile] ✅ Volume OK (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
+          addDebugLog(`[Mobile] 📦 Sending accumulated audio: ${blob.size} bytes to OpenAI...`);
 
           // Send to OpenAI with timeout (don't block recording!)
           const transcriptionPromise = transcribeWithOpenAI(blob);
@@ -305,7 +277,7 @@ export const useTranscription = ({
           startMediaRecording(audioStreamRef.current);
         }
       }
-    }, 3000); // Every 3 seconds - faster response after user speaks
+    }, 1000); // Check every second for silence detection
   }, [isIOSDevice, lastVoiceActivityTime, isVoiceActive]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
@@ -451,7 +423,7 @@ export const useTranscription = ({
       mediaRecorderRef.current = recorder;
       recordedChunksRef.current = [];
 
-      recorder.ondataavailable = (e) => {
+      recorder.ondataavailable = async (e) => {
         // Во время TTS глушим запись (кроме Safari, где оставляем старое поведение)
         if (!isSafari() && isTTSActiveRef.current) {
           return;
@@ -459,6 +431,29 @@ export const useTranscription = ({
         if (e.data.size > 0) {
           recordedChunksRef.current.push(e.data);
           addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
+          
+          // Analyze volume in real-time to update VAD state
+          if (e.data.size > 5000) { // Only analyze meaningful chunks
+            try {
+              const volumeLevel = await checkAudioVolume(e.data);
+              const isIOS = isIOSDevice();
+              const volumeThreshold = isIOS ? 0.005 : 0.5;
+              
+              if (volumeLevel >= volumeThreshold) {
+                // Voice detected!
+                const now = Date.now();
+                setLastVoiceActivityTime(now);
+                setIsVoiceActive(true);
+                addDebugLog(`[VAD] 🎤 Voice detected in chunk (vol: ${volumeLevel.toFixed(4)}%)`);
+              } else {
+                // Silence detected
+                setIsVoiceActive(false);
+                addDebugLog(`[VAD] 🔇 Silence in chunk (vol: ${volumeLevel.toFixed(4)}%)`);
+              }
+            } catch (error) {
+              // Ignore volume check errors
+            }
+          }
         }
       };
 
