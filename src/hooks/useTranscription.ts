@@ -244,7 +244,7 @@ export const useTranscription = ({
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          const volumeThreshold = isIOS ? 1.0 : 0.5; // Much higher threshold for accumulated audio to eliminate noise
+          const volumeThreshold = isIOS ? 0.05 : 0.5; // Lower threshold for iOS, higher for others to eliminate noise
 
           if (volumeLevel >= volumeThreshold) {
             // Voice detected in accumulated audio - send it!
@@ -266,7 +266,7 @@ export const useTranscription = ({
 
             // Send to OpenAI
             const transcriptionPromise = transcribeWithOpenAI(blob);
-            const timeoutMs = isIOS ? 12000 : 8000;
+            const timeoutMs = isIOS ? 20000 : 8000; // Longer timeout for iOS
             const timeoutPromise = new Promise<null>((resolve) => {
               setTimeout(() => {
                 addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
@@ -465,7 +465,7 @@ export const useTranscription = ({
       mediaRecorderRef.current = recorder;
       recordedChunksRef.current = [];
 
-      recorder.ondataavailable = (e) => {
+      recorder.ondataavailable = async (e) => {
         // Во время TTS глушим запись (кроме Safari, где оставляем старое поведение)
         if (!isSafari() && isTTSActiveRef.current) {
           return;
@@ -473,6 +473,38 @@ export const useTranscription = ({
         if (e.data.size > 0) {
           recordedChunksRef.current.push(e.data);
           addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
+
+          // Real-time volume monitoring for voice interruption (use estimate for iOS)
+          if (e.data.size > 1000) {
+            try {
+              // Use Web Audio API for desktop, estimate for iOS
+              const isIOS = isIOSDevice();
+              let volumeLevel: number;
+
+              if (isIOS) {
+                // iOS audio/mp4 often fails with Web Audio API, use size-based estimate
+                volumeLevel = estimateVolumeFromBlob(e.data);
+              } else {
+                // Try Web Audio API for better accuracy on desktop
+                try {
+                  volumeLevel = await checkAudioVolume(e.data);
+                } catch (error) {
+                  // Fallback to estimation if Web Audio fails
+                  volumeLevel = estimateVolumeFromBlob(e.data);
+                }
+              }
+
+              const interruptionThreshold = isIOS ? 0.02 : 0.5; // Lower threshold for iOS interruption
+
+              if (volumeLevel >= interruptionThreshold) {
+                addDebugLog(`[VoiceInterrupt] 🎤 Voice interruption detected (${volumeLevel.toFixed(4)}% > ${interruptionThreshold.toFixed(4)}%)`);
+                onInterruption?.();
+              }
+            } catch (error) {
+              // Ignore volume monitoring errors
+              addDebugLog(`[VoiceInterrupt] ⚠️ Volume monitoring failed: ${error}`);
+            }
+          }
         }
       };
 
