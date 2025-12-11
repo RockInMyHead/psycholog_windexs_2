@@ -279,8 +279,21 @@ const AudioCall = () => {
 
   const initializeUser = useCallback(async () => {
     try {
-      const email = authUser?.email ?? 'user@zenmindmate.com';
-      const name = authUser?.name ?? authUser?.email ?? 'Пользователь';
+      let email: string;
+      let name: string;
+
+      if (authUser?.email) {
+        // Authenticated user - use real credentials
+        email = authUser.email;
+        name = authUser.name ?? authUser.email;
+      } else {
+        // Anonymous user - generate unique identifier based on browser fingerprint
+        const fingerprint = navigator.userAgent + navigator.language + screen.width + screen.height;
+        const uniqueId = btoa(fingerprint).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+        email = `anonymous_${uniqueId}@zenmindmate.com`;
+        name = 'Анонимный пользователь';
+      }
+
       const userData = await userApi.getOrCreateUser(email, name);
       setUser(userData);
       

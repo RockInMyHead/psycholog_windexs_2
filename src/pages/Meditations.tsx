@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { PlayCircle, Clock, Wind } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { userApi } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface MeditationItem {
   title: string;
@@ -74,21 +75,38 @@ const meditations = [
 ];
 
 const Meditations = () => {
+  const { user: authUser } = useAuth();
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Default user ID for demo purposes
-  const defaultUserId = 'user@zenmindmate.com';
-
   useEffect(() => {
-    initializeUser();
-  }, []);
+    if (authUser) {
+      initializeUser();
+    }
+  }, [authUser]);
 
   const initializeUser = async () => {
     try {
       setLoading(true);
-      const userData = await userApi.getOrCreateUser(defaultUserId, 'Пользователь');
+
+      // Use real user from auth context, or generate unique ID for anonymous users
+      let email: string;
+      let name: string;
+
+      if (authUser?.email) {
+        // Authenticated user - use real credentials
+        email = authUser.email;
+        name = authUser.name ?? authUser.email;
+      } else {
+        // Anonymous user - generate unique identifier based on browser fingerprint
+        const fingerprint = navigator.userAgent + navigator.language + screen.width + screen.height;
+        const uniqueId = btoa(fingerprint).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+        email = `anonymous_${uniqueId}@zenmindmate.com`;
+        name = 'Анонимный пользователь';
+      }
+
+      const userData = await userApi.getOrCreateUser(email, name);
       setUser(userData);
 
     } catch (error) {

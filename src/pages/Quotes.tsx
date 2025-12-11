@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Lightbulb, Heart, Sparkles } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { userApi, quoteApi } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Quotes = () => {
+  const { user: authUser } = useAuth();
   const [quotes, setQuotes] = useState<{ id: string; text: string; author: string; liked?: boolean }[]>([]);
   const [user, setUser] = useState<{ id: string; name: string; email: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -13,19 +15,34 @@ const Quotes = () => {
   const [showLikedOnly, setShowLikedOnly] = useState(false);
   const [likedQuotes, setLikedQuotes] = useState<{ id: string; text: string; author: string }[]>([]);
 
-  // Default user ID for demo purposes
-  const defaultUserId = 'user@zenmindmate.com';
-
   useEffect(() => {
-    initializeData();
-  }, []);
+    if (authUser) {
+      initializeData();
+    }
+  }, [authUser]);
 
   const initializeData = async () => {
     try {
       setLoading(true);
 
-      // Get or create user
-      const userData = await userApi.getOrCreateUser(defaultUserId, 'Пользователь');
+      // Use real user from auth context, or generate unique ID for anonymous users
+      let email: string;
+      let name: string;
+
+      if (authUser?.email) {
+        // Authenticated user - use real credentials
+        email = authUser.email;
+        name = authUser.name ?? authUser.email;
+      } else {
+        // Anonymous user - generate unique identifier based on browser fingerprint
+        const fingerprint = navigator.userAgent + navigator.language + screen.width + screen.height;
+        const uniqueId = btoa(fingerprint).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+        email = `anonymous_${uniqueId}@zenmindmate.com`;
+        name = 'Анонимный пользователь';
+      }
+
+      // Get or create user with unique identifier
+      const userData = await userApi.getOrCreateUser(email, name);
       setUser(userData);
 
       // Load quotes

@@ -44,10 +44,21 @@ const Chat = () => {
   } = useAudioRecorder();
 
   const getUserCredentials = () => {
-    const fallbackEmail = 'user@zenmindmate.com';
-    const email = authUser?.email ?? fallbackEmail;
-    const name = authUser?.name ?? authUser?.email ?? 'Пользователь';
-    return { email, name };
+    if (authUser?.email) {
+      // Authenticated user - use real credentials
+      return {
+        email: authUser.email,
+        name: authUser.name ?? authUser.email
+      };
+    } else {
+      // Anonymous user - generate unique identifier based on browser fingerprint
+      const fingerprint = navigator.userAgent + navigator.language + screen.width + screen.height;
+      const uniqueId = btoa(fingerprint).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+      return {
+        email: `anonymous_${uniqueId}@zenmindmate.com`,
+        name: 'Анонимный пользователь'
+      };
+    }
   };
 
   useEffect(() => {
