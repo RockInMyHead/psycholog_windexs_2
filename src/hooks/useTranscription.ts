@@ -244,7 +244,7 @@ export const useTranscription = ({
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          const volumeThreshold = isIOS ? 0.015 : 0.5; // Higher threshold to avoid noise detection
+          const volumeThreshold = isIOS ? 1.0 : 0.5; // Much higher threshold for accumulated audio to eliminate noise
 
           if (volumeLevel >= volumeThreshold) {
             // Voice detected in accumulated audio - send it!
