@@ -20,56 +20,56 @@ const meditations = [
     title: "Медитация благодарности",
     duration: "15 мин",
     description: "Сессия с психологом: Как притянуть благоприятные события и изменить свою жизнь к лучшему",
-    thumbnail: "/placeholder.svg",
+    thumbnail: "/photo.jpg",
     videoUrl: "https://rutube.ru/video/e3d8fb2e5a1f6d4cf5c825d30cc7b27c/"
   },
   {
     title: "Медитация на дыхание",
     duration: "12 мин",
     description: "Фон моря вдох выдох успокаивающее дыхание",
-    thumbnail: "/placeholder.svg",
+    thumbnail: "/photo.jpg",
     videoUrl: "https://rutube.ru/video/1b675c50e3bec1a6560ab4d8340136a3/"
   },
   {
     title: "Снятие стресса",
     duration: "15 мин",
     description: "Гармонизация вдох, впускаете тишину. пауза, это равновесие., выдох, растворяете напряжение",
-    thumbnail: "/placeholder.svg",
+    thumbnail: "/photo.jpg",
     videoUrl: "https://rutube.ru/video/04056c4c8e1c601bdd0178e6535e4a97/"
   },
   {
     title: "Метод Бутейко",
     duration: "20 мин",
     description: "Метод бутейко вдох выдох 1 лечебно успокаивающее дыхание",
-    thumbnail: "/placeholder.svg",
+    thumbnail: "/photo.jpg",
     videoUrl: "https://rutube.ru/video/5fbdc99016f4e3ddd1aaa76df328a053/"
   },
   {
     title: "Лечебное дыхание",
     duration: "10 мин",
     description: "Лечебно оздоровительное дыхание, для снятия стресса",
-    thumbnail: "/placeholder.svg",
+    thumbnail: "/photo.jpg",
     videoUrl: "https://rutube.ru/video/5128986cee1e6f4f90ed8e482f83a323/"
   },
   {
     title: "Успокаивающее дыхание",
     duration: "10 мин",
     description: "Лечебно успокаивающее дыхание",
-    thumbnail: "/placeholder.svg",
+    thumbnail: "/photo.jpg",
     videoUrl: "https://rutube.ru/video/6e98f59165e1cac058374ff27931d511/"
   },
   {
     title: "Дыхание в моменте",
     duration: "5 мин",
     description: "Дышите — чтобы выжить в моменте и вернуть себе контроль",
-    thumbnail: "/placeholder.svg",
+    thumbnail: "/photo.jpg",
     videoUrl: "https://rutube.ru/video/8eb3261b4be614727eb96c97b5f4af44/"
   },
   {
     title: "Вечерняя медитация",
     duration: "10 мин",
     description: "Вечерняя медитация: Найти покой в центре бури для хорошего сна",
-    thumbnail: "/placeholder.svg",
+    thumbnail: "/photo.jpg",
     videoUrl: "https://rutube.ru/video/5e5196b25a7c25e539cca4bfd9604e78/"
   },
 ];
@@ -199,9 +199,9 @@ const Meditations = () => {
                     referrerPolicy="no-referrer"
                     crossOrigin="anonymous"
                     onError={(e) => {
-                      // Fallback to a default meditation image if RuTube thumbnail fails
+                      // Fallback to local photo if thumbnail fails
                       const target = e.target as HTMLImageElement;
-                      target.src = "/placeholder.svg";
+                      target.src = "/photo.jpg";
                     }}
                   />
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
