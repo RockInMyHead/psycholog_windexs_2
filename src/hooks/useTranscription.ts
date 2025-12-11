@@ -968,22 +968,43 @@ export const useTranscription = ({
 
   // Cleanup
   const cleanup = useCallback(() => {
+    console.log('[Transcription] 🧹 Cleanup called - stopping all processes');
+
+    // Reset all state
     lastProcessedTextRef.current = ''; // Reset processed text
     recognitionActiveRef.current = false;
+    justResumedAfterTTSRef.current = false; // Reset TTS resumption flag
+    browserRetryCountRef.current = 0;
+
+    // Stop recognition
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
+        recognitionRef.current = null; // Clear reference
       } catch (e) {
-        // Ignore stop errors during cleanup
+        console.log('[Transcription] Ignoring stop error during cleanup:', e.message);
       }
     }
+
+    // Stop all monitoring and recording
     stopVolumeMonitoring();
     stopMobileTranscriptionTimer(); // Stop mobile transcription timer
     stopMediaRecording(); // Just stop, don't return blob
+
+    // Stop audio stream
     if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach(t => t.stop());
-      audioStreamRef.current = null;
+      try {
+        audioStreamRef.current.getTracks().forEach(t => {
+          t.stop();
+          console.log('[Transcription] Stopped audio track:', t.label);
+        });
+        audioStreamRef.current = null;
+      } catch (e) {
+        console.log('[Transcription] Error stopping audio tracks:', e.message);
+      }
     }
+
+    console.log('[Transcription] 🧹 Cleanup completed');
   }, []);
 
   useEffect(() => {

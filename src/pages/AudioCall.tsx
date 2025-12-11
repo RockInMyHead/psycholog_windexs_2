@@ -361,12 +361,31 @@ const AudioCall = () => {
   };
 
   const endCall = async () => {
+    console.log('[AudioCall] 🛑 Ending call - stopping all processes');
+
     // Сразу помечаем, что звонок завершен, чтобы TTS не возобновлял запись
     isCallActiveRef.current = false;
     setIsCallActive(false);
 
+    // Aggressive cleanup - stop everything
+    console.log('[AudioCall] Stopping TTS...');
     stopTTS();
+
+    console.log('[AudioCall] Cleaning up recognition...');
     cleanupRecognition();
+
+    // Additional cleanup for any remaining processes
+    console.log('[AudioCall] Explicitly stopping recognition...');
+    stopRecognition?.(); // Explicitly stop recognition
+    console.log('[AudioCall] Resetting TTS deduplication...');
+    resetDeduplication?.(); // Reset TTS deduplication
+
+    // Clear any pending TTS operations
+    if (isTTSPlayingRef.current || isTTSSynthesizingRef.current) {
+      console.log('[AudioCall] ⚠️ TTS still active during endCall - forcing stop');
+    }
+
+    console.log('[AudioCall] 🎉 Call ended successfully');
     
     if (currentCallId) {
       try {
