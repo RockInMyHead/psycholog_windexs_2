@@ -99,6 +99,7 @@ const AudioCall = () => {
   // Debug Logs State
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebugLogs, setShowDebugLogs] = useState(false);
+  const [voiceInterruptionDetected, setVoiceInterruptionDetected] = useState(false);
   
   // Data State
   const [user, setUser] = useState<User | null>(null);
@@ -218,7 +219,13 @@ const AudioCall = () => {
       console.log(`[AudioCall] processUserMessage completed (ID: ${transcribeId})`);
     },
     onInterruption: () => {
+      addDebugLog(`[AudioCall] 🎤 Voice interruption detected - stopping TTS and resuming listening`);
       stopTTS();
+      // Reset TTS deduplication for new user input after interruption
+      resetDeduplication();
+      // Show visual indication of interruption
+      setVoiceInterruptionDetected(true);
+      setTimeout(() => setVoiceInterruptionDetected(false), 2000); // Hide after 2 seconds
     },
     onSpeechStart: () => {
        // Optional: UI indication
@@ -460,8 +467,15 @@ const AudioCall = () => {
               </div>
             ) : (
               <div className="space-y-8">
-                 <div className="w-[220px] h-[220px] sm:w-[320px] sm:h-[320px] mx-auto rounded-full overflow-hidden shadow-strong">
+                 <div className={`w-[220px] h-[220px] sm:w-[320px] sm:h-[320px] mx-auto rounded-full overflow-hidden shadow-strong transition-all duration-300 ${voiceInterruptionDetected ? 'ring-4 ring-red-500 shadow-red-500/50' : ''}`}>
                   <video ref={videoRef} src="/Untitled Video.mp4" className="w-full h-full object-cover pointer-events-none" muted loop playsInline />
+                  {voiceInterruptionDetected && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-red-500/20 rounded-full">
+                      <div className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-medium animate-pulse">
+                        🎤 Прерывание
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div>

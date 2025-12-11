@@ -494,7 +494,7 @@ export const useTranscription = ({
                 }
               }
 
-              const interruptionThreshold = isIOS ? 2.0 : 0.5; // Higher threshold for iOS interruption to match voice detection
+              const interruptionThreshold = isIOS ? 0.8 : 0.5; // Lower threshold for iOS interruption to detect user speaking
 
               if (volumeLevel >= interruptionThreshold) {
                 addDebugLog(`[VoiceInterrupt] 🎤 Voice interruption detected (${volumeLevel.toFixed(4)}% > ${interruptionThreshold.toFixed(4)}%)`);
