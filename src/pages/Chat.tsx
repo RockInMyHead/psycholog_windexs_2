@@ -431,10 +431,38 @@ const Chat = () => {
   };
 
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  // Initialize audio context for iOS compatibility
+  useEffect(() => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      audioContextRef.current = new AudioContextClass();
+
+      // Resume audio context on user interaction (important for iOS)
+      const resumeAudioContext = async () => {
+        if (audioContextRef.current?.state === 'suspended') {
+          await audioContextRef.current.resume();
+        }
+        setHasUserInteracted(true);
+      };
+
+      // Add event listeners for user interaction
+      document.addEventListener('touchstart', resumeAudioContext, { once: true });
+      document.addEventListener('click', resumeAudioContext, { once: true });
+
+      return () => {
+        document.removeEventListener('touchstart', resumeAudioContext);
+        document.removeEventListener('click', resumeAudioContext);
+      };
+    } catch (error) {
+      console.error('[Chat TTS] Failed to initialize audio context:', error);
+    }
+  }, []);
   // Для TTS воспроизведения в чате
   const chatAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatAudioUrlRef = useRef<string | null>(null);
   const [ttsStatus, setTtsStatus] = useState<"idle" | "thinking" | "speaking">("idle");
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
 
   const stopSpeaking = () => {
     if (chatAudioRef.current) {
@@ -475,8 +503,10 @@ const Chat = () => {
       const audioBuffer = await psychologistAI.synthesizeSpeech(text);
       console.log('[Chat TTS] Received audio buffer, size:', audioBuffer.byteLength);
 
-      // Create blob from array buffer
-      const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+      // Create blob from array buffer with correct MIME type
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const mimeType = isIOS ? 'audio/wav' : 'audio/mpeg';
+      const blob = new Blob([audioBuffer], { type: mimeType });
       const url = URL.createObjectURL(blob);
 
       console.log('[Chat TTS] Created audio URL:', url);
@@ -496,18 +526,86 @@ const Chat = () => {
 
       audio.onerror = (e) => {
         console.error('[Chat TTS] Audio playback error:', e);
-        stopSpeaking();
+        // Try fallback approach for iOS
+        handleIOSAudioError(messageId, text);
       };
 
-      console.log('[Chat TTS] Starting playback...');
-      await audio.play();
-      setTtsStatus("speaking");
-      console.log('[Chat TTS] Playback started successfully');
+      // iOS specific handling - check if we need user interaction
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        console.log('[Chat TTS] iOS detected, user interacted:', hasUserInteracted);
+
+        // Check if audio context is suspended (common on iOS)
+        if (audioContextRef.current?.state === 'suspended') {
+          console.log('[Chat TTS] Audio context suspended, resuming...');
+          await audioContextRef.current.resume();
+        }
+
+        try {
+          console.log('[Chat TTS] Starting playback on iOS...');
+          await audio.play();
+          setTtsStatus("speaking");
+          console.log('[Chat TTS] Playback started successfully on iOS');
+        } catch (playError) {
+          console.error('[Chat TTS] iOS playback failed:', playError);
+
+          if (!hasUserInteracted) {
+            alert('Нажмите на экран и попробуйте озвучку снова');
+          } else {
+            alert('Ошибка воспроизведения звука. Попробуйте перезагрузить страницу');
+          }
+          stopSpeaking();
+        }
+      } else {
+        // Non-iOS devices
+        console.log('[Chat TTS] Starting playback...');
+        await audio.play();
+        setTtsStatus("speaking");
+        console.log('[Chat TTS] Playback started successfully');
+      }
 
     } catch (error) {
       console.error('[Chat TTS] Error speaking message:', error);
       setSpeakingMessageId(null);
       setTtsStatus("idle");
+    }
+  };
+
+  // Fallback function for iOS audio issues
+  const handleIOSAudioError = async (messageId: string, text: string) => {
+    console.log('[Chat TTS] Attempting iOS fallback for audio playback');
+
+    try {
+      // Try with WAV format instead of MP3 for iOS
+      const audioBuffer = await psychologistAI.synthesizeSpeech(text, {
+        response_format: 'wav' // Try WAV format for iOS
+      });
+
+      const blob = new Blob([audioBuffer], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+
+      const audio = new Audio(url);
+      chatAudioRef.current = audio;
+      chatAudioUrlRef.current = url;
+      audio.volume = 1.0;
+
+      audio.onended = () => {
+        console.log('[Chat TTS] WAV playback ended');
+        stopSpeaking();
+      };
+
+      audio.onerror = (e) => {
+        console.error('[Chat TTS] WAV playback also failed:', e);
+        stopSpeaking();
+      };
+
+      await audio.play();
+      setTtsStatus("speaking");
+      console.log('[Chat TTS] WAV playback started successfully');
+
+    } catch (fallbackError) {
+      console.error('[Chat TTS] iOS fallback also failed:', fallbackError);
+      stopSpeaking();
     }
   };
 

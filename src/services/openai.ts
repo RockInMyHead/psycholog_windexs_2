@@ -525,12 +525,13 @@ ${memoryContext}
 
   async synthesizeSpeech(text: string, options: { model?: string; voice?: string; format?: string } = {}): Promise<ArrayBuffer> {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-    // Используем MP3 для всех устройств для лучшей совместимости и меньшего размера (меньше задержек)
+    // Используем WAV для iOS (лучше совместимость), MP3 для остальных устройств
     const defaultOptions = {
       model: "tts-1", // tts-1 быстрее и стабильнее для реального времени
       voice: "onyx",
-      response_format: "mp3",
+      response_format: isIOS ? "wav" : "mp3", // WAV для iOS, MP3 для остальных
       speed: 1.0,
     };
 
