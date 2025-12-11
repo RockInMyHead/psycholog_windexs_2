@@ -244,7 +244,7 @@ export const useTranscription = ({
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          const volumeThreshold = isIOS ? 0.05 : 0.5; // Lower threshold for iOS, higher for others to eliminate noise
+          const volumeThreshold = isIOS ? 5.0 : 0.5; // Higher threshold for iOS to avoid noise detection
 
           if (volumeLevel >= volumeThreshold) {
             // Voice detected in accumulated audio - send it!
@@ -494,7 +494,7 @@ export const useTranscription = ({
                 }
               }
 
-              const interruptionThreshold = isIOS ? 0.02 : 0.5; // Lower threshold for iOS interruption
+              const interruptionThreshold = isIOS ? 2.0 : 0.5; // Higher threshold for iOS interruption to match voice detection
 
               if (volumeLevel >= interruptionThreshold) {
                 addDebugLog(`[VoiceInterrupt] 🎤 Voice interruption detected (${volumeLevel.toFixed(4)}% > ${interruptionThreshold.toFixed(4)}%)`);
