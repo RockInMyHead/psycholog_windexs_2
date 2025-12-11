@@ -49,6 +49,8 @@ export const useTranscription = ({
   const audioStreamRef = useRef<MediaStream | null>(null);
   const audioAnalyserRef = useRef<AnalyserNode | null>(null);
   const volumeMonitorRef = useRef<number | null>(null);
+  const browserRetryCountRef = useRef(0);
+  const justResumedAfterTTSRef = useRef(false);
 
   // Constants
   const SAFARI_VOICE_DETECTION_THRESHOLD = 40;
@@ -830,8 +832,20 @@ export const useTranscription = ({
           onTranscriptionComplete(trimmedText, 'browser');
         } else if (interimTranscript.trim()) {
            // Interim transcripts are ignored to prevent premature LLM calls
-           // Only final transcripts are sent to onTranscriptionComplete
-           console.log(`[Transcription] Interim transcript: "${interimTranscript.trim()}" (ignored - waiting for final)`);
+           // Except right after TTS resumption - send first interim immediately
+           console.log(`[Transcription] Interim transcript: "${interimTranscript.trim()}"`);
+
+           if (justResumedAfterTTSRef.current) {
+             // Send first interim immediately after TTS resumption
+             const trimmedInterim = interimTranscript.trim();
+             if (trimmedInterim.length >= 2) { // Minimum length check
+               console.log(`[Transcription] Sending post-TTS interim immediately: "${trimmedInterim}"`);
+               onTranscriptionComplete(trimmedInterim, 'browser');
+               justResumedAfterTTSRef.current = false; // Reset flag after sending
+             }
+           } else {
+             console.log(`[Transcription] Interim ignored (waiting for final)`);
+           }
         }
       };
 
@@ -1011,6 +1025,7 @@ export const useTranscription = ({
           startMediaRecording(audioStreamRef.current);
         }
         recognitionActiveRef.current = true;
+        justResumedAfterTTSRef.current = true; // Mark that we just resumed after TTS
         try {
           recognitionRef.current?.start();
         } catch (e) {
