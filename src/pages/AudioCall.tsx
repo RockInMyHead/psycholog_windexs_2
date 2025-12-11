@@ -313,16 +313,14 @@ const AudioCall = () => {
         throw new Error("Доступ к аудио сессиям ограничен.");
       }
 
-      // Create Call Session
-      await subscriptionApi.useAudioSession(user.id);
+      // Create Call Session (but don't count as used session yet)
       const call = await audioCallApi.createAudioCall(user.id);
       setCurrentCallId(call.id);
-      
+
       // Load User Profile
       await loadUserProfile();
 
-      // Increment session count
-      await updateUserProfile("", ""); // Empty strings to just increment counter
+      // Don't increment session count here - will be done in endCall if conversation actually happened
 
       // Initialize Audio/Recognition
       await initializeRecognition();
@@ -364,15 +362,25 @@ const AudioCall = () => {
     if (currentCallId) {
       try {
         await audioCallApi.endAudioCall(currentCallId, callDuration);
+
+        // Only count as used session if call was meaningful (at least 30 seconds)
+        const wasMeaningfulCall = callDuration >= 30;
+
         if (subscriptionInfo?.plan === 'premium') {
-            await subscriptionApi.recordAudioSession(user.id);
+          await subscriptionApi.recordAudioSession(user.id);
+        } else if (wasMeaningfulCall) {
+          // For free tier, only count sessions that lasted at least 30 seconds
+          await subscriptionApi.useAudioSession(user.id);
+          console.log(`[AudioCall] Counted as used session (duration: ${callDuration}s >= 30s)`);
+        } else {
+          console.log(`[AudioCall] Not counted as used session (duration: ${callDuration}s < 30s)`);
         }
       } catch (err) {
         console.error("Error ending call:", err);
       }
     }
 
-    // Update user profile with final session data
+    // Update user profile with final session data (but don't increment counter here)
     try {
       await updateUserProfile("", ""); // Empty strings to trigger profile save
     } catch (err) {
