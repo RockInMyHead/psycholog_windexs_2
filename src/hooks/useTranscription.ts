@@ -804,6 +804,9 @@ export const useTranscription = ({
            console.log(`[Transcription] Interim transcript: "${interimTranscript}"`);
 
            if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
+
+           // Use longer timeout for browsers with echo problems (Chrome, etc.)
+           const interimTimeout = hasEchoProblems() ? 3000 : 1500; // 3s for Chrome, 1.5s for Safari
            speechTimeoutRef.current = window.setTimeout(() => {
              if (hasEchoProblems() && isTTSActiveRef.current) {
                console.log(`[Transcription] Skipping interim due to TTS activity`);
@@ -820,14 +823,20 @@ export const useTranscription = ({
                return;
              }
 
-             // Skip if interim is just a prefix of processed text (user continued speaking)
-             if (lastProcessed && lastProcessed.startsWith(trimmedInterim) && lastProcessed.length > trimmedInterim.length) {
-               console.log(`[Transcription] Skipping interim that became final: "${trimmedInterim}"`);
-               return;
-             }
+            // Skip if interim is just a prefix of processed text (user continued speaking)
+            if (lastProcessed && lastProcessed.startsWith(trimmedInterim) && lastProcessed.length > trimmedInterim.length) {
+              console.log(`[Transcription] Skipping interim that became final: "${trimmedInterim}"`);
+              return;
+            }
 
-             console.log(`[Transcription] Calling onTranscriptionComplete with interim transcript`);
-             onTranscriptionComplete(trimmedInterim, 'browser');
+            // Skip if interim is too short (likely incomplete recognition)
+            if (trimmedInterim.length < 3) {
+              console.log(`[Transcription] Skipping interim too short: "${trimmedInterim}" (${trimmedInterim.length} chars)`);
+              return;
+            }
+
+            console.log(`[Transcription] Calling onTranscriptionComplete with interim transcript`);
+            onTranscriptionComplete(trimmedInterim, 'browser');
            }, 1500);
         }
       };
