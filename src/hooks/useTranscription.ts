@@ -51,6 +51,7 @@ export const useTranscription = ({
   const volumeMonitorRef = useRef<number | null>(null);
   const browserRetryCountRef = useRef(0);
   const justResumedAfterTTSRef = useRef(false);
+  const ttsEndTimeRef = useRef(0); // Track when TTS ended
 
   // Constants
   const SAFARI_VOICE_DETECTION_THRESHOLD = 40;
@@ -835,11 +836,20 @@ export const useTranscription = ({
            // Except right after TTS resumption - send first interim immediately
            console.log(`[Transcription] Interim transcript: "${interimTranscript.trim()}"`);
 
+           // Check if we're still in echo protection period (ignore interim for 2 seconds after TTS)
+           const timeSinceTTSEnd = Date.now() - ttsEndTimeRef.current;
+           const echoProtectionMs = hasEchoProblems() ? 2000 : 1000; // 2s for Chrome, 1s for others
+
+           if (timeSinceTTSEnd < echoProtectionMs) {
+             console.log(`[Transcription] Ignoring interim during echo protection (${timeSinceTTSEnd}ms < ${echoProtectionMs}ms)`);
+             return;
+           }
+
            if (justResumedAfterTTSRef.current) {
-             // Send first interim immediately after TTS resumption
+             // Send first interim immediately after TTS resumption and echo protection
              const trimmedInterim = interimTranscript.trim();
              if (trimmedInterim.length >= 2) { // Minimum length check
-               console.log(`[Transcription] Sending post-TTS interim immediately: "${trimmedInterim}"`);
+               console.log(`[Transcription] Sending post-TTS interim after echo protection: "${trimmedInterim}"`);
                onTranscriptionComplete(trimmedInterim, 'browser');
                justResumedAfterTTSRef.current = false; // Reset flag after sending
              }
@@ -1041,18 +1051,25 @@ export const useTranscription = ({
     },
     resumeRecordingAfterTTS: () => {
       if (isSafari()) return; // Safari оставляем как раньше
+      // Longer delay for browsers with echo problems (Chrome)
+      const resumeDelay = hasEchoProblems() ? 1200 : 400; // 1.2s for Chrome, 0.4s for others
+
+      console.log(`[Transcription] Resuming after TTS with ${resumeDelay}ms delay (echo protection)`);
+
       setTimeout(() => {
         if (audioStreamRef.current) {
           startMediaRecording(audioStreamRef.current);
         }
         recognitionActiveRef.current = true;
         justResumedAfterTTSRef.current = true; // Mark that we just resumed after TTS
+        ttsEndTimeRef.current = Date.now() + resumeDelay; // Mark TTS end time
         try {
           recognitionRef.current?.start();
+          console.log(`[Transcription] Recognition resumed after TTS (delay: ${resumeDelay}ms)`);
         } catch (e) {
-          // Ignore start errors
+          console.log(`[Transcription] Error resuming recognition: ${e.message}`);
         }
-      }, 400); // небольшой буфер, чтобы не поймать хвост TTS
+      }, resumeDelay);
     }
   };
 };
