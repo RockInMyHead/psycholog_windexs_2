@@ -198,6 +198,12 @@ const AudioCall = () => {
       console.log(`[AudioCall] onTranscriptionComplete (ID: ${transcribeId}) called with: "${text}" from ${source}`);
       if (!text) return;
 
+      // Ignore transcription if microphone is muted
+      if (isMuted) {
+        console.log(`[AudioCall] Ignoring transcription - microphone is muted`);
+        return;
+      }
+
       // Save user message for memory update
       lastUserMessageRef.current = text;
 
@@ -379,10 +385,12 @@ const AudioCall = () => {
   const toggleMute = () => {
     if (isMuted) {
       setIsMuted(false);
-      startRecognition();
+      resumeRecordingAfterTTS?.(); // Resume audio recording
+      addDebugLog(`[AudioCall] 🎤 Microphone unmuted - recording resumed`);
     } else {
       setIsMuted(true);
-      stopRecognition();
+      pauseRecordingForTTS?.(); // Pause audio recording
+      addDebugLog(`[AudioCall] 🔇 Microphone muted - recording paused`);
     }
   };
 
