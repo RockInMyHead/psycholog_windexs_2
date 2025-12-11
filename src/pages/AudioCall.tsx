@@ -94,6 +94,7 @@ const AudioCall = () => {
   const [error, setError] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const isCallActiveRef = useRef(false);
+  const lastUserMessageRef = useRef<string>("");
 
   // Debug Logs State
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
@@ -158,12 +159,19 @@ const AudioCall = () => {
     processUserMessage,
     loadUserProfile,
     updateUserProfile,
+    updateConversationMemory,
     addToConversation,
     isProcessing: isAIProcessing
   } = useLLM({
     userId: user?.id,
     callId: currentCallId,
     onResponseGenerated: async (text) => {
+      // Update conversation memory after AI response
+      if (lastUserMessageRef.current) {
+        await updateConversationMemory(lastUserMessageRef.current, text);
+        lastUserMessageRef.current = ""; // Clear after use
+      }
+
       await speak(text);
     },
     onError: (err) => setError(err)
@@ -189,6 +197,9 @@ const AudioCall = () => {
       const transcribeId = Date.now();
       console.log(`[AudioCall] onTranscriptionComplete (ID: ${transcribeId}) called with: "${text}" from ${source}`);
       if (!text) return;
+
+      // Save user message for memory update
+      lastUserMessageRef.current = text;
 
       // Stop TTS if user interrupted (handled by hook, but good to ensure)
       if (source !== 'manual') stopTTS();

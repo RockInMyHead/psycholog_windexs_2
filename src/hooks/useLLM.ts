@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { psychologistAI, type ChatMessage } from '@/services/openai';
-import { memoryApi, userProfileApi, type UserProfile } from '@/services/api';
+import { memoryApi, userProfileApi, type UserProfile, audioCallApi } from '@/services/api';
 
 interface UseLLMProps {
   userId?: string;
@@ -18,16 +18,22 @@ export const useLLM = ({ userId, callId, onResponseGenerated, onError }: UseLLMP
   const loadUserProfile = useCallback(async () => {
     if (!userId) return;
     try {
+      // Load user profile
       const profile = await userProfileApi.getUserProfile(userId);
       userProfileRef.current = profile;
 
-      // Создаем структурированную память из профиля для использования в промптах
+      // Load conversation memory from database (like in regular chat)
+      const existingMemory = await memoryApi.getMemory(userId, "voice");
       const profileMemory = buildProfileMemory(profile);
-      memoryRef.current = profileMemory;
 
-      console.log("[LLM] User profile loaded");
+      // Combine profile memory with conversation history
+      memoryRef.current = existingMemory
+        ? `${profileMemory}\n\nИстория предыдущих разговоров:\n${existingMemory}`
+        : profileMemory;
+
+      console.log("[LLM] User profile and conversation memory loaded");
     } catch (error) {
-      console.error("[LLM] Error loading user profile:", error);
+      console.error("[LLM] Error loading user profile and memory:", error);
       // Fallback to empty profile
       memoryRef.current = "";
     }
@@ -159,6 +165,30 @@ export const useLLM = ({ userId, callId, onResponseGenerated, onError }: UseLLMP
     }
   }, [userId]);
 
+  // Update conversation memory (like in regular chat)
+  const updateConversationMemory = useCallback(async (userText: string, assistantText: string) => {
+    if (!userId || !callId) return;
+
+    try {
+      // Save to database with callId and update local memory
+      const updatedMemory = await memoryApi.appendMemory(
+        userId,
+        "voice",
+        callId,
+        userText,
+        assistantText
+      );
+
+      // Update local memory reference
+      const profileMemory = userProfileRef.current ? buildProfileMemory(userProfileRef.current) : "";
+      memoryRef.current = `${profileMemory}\n\nИстория предыдущих разговоров:\n${updatedMemory}`;
+
+      console.log("[LLM] Voice conversation memory updated and saved to DB");
+    } catch (error) {
+      console.error('[LLM] Error updating voice conversation memory:', error);
+    }
+  }, [userId, callId]);
+
   // Функция для извлечения тем из текста
   const extractTopics = useCallback((text: string): string[] => {
     const topics: string[] = [];
@@ -234,8 +264,9 @@ export const useLLM = ({ userId, callId, onResponseGenerated, onError }: UseLLMP
         console.log(`[LLM] onResponseGenerated completed`);
       }
 
-      // Update user profile in background
+      // Update user profile and conversation memory
       void updateUserProfile(text, assistantReply);
+      void updateConversationMemory(text, assistantReply);
 
     } catch (error) {
       console.error("[LLM] Error generating response:", error);
@@ -259,6 +290,7 @@ export const useLLM = ({ userId, callId, onResponseGenerated, onError }: UseLLMP
     processUserMessage,
     loadUserProfile,
     updateUserProfile,
+    updateConversationMemory,
     addToConversation,
     clearConversation,
     isProcessing,
