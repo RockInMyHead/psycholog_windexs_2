@@ -49,8 +49,6 @@ export const useTranscription = ({
   const audioStreamRef = useRef<MediaStream | null>(null);
   const audioAnalyserRef = useRef<AnalyserNode | null>(null);
   const volumeMonitorRef = useRef<number | null>(null);
-  const speechTimeoutRef = useRef<number | null>(null);
-  const browserRetryCountRef = useRef(0);
 
   // Constants
   const SAFARI_VOICE_DETECTION_THRESHOLD = 40;
@@ -828,48 +826,12 @@ export const useTranscription = ({
           console.log(`[Transcription] Processing new final transcript`);
           lastProcessedTextRef.current = trimmedText;
 
-          if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-          browserRetryCountRef.current = 0;
           console.log(`[Transcription] Calling onTranscriptionComplete with final transcript`);
           onTranscriptionComplete(trimmedText, 'browser');
         } else if (interimTranscript.trim()) {
-           console.log(`[Transcription] Interim transcript: "${interimTranscript}"`);
-
-           if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-
-           // Use longer timeout for browsers with echo problems (Chrome, etc.)
-           const interimTimeout = hasEchoProblems() ? 3000 : 1500; // 3s for Chrome, 1.5s for Safari
-           speechTimeoutRef.current = window.setTimeout(() => {
-             if (hasEchoProblems() && isTTSActiveRef.current) {
-               console.log(`[Transcription] Skipping interim due to TTS activity`);
-               return;
-             }
-
-             // Check if we already processed this interim text as final or as a better version
-             const trimmedInterim = interimTranscript.trim();
-             const lastProcessed = lastProcessedTextRef.current;
-
-             // Skip if interim is already contained in processed text
-             if (lastProcessed && lastProcessed.includes(trimmedInterim) && lastProcessed.length > trimmedInterim.length) {
-               console.log(`[Transcription] Skipping interim already contained in processed text: "${trimmedInterim}"`);
-               return;
-             }
-
-            // Skip if interim is just a prefix of processed text (user continued speaking)
-            if (lastProcessed && lastProcessed.startsWith(trimmedInterim) && lastProcessed.length > trimmedInterim.length) {
-              console.log(`[Transcription] Skipping interim that became final: "${trimmedInterim}"`);
-              return;
-            }
-
-            // Skip if interim is too short (likely incomplete recognition)
-            if (trimmedInterim.length < 3) {
-              console.log(`[Transcription] Skipping interim too short: "${trimmedInterim}" (${trimmedInterim.length} chars)`);
-              return;
-            }
-
-            console.log(`[Transcription] Calling onTranscriptionComplete with interim transcript`);
-            onTranscriptionComplete(trimmedInterim, 'browser');
-           }, 1500);
+           // Interim transcripts are ignored to prevent premature LLM calls
+           // Only final transcripts are sent to onTranscriptionComplete
+           console.log(`[Transcription] Interim transcript: "${interimTranscript.trim()}" (ignored - waiting for final)`);
         }
       };
 
@@ -1008,7 +970,6 @@ export const useTranscription = ({
       audioStreamRef.current.getTracks().forEach(t => t.stop());
       audioStreamRef.current = null;
     }
-    if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
   }, []);
 
   useEffect(() => {
