@@ -518,19 +518,19 @@ const Subscription = () => {
                   </div>
 
                   {activePlans.includes(plan.id) ? (
-                    <Button variant="outline" className="w-full" disabled>
+                    <Button variant="outline" className="w-48 h-12" disabled>
                       <CheckCircle className="w-4 h-4 mr-2" />
                       Активен
                     </Button>
                   ) : plan.id === 'chat' ? (
-                    <Button variant={plan.buttonVariant} className="w-full" disabled>
+                    <Button variant={plan.buttonVariant} className="w-48 h-12" disabled>
                       <Check className="w-4 h-4 mr-2" />
                       {plan.buttonText}
                     </Button>
                   ) : (
                     <Button
                       variant={plan.buttonVariant}
-                      className={`w-full ${isPopular
+                      className={`w-48 h-12 ${isPopular
                         ? 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white'
                         : ''
                         }`}
