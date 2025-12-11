@@ -531,7 +531,6 @@ const Chat = () => {
       };
 
       // iOS specific handling - check if we need user interaction
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       if (isIOS) {
         console.log('[Chat TTS] iOS detected, user interacted:', hasUserInteracted);
 
