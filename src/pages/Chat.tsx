@@ -249,9 +249,9 @@ const Chat = () => {
     }
 
     try {
-      // Биллинг: считаем токены на вход и выход. 1 токен = 0.1₽.
+      // Биллинг: считаем токены на вход и выход. 1 токен = 0.05₽.
       const tokensIn = estimateTokens(content);
-      const costIn = tokensIn * 0.1;
+      const costIn = tokensIn * 0.05;
       const idempotencyIn = `chat-${currentSessionId}-msg-in-${Date.now()}`;
 
       // Списываем за входящие токены
@@ -259,7 +259,7 @@ const Chat = () => {
         await walletApi.debit(user.id, costIn, 'chat_token', idempotencyIn);
         setBillingError(null);
         setBillingCostPreview(`Списано за ввод ${costIn.toFixed(2)}₽ (${tokensIn} ток.)`);
-        setTimeout(() => setBillingCostPreview(null), 3000);
+        setTimeout(() => setBillingCostPreview(null), 6000);
       } catch (err: any) {
         if (err?.status === 402) {
           setBillingError("Недостаточно средств. Пополните кошелёк.");
@@ -298,13 +298,13 @@ const Chat = () => {
 
         // Списываем за выходящие токены (ответ ассистента)
         const tokensOut = estimateTokens(botResponse);
-        const costOut = tokensOut * 0.1;
+        const costOut = tokensOut * 0.05;
         const idempotencyOut = `chat-${currentSessionId}-msg-out-${Date.now()}`;
         try {
           await walletApi.debit(user.id, costOut, 'chat_token', idempotencyOut);
           setBillingError(null);
           setBillingCostPreview(`Списано за ввод ${costIn.toFixed(2)}₽ (${tokensIn} ток.) + вывод ${costOut.toFixed(2)}₽ (${tokensOut} ток.)`);
-          setTimeout(() => setBillingCostPreview(null), 4000);
+          setTimeout(() => setBillingCostPreview(null), 8000);
         } catch (err: any) {
           if (err?.status === 402) {
             setBillingError("Недостаточно средств для ответа. Пополните кошелёк.");
