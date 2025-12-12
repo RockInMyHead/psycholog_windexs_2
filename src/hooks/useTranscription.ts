@@ -52,6 +52,7 @@ export const useTranscription = ({
   const browserRetryCountRef = useRef(0);
   const justResumedAfterTTSRef = useRef(false);
   const ttsEndTimeRef = useRef(0); // Track when TTS ended
+  const mobileVoiceDetectionStreakRef = useRef(0); // consecutive detections before sending
 
   // Constants
   const SAFARI_VOICE_DETECTION_THRESHOLD = 40;
@@ -245,53 +246,66 @@ export const useTranscription = ({
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          const volumeThreshold = isIOS ? 0.2 : 0.5; // Lower threshold for iOS to capture quiet speech
-          const sizeThreshold = 20000; // bytes - if enough audio accumulated, send even if quiet
+          const volumeThreshold = isIOS ? 2.5 : 1.5; // Stricter thresholds to avoid noise-triggered sends
+          const sizeThreshold = isIOS ? 40000 : 20000;
+          const hasVoiceLevel = volumeLevel >= volumeThreshold;
+          const hasEnoughSize = blob.size >= sizeThreshold;
+          const shouldSend = hasVoiceLevel && hasEnoughSize; // Require both volume and size everywhere to prevent silent sends
+          mobileVoiceDetectionStreakRef.current = shouldSend ? mobileVoiceDetectionStreakRef.current + 1 : 0;
 
-          if (volumeLevel >= volumeThreshold || blob.size >= sizeThreshold) {
+          if (shouldSend && mobileVoiceDetectionStreakRef.current >= 2) {
             // Voice detected in accumulated audio - send it!
             addDebugLog(`[Mobile] 🎤 Voice detected (volume=${volumeLevel.toFixed(4)}%, size=${blob.size}b; thr=${volumeThreshold.toFixed(2)}%, sizeThr=${sizeThreshold}), sending to OpenAI...`);
+            mobileVoiceDetectionStreakRef.current = 0; // reset after confirmed detection
 
             // Update VAD state - voice is active
             lastVoiceActivityRef.current = now;
-          setLastVoiceActivityTime(now);
+            setLastVoiceActivityTime(now);
             isVoiceActiveRef.current = true;
-          setIsVoiceActive(true);
+            setIsVoiceActive(true);
             lastSendTimeRef.current = now;
 
-            // If TTS is playing and user speaks — barge-in
-          if (isTTSActiveRef.current) {
-              addDebugLog(`[Mobile] 🛑 TTS active but voice detected — interrupting`);
-            isTTSActiveRef.current = false;
-            onInterruption?.();
-          }
+            // If TTS is playing and user speaks — barge-in but do not send this noisy chunk
+            if (isTTSActiveRef.current) {
+              addDebugLog(`[Mobile] 🛑 TTS active but voice detected — interrupting and skipping send`);
+              isTTSActiveRef.current = false;
+              onInterruption?.();
+              recordedChunksRef.current = [];
+              return;
+            }
 
             // Send to OpenAI
-          const transcriptionPromise = transcribeWithOpenAI(blob);
+            const transcriptionPromise = transcribeWithOpenAI(blob);
             const timeoutMs = isIOS ? 25000 : 8000; // Longer timeout for iOS
-          const timeoutPromise = new Promise<null>((resolve) => {
-            setTimeout(() => {
-              addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
-              resolve(null);
-            }, timeoutMs);
-          });
+            const timeoutPromise = new Promise<null>((resolve) => {
+              setTimeout(() => {
+                addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
+                resolve(null);
+              }, timeoutMs);
+            });
 
-          const text = await Promise.race([transcriptionPromise, timeoutPromise]);
+            const text = await Promise.race([transcriptionPromise, timeoutPromise]);
 
-          if (text && text.trim()) {
-            const filteredText = filterHallucinatedText(text.trim());
-            if (filteredText) {
-              addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
-              onTranscriptionComplete(filteredText, 'openai');
-            } else {
-              addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
-            }
+            if (text && text.trim()) {
+              const filteredText = filterHallucinatedText(text.trim());
+              if (filteredText) {
+                addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
+                onTranscriptionComplete(filteredText, 'openai');
+              } else {
+                addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
+              }
             }
           } else {
             // Silence detected - update VAD but don't send
             isVoiceActiveRef.current = false;
             setIsVoiceActive(false);
-            addDebugLog(`[Mobile] 🔇 Low volume in accumulated audio (${volumeLevel.toFixed(4)}% < ${volumeThreshold.toFixed(4)}%), not sending`);
+            addDebugLog(`[Mobile] 🔇 Low volume in accumulated audio (${volumeLevel.toFixed(4)}% < ${volumeThreshold.toFixed(4)}% or size=${blob.size}b < ${sizeThreshold}), not sending`);
+            recordedChunksRef.current = []; // Drop accumulated silence to avoid size-based triggers
+            mobileVoiceDetectionStreakRef.current = 0;
+          }
+
+          if (shouldSend && mobileVoiceDetectionStreakRef.current < 2) {
+            addDebugLog(`[Mobile] ⏳ Voice candidate but waiting for confirmation (streak ${mobileVoiceDetectionStreakRef.current}/2)`);
           }
         } else {
           addDebugLog(`[Mobile] Audio too small: ${blob?.size || 0} bytes, skipping`);

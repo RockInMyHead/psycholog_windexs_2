@@ -249,23 +249,23 @@ const Chat = () => {
     }
 
     try {
-      // Billing per token: 1 token = 0.1₽
-      const tokens = estimateTokens(content);
-      const costRub = tokens * 0.1;
-      const idempotencyKey = `chat-${currentSessionId}-msg-${Date.now()}`;
+      // Биллинг: считаем токены на вход и выход. 1 токен = 0.1₽.
+      const tokensIn = estimateTokens(content);
+      const costIn = tokensIn * 0.1;
+      const idempotencyIn = `chat-${currentSessionId}-msg-in-${Date.now()}`;
 
-      // Charge immediately
+      // Списываем за входящие токены
       try {
-        await walletApi.debit(user.id, costRub, 'chat_token', idempotencyKey);
+        await walletApi.debit(user.id, costIn, 'chat_token', idempotencyIn);
         setBillingError(null);
-        setBillingCostPreview(`Списано ${costRub.toFixed(2)}₽ (${tokens} токенов)`);
+        setBillingCostPreview(`Списано за ввод ${costIn.toFixed(2)}₽ (${tokensIn} ток.)`);
         setTimeout(() => setBillingCostPreview(null), 3000);
       } catch (err: any) {
         if (err?.status === 402) {
           setBillingError("Недостаточно средств. Пополните кошелёк.");
           return;
         } else {
-          console.error('Chat billing error:', err);
+          console.error('Chat billing error (input):', err);
           setBillingError("Не удалось списать оплату за сообщение.");
           return;
         }
@@ -295,6 +295,28 @@ const Chat = () => {
 
         const rawBotResponse = await psychologistAI.getResponse(conversationHistory, memoryRef.current);
         const botResponse = sanitizeAssistantResponse(rawBotResponse);
+
+        // Списываем за выходящие токены (ответ ассистента)
+        const tokensOut = estimateTokens(botResponse);
+        const costOut = tokensOut * 0.1;
+        const idempotencyOut = `chat-${currentSessionId}-msg-out-${Date.now()}`;
+        try {
+          await walletApi.debit(user.id, costOut, 'chat_token', idempotencyOut);
+          setBillingError(null);
+          setBillingCostPreview(`Списано за ввод ${costIn.toFixed(2)}₽ (${tokensIn} ток.) + вывод ${costOut.toFixed(2)}₽ (${tokensOut} ток.)`);
+          setTimeout(() => setBillingCostPreview(null), 4000);
+        } catch (err: any) {
+          if (err?.status === 402) {
+            setBillingError("Недостаточно средств для ответа. Пополните кошелёк.");
+            setIsTyping(false);
+            return;
+          } else {
+            console.error('Chat billing error (output):', err);
+            setBillingError("Не удалось списать оплату за ответ.");
+            setIsTyping(false);
+            return;
+          }
+        }
 
         // Save bot message to database
         await chatApi.addChatMessage(currentSessionId, user.id, botResponse, "assistant");
