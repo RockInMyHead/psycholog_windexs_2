@@ -205,8 +205,8 @@ export const useTranscription = ({
 
       addDebugLog(`[Timer] ⏰ Check: timeSinceLastVoice=${(timeSinceLastVoice/1000).toFixed(1)}s, isVoiceActive=${isVoiceActiveRef.current}`);
 
-      // Voice Activity Detection: stop timer if no voice activity for 30 seconds (less aggressive on iOS)
-      const vadTimeout = 30000; // 30 seconds total timeout
+      // Voice Activity Detection: stop timer if no voice activity for 45 seconds (less aggressive on iOS)
+      const vadTimeout = 45000; // 45 seconds total timeout
       if (timeSinceLastVoice > vadTimeout && !isVoiceActiveRef.current) {
         addDebugLog(`[VAD] No voice activity for ${vadTimeout/1000}s, stopping timer`);
         stopMobileTranscriptionTimer();
@@ -245,11 +245,12 @@ export const useTranscription = ({
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          const volumeThreshold = isIOS ? 0.5 : 0.5; // Lower threshold for iOS to capture quiet speech
+          const volumeThreshold = isIOS ? 0.2 : 0.5; // Lower threshold for iOS to capture quiet speech
+          const sizeThreshold = 20000; // bytes - if enough audio accumulated, send even if quiet
 
-          if (volumeLevel >= volumeThreshold) {
+          if (volumeLevel >= volumeThreshold || blob.size >= sizeThreshold) {
             // Voice detected in accumulated audio - send it!
-            addDebugLog(`[Mobile] 🎤 Voice detected in accumulated audio (${volumeLevel.toFixed(4)}% > ${volumeThreshold.toFixed(4)}%), sending ${blob.size} bytes to OpenAI...`);
+            addDebugLog(`[Mobile] 🎤 Voice detected (volume=${volumeLevel.toFixed(4)}%, size=${blob.size}b; thr=${volumeThreshold.toFixed(2)}%, sizeThr=${sizeThreshold}), sending to OpenAI...`);
 
             // Update VAD state - voice is active
             lastVoiceActivityRef.current = now;
@@ -267,7 +268,7 @@ export const useTranscription = ({
 
             // Send to OpenAI
           const transcriptionPromise = transcribeWithOpenAI(blob);
-            const timeoutMs = isIOS ? 20000 : 8000; // Longer timeout for iOS
+            const timeoutMs = isIOS ? 25000 : 8000; // Longer timeout for iOS
           const timeoutPromise = new Promise<null>((resolve) => {
             setTimeout(() => {
               addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
