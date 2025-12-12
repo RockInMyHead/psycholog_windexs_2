@@ -270,6 +270,51 @@ function toPublicUser(user) {
   return safeUser;
 }
 
+// --- Helpers ---
+async function creditSignupBonus(userId, amountKopecks = 100000) { // 1000 ₽
+  if (!userId) return;
+
+  // Если бонус уже начислен — выходим
+  const existingBonus = await db
+    .select()
+    .from(walletTransactions)
+    .where(
+      and(
+        eq(walletTransactions.userId, userId),
+        eq(walletTransactions.type, 'topup'),
+        sql`${walletTransactions.meta} LIKE ${'%signup_bonus%'}`
+      )
+    )
+    .limit(1);
+  if (existingBonus.length > 0) return;
+
+  // Ensure wallet exists
+  const walletRows = await db.select().from(wallets).where(eq(wallets.userId, userId));
+  if (walletRows.length === 0) {
+    const nowTs = toTimestamp(new Date());
+    await db.insert(wallets).values({
+      userId,
+      balance: 0,
+      createdAt: nowTs,
+      updatedAt: nowTs,
+    });
+  }
+
+  // Add bonus transaction atomically
+  const txId = `wtx_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+  const nowTs = toTimestamp(new Date());
+  const tx = sqlite.transaction(() => {
+    sqlite
+      .prepare(`INSERT INTO wallet_transactions (id, user_id, type, amount, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(txId, userId, 'topup', amountKopecks, JSON.stringify({ type: 'signup_bonus' }), nowTs);
+
+    sqlite
+      .prepare(`UPDATE wallets SET balance = balance + ?, updated_at = ? WHERE user_id = ?`)
+      .run(amountKopecks, nowTs, userId);
+  });
+  tx();
+}
+
 // User service
 const userService = {
   async getUserById(id) {
@@ -316,6 +361,13 @@ const userService = {
       audioSessionsUsed: 0,
       lastAudioResetAt: toTimestamp(now),
     });
+
+    // Начисляем приветственный бонус в кошелёк
+    try {
+      await creditSignupBonus(userId);
+    } catch (error) {
+      console.error('Error crediting signup bonus:', error);
+    }
 
     return {
       id: userId,
