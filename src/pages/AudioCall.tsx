@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTTS } from "@/hooks/useTTS";
 import { useLLM } from "@/hooks/useLLM";
 import { useTranscription } from "@/hooks/useTranscription";
+import { useWakeLock } from "@/hooks/useWakeLock";
 
 interface User {
   id: string;
@@ -229,6 +230,9 @@ const AudioCall = () => {
     onError: (err) => setError(err)
   });
 
+  // Keep screen awake during active call
+  useWakeLock(isCallActive);
+
   // 3. TTS Service (Speech Synthesis)
   const {
     speak,
@@ -325,7 +329,7 @@ const AudioCall = () => {
       // Create Call Session (but don't count as used session yet)
       const call = await audioCallApi.createAudioCall(user.id);
       setCurrentCallId(call.id);
-
+      
       // Load User Profile
       await loadUserProfile();
 
@@ -395,7 +399,7 @@ const AudioCall = () => {
         const wasMeaningfulCall = callDuration >= 30;
 
         if (subscriptionInfo?.plan === 'premium') {
-          await subscriptionApi.recordAudioSession(user.id);
+            await subscriptionApi.recordAudioSession(user.id);
         } else if (wasMeaningfulCall) {
           // For free tier, only count sessions that lasted at least 30 seconds
           await subscriptionApi.useAudioSession(user.id);
