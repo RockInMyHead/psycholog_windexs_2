@@ -6,7 +6,6 @@ import { PlayCircle, Clock, Wind } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { userApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { useWakeLock } from "@/hooks/useWakeLock";
 
 interface MeditationItem {
   title: string;
@@ -80,9 +79,6 @@ const Meditations = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-
-  // Keep screen awake while on meditations page
-  useWakeLock(true);
 
   useEffect(() => {
     if (authUser) {

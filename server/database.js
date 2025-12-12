@@ -10,6 +10,23 @@ const logger = require('./logger');
 // Define schema inline for server use
 const { sqliteTable, text, integer } = require('drizzle-orm/sqlite-core');
 
+const wallets = sqliteTable('wallets', {
+  userId: text('user_id').primaryKey(),
+  balance: integer('balance').notNull().default(0), // store in kopecks
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+const walletTransactions = sqliteTable('wallet_transactions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  type: text('type').notNull(), // topup | debit
+  amount: integer('amount').notNull(), // kopecks, positive
+  meta: text('meta'),
+  idempotencyKey: text('idempotency_key').unique(),
+  createdAt: integer('created_at').notNull(),
+});
+
 const users = sqliteTable('users', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -155,6 +172,8 @@ const userProfiles = sqliteTable('user_profiles', {
 });
 
 const schema = {
+  wallets,
+  walletTransactions,
   users,
   chatSessions,
   chatMessages,
@@ -595,6 +614,136 @@ const meditationService = {
       totalSessions,
       totalMinutes,
       avgRating,
+    };
+  },
+};
+
+// Wallet service
+const walletService = {
+  async ensureWallet(userId) {
+    const existing = await db.select().from(schema.wallets).where(eq(schema.wallets.userId, userId));
+    if (existing.length > 0) return existing[0];
+
+    const nowTs = toTimestamp(new Date());
+    await db.insert(schema.wallets).values({
+      userId,
+      balance: 0,
+      createdAt: nowTs,
+      updatedAt: nowTs,
+    });
+    return (await db.select().from(schema.wallets).where(eq(schema.wallets.userId, userId)))[0];
+  },
+
+  async getWallet(userId, limit = 20) {
+    await this.ensureWallet(userId);
+    const walletRows = await db.select().from(schema.wallets).where(eq(schema.wallets.userId, userId));
+    const wallet = walletRows[0];
+
+    const txs = await db
+      .select()
+      .from(schema.walletTransactions)
+      .where(eq(schema.walletTransactions.userId, userId))
+      .orderBy(desc(schema.walletTransactions.createdAt))
+      .limit(limit);
+
+    return {
+      userId,
+      balance: wallet.balance,
+      transactions: txs.map((t) => ({
+        ...t,
+        createdAt: toDateRequired(t.createdAt),
+      })),
+    };
+  },
+
+  async topUp(userId, amountKopecks, meta) {
+    if (!Number.isFinite(amountKopecks) || amountKopecks <= 0) {
+      throw new Error('Invalid amount');
+    }
+    await this.ensureWallet(userId);
+    const txId = `wtx_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+    const nowTs = toTimestamp(new Date());
+
+    const tx = sqlite.transaction(() => {
+      // Insert transaction
+      sqlite
+        .prepare(`INSERT INTO wallet_transactions (id, user_id, type, amount, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(txId, userId, 'topup', amountKopecks, meta ? JSON.stringify(meta) : null, nowTs);
+
+      // Update balance
+      sqlite
+        .prepare(`UPDATE wallets SET balance = balance + ?, updated_at = ? WHERE user_id = ?`)
+        .run(amountKopecks, nowTs, userId);
+    });
+
+    tx();
+
+    const wallet = await this.getWallet(userId, 10);
+    return {
+      balance: wallet.balance,
+      transaction: {
+        id: txId,
+        type: 'topup',
+        amount: amountKopecks,
+        createdAt: new Date(nowTs),
+      },
+    };
+  },
+
+  async debit(userId, amountKopecks, reason, idempotencyKey) {
+    if (!Number.isFinite(amountKopecks) || amountKopecks <= 0) {
+      const err = new Error('Invalid amount');
+      err.status = 400;
+      throw err;
+    }
+    await this.ensureWallet(userId);
+
+    // Idempotency check
+    if (idempotencyKey) {
+      const existing = await db
+        .select()
+        .from(schema.walletTransactions)
+        .where(eq(schema.walletTransactions.idempotencyKey, idempotencyKey));
+      if (existing.length > 0) {
+        const wallet = await this.getWallet(userId, 10);
+        return { balance: wallet.balance, transaction: existing[0], idempotent: true };
+      }
+    }
+
+    // Check balance
+    const walletRows = await db.select().from(schema.wallets).where(eq(schema.wallets.userId, userId));
+    const wallet = walletRows[0];
+    if (!wallet || wallet.balance < amountKopecks) {
+      const err = new Error('Insufficient funds');
+      err.status = 402;
+      throw err;
+    }
+
+    const txId = `wtx_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+    const nowTs = toTimestamp(new Date());
+
+    const tx = sqlite.transaction(() => {
+      sqlite
+        .prepare(`INSERT INTO wallet_transactions (id, user_id, type, amount, meta, idempotency_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(txId, userId, 'debit', amountKopecks, reason ? JSON.stringify({ reason }) : null, idempotencyKey || null, nowTs);
+
+      sqlite
+        .prepare(`UPDATE wallets SET balance = balance - ?, updated_at = ? WHERE user_id = ?`)
+        .run(amountKopecks, nowTs, userId);
+    });
+
+    tx();
+
+    const updated = await this.getWallet(userId, 10);
+    return {
+      balance: updated.balance,
+      transaction: {
+        id: txId,
+        type: 'debit',
+        amount: amountKopecks,
+        createdAt: new Date(nowTs),
+        idempotencyKey: idempotencyKey || null,
+      },
     };
   },
 };
@@ -1317,6 +1466,7 @@ module.exports = {
   userProfileService,
   conversationHistoryService,
   accessService,
+  walletService,
   _ensureUserPasswordColumn,
   db,
   schema,

@@ -4,25 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Phone, PhoneOff, Mic, MicOff, Square, Bug, X } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { userApi, audioCallApi, subscriptionApi } from "@/services/api";
+import { userApi, audioCallApi, walletApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 // Hooks
 import { useTTS } from "@/hooks/useTTS";
 import { useLLM } from "@/hooks/useLLM";
 import { useTranscription } from "@/hooks/useTranscription";
-import { useWakeLock } from "@/hooks/useWakeLock";
 
 interface User {
   id: string;
   name: string;
   email: string;
-}
-
-interface SubscriptionInfo {
-  plan: string;
-  remaining: number;
-  limit: number;
 }
 
 // Debug Logs Component
@@ -104,7 +97,7 @@ const AudioCall = () => {
   // Data State
   const [user, setUser] = useState<User | null>(null);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
-  const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
   
   // Audio/Video State
   const [isMuted, setIsMuted] = useState(false);
@@ -230,9 +223,6 @@ const AudioCall = () => {
     onError: (err) => setError(err)
   });
 
-  // Keep screen awake during active call
-  useWakeLock(isCallActive);
-
   // 3. TTS Service (Speech Synthesis)
   const {
     speak,
@@ -297,8 +287,8 @@ const AudioCall = () => {
       const userData = await userApi.getOrCreateUser(email, name);
       setUser(userData);
       
-      const info = await subscriptionApi.getAudioSessionInfo(userData.id);
-      setSubscriptionInfo(info);
+      const wallet = await walletApi.getWallet(userData.id);
+      setWalletBalance(wallet.balance);
     } catch (err) {
       console.error('Error initializing user:', err);
     } finally {
@@ -316,14 +306,13 @@ const AudioCall = () => {
     setError(null);
 
     try {
-      // Check Subscription
-      const accessCheck = await subscriptionApi.checkAudioAccess(user.id);
-      if (!accessCheck.hasAccess) {
-        if (accessCheck.reason === 'no_sessions_left') {
-          navigate('/subscription');
-          return;
-        }
-        throw new Error("Доступ к аудио сессиям ограничен.");
+      // Check wallet balance (at least 1 minute)
+      const wallet = await walletApi.getWallet(user.id);
+      setWalletBalance(wallet.balance);
+      if ((wallet.balance || 0) < 8) {
+        setError("Недостаточно средств. Пополните кошелёк (минимум 8₽).");
+        navigate('/subscription');
+        return;
       }
 
       // Create Call Session (but don't count as used session yet)
@@ -395,17 +384,23 @@ const AudioCall = () => {
       try {
         await audioCallApi.endAudioCall(currentCallId, callDuration);
 
-        // Only count as used session if call was meaningful (at least 30 seconds)
-        const wasMeaningfulCall = callDuration >= 30;
-
-        if (subscriptionInfo?.plan === 'premium') {
-            await subscriptionApi.recordAudioSession(user.id);
-        } else if (wasMeaningfulCall) {
-          // For free tier, only count sessions that lasted at least 30 seconds
-          await subscriptionApi.useAudioSession(user.id);
-          console.log(`[AudioCall] Counted as used session (duration: ${callDuration}s >= 30s)`);
+        // Charge per full minute (8 ₽/min)
+        const minutes = Math.floor(callDuration / 60);
+        if (minutes > 0) {
+          try {
+            const result = await walletApi.debit(user.id, minutes * 8, 'voice_call', `call-${currentCallId}`);
+            setWalletBalance(result.balance);
+            addDebugLog(`[Billing] Charged ${minutes} min x 8₽ = ${minutes * 8}₽`);
+          } catch (debitErr: any) {
+            if (debitErr?.status === 402) {
+              setError("Недостаточно средств для оплаты звонка. Пополните кошелёк.");
+            } else {
+              console.error("Wallet debit error:", debitErr);
+              setError("Не удалось списать оплату за звонок");
+            }
+          }
         } else {
-          console.log(`[AudioCall] Not counted as used session (duration: ${callDuration}s < 30s)`);
+          addDebugLog(`[Billing] Call shorter than 1 minute, no charge`);
         }
       } catch (err) {
         console.error("Error ending call:", err);
@@ -486,9 +481,9 @@ const AudioCall = () => {
                     </div>
                   )}
 
-                  {subscriptionInfo && (
+                  {walletBalance !== null && (
                     <p className="mt-3 text-sm text-muted-foreground">
-                      Осталось сессий: {subscriptionInfo.remaining}/{subscriptionInfo.limit}
+                      Баланс: {walletBalance.toFixed(2)}₽ • 1 мин = 8₽
                     </p>
                   )}
                 </div>

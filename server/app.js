@@ -19,7 +19,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Import database services
-const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, _ensureUserPasswordColumn, db, schema, sqlite } = require('./database');
+const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, walletService, _ensureUserPasswordColumn, db, schema, sqlite } = require('./database');
 const logger = require('./logger');
 
 // Audio conversion function
@@ -169,6 +169,25 @@ async function initializeDatabase() {
         audio_sessions_limit INTEGER,
         audio_sessions_used INTEGER DEFAULT 0,
         last_audio_reset_at INTEGER,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS wallets (
+        user_id TEXT PRIMARY KEY,
+        balance INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS wallet_transactions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        meta TEXT,
+        idempotency_key TEXT UNIQUE,
+        created_at INTEGER NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
       );
 
@@ -961,6 +980,97 @@ app.post('/api/subscriptions', async (req, res) => {
   }
 });
 
+// --- Wallet endpoints ---
+function normalizeWalletResponse(wallet) {
+  return {
+    balance: Number((wallet.balance / 100).toFixed(2)),
+    balanceKopecks: wallet.balance,
+    transactions: (wallet.transactions || []).map((t) => ({
+      id: t.id,
+      type: t.type,
+      amount: t.amount,
+      amountRub: Number((t.amount / 100).toFixed(2)),
+      meta: t.meta ? JSON.parse(t.meta) : undefined,
+      idempotencyKey: t.idempotencyKey,
+      createdAt: t.createdAt,
+    })),
+  };
+}
+
+app.get('/api/wallet', async (req, res) => {
+  try {
+    const userId = req.query.userId || req.body?.userId;
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    const wallet = await walletService.getWallet(userId);
+    res.json(normalizeWalletResponse(wallet));
+  } catch (error) {
+    console.error('Error fetching wallet:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/wallet/topup', async (req, res) => {
+  try {
+    const { userId, amount, meta } = req.body;
+    if (!userId || amount === undefined) {
+      return res.status(400).json({ error: 'userId and amount are required' });
+    }
+    const amountNumber = Number(amount);
+    const amountKopecks = Math.round(amountNumber * 100);
+    if (!Number.isFinite(amountKopecks) || amountKopecks <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+
+    const result = await walletService.topUp(userId, amountKopecks, meta);
+    res.json({
+      balance: Number((result.balance / 100).toFixed(2)),
+      balanceKopecks: result.balance,
+      transaction: {
+        ...result.transaction,
+        amountRub: Number((result.transaction.amount / 100).toFixed(2)),
+      },
+    });
+  } catch (error) {
+    console.error('Error topping up wallet:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/wallet/debit', async (req, res) => {
+  try {
+    const { userId, amount, reason, idempotencyKey } = req.body;
+    if (!userId || amount === undefined) {
+      return res.status(400).json({ error: 'userId and amount are required' });
+    }
+    const amountNumber = Number(amount);
+    const amountKopecks = Math.round(amountNumber * 100);
+    if (!Number.isFinite(amountKopecks) || amountKopecks <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+
+    const result = await walletService.debit(userId, amountKopecks, reason, idempotencyKey);
+    res.json({
+      balance: Number((result.balance / 100).toFixed(2)),
+      balanceKopecks: result.balance,
+      transaction: {
+        ...result.transaction,
+        amountRub: Number((result.transaction.amount / 100).toFixed(2)),
+      },
+    });
+  } catch (error) {
+    console.error('Error debiting wallet:', error);
+    if (error.status === 402) {
+      return res.status(402).json({ error: 'insufficient_funds' });
+    }
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/users/:userId/subscription', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1318,7 +1428,12 @@ app.get('/', (req, res) => {
       audioCalls: 'POST /api/audio-calls',
       meditations: 'POST /api/meditations',
       quotes: 'GET /api/quotes',
-      subscriptions: 'POST /api/subscriptions'
+      subscriptions: 'POST /api/subscriptions',
+      wallet: {
+        get: 'GET /api/wallet?userId=',
+        topup: 'POST /api/wallet/topup',
+        debit: 'POST /api/wallet/debit'
+      }
     }
   });
 });

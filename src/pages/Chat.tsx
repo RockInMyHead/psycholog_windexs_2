@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Send, Mic, Square, Loader2, Volume2, VolumeX } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { userApi, chatApi, memoryApi } from "@/services/api";
+import { userApi, chatApi, memoryApi, walletApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { psychologistAI } from "@/services/openai";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
@@ -29,9 +29,14 @@ const Chat = () => {
   const [sessionDuration, setSessionDuration] = useState(0);
   const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const memoryRef = useRef<string>("");
   const sessionTimerRef = useRef<number | null>(null);
+  const billingTimerRef = useRef<number | null>(null);
+  const chatStartRef = useRef<number | null>(null);
+  const minutesChargedRef = useRef(0);
+  const lastUserActivityRef = useRef<number | null>(null);
 
   const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут
   const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // За 5 минут
@@ -80,6 +85,9 @@ const Chat = () => {
       // Create new chat session
       const session = await chatApi.createChatSession(userData.id, 'Новая сессия');
       setCurrentSessionId(session.id);
+      chatStartRef.current = null;
+      minutesChargedRef.current = 0;
+      stopBillingTimer();
 
       // Add initial bot message
       await chatApi.addChatMessage(
@@ -180,6 +188,7 @@ const Chat = () => {
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
     }
+    stopBillingTimer();
 
     if (currentSessionId) {
       try {
@@ -205,6 +214,7 @@ const Chat = () => {
       if (sessionTimerRef.current) {
         clearInterval(sessionTimerRef.current);
       }
+      stopBillingTimer();
     };
   }, []);
 
@@ -220,6 +230,57 @@ const Chat = () => {
       setMessages(formattedMessages);
     } catch (error) {
       console.error('Error loading messages:', error);
+    }
+  };
+
+  const stopBillingTimer = () => {
+    if (billingTimerRef.current) {
+      clearInterval(billingTimerRef.current);
+      billingTimerRef.current = null;
+    }
+  };
+
+  const chargeIfNeeded = async () => {
+    if (!user || !currentSessionId || !chatStartRef.current) return;
+    const now = Date.now();
+
+    // stop if inactivity
+    if (lastUserActivityRef.current && now - lastUserActivityRef.current > 3 * 60 * 1000) {
+      stopBillingTimer();
+      return;
+    }
+
+    const minutesElapsed = Math.floor((now - chatStartRef.current) / 60000);
+    if (minutesElapsed > minutesChargedRef.current) {
+      const minutesToCharge = minutesElapsed - minutesChargedRef.current;
+      const amountRub = minutesToCharge * 2;
+      const minuteIndex = minutesChargedRef.current + 1;
+      const idempotencyKey = `chat-${currentSessionId}-min-${minuteIndex}`;
+      try {
+        await walletApi.debit(user.id, amountRub, 'chat', idempotencyKey);
+        minutesChargedRef.current = minutesElapsed;
+      } catch (err: any) {
+        if (err?.status === 402) {
+          setAudioError("Недостаточно средств для оплаты чата. Пополните кошелёк.");
+          stopBillingTimer();
+        } else {
+          console.error('Chat billing error:', err);
+        }
+      }
+    }
+  };
+
+  const startBillingIfNeeded = () => {
+    const now = Date.now();
+    lastUserActivityRef.current = now;
+    if (!chatStartRef.current) {
+      chatStartRef.current = now;
+      minutesChargedRef.current = 0;
+    }
+    if (!billingTimerRef.current) {
+      billingTimerRef.current = window.setInterval(() => {
+        chargeIfNeeded();
+      }, 10000);
     }
   };
 
@@ -245,6 +306,14 @@ const Chat = () => {
     }
 
     try {
+      // Ensure sufficient balance (at least 2₽ for a minute)
+      const wallet = await walletApi.getWallet(user.id);
+      if ((wallet.balance || 0) < 2) {
+        setBillingError("Недостаточно средств. Пополните кошелёк (минимум 2₽).");
+        return;
+      }
+      setBillingError(null);
+
       // Save user message to database
       await chatApi.addChatMessage(currentSessionId, user.id, content, "user");
 
@@ -257,6 +326,7 @@ const Chat = () => {
       };
 
       setMessages(prev => [...prev, userMessage]);
+      startBillingIfNeeded();
 
       // Get AI response
       setIsTyping(true);
@@ -557,10 +627,10 @@ const Chat = () => {
         }
       } else {
         // Non-iOS devices
-        console.log('[Chat TTS] Starting playback...');
-        await audio.play();
-        setTtsStatus("speaking");
-        console.log('[Chat TTS] Playback started successfully');
+      console.log('[Chat TTS] Starting playback...');
+      await audio.play();
+      setTtsStatus("speaking");
+      console.log('[Chat TTS] Playback started successfully');
       }
 
     } catch (error) {
@@ -740,6 +810,9 @@ const Chat = () => {
 
               {/* Input Area */}
               <div className="border-t border-border p-4 md:p-6">
+                {billingError && (
+                  <div className="text-sm text-destructive mb-2">{billingError}</div>
+                )}
                 <div className="flex gap-2">
                   <Input
                     value={inputValue}

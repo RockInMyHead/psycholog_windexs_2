@@ -17,7 +17,7 @@ const Quotes = () => {
 
   useEffect(() => {
     if (authUser) {
-      initializeData();
+    initializeData();
     }
   }, [authUser]);
 

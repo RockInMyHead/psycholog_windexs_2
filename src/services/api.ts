@@ -209,6 +209,27 @@ export const meditationApi = {
   },
 };
 
+// Wallet service
+export const walletApi = {
+  async getWallet(userId: string) {
+    return await apiCall(`/wallet?userId=${encodeURIComponent(userId)}`);
+  },
+
+  async topUp(userId: string, amountRub: number, meta?: Record<string, unknown>) {
+    return await apiCall('/wallet/topup', {
+      method: 'POST',
+      body: JSON.stringify({ userId, amount: amountRub, meta }),
+    });
+  },
+
+  async debit(userId: string, amountRub: number, reason?: string, idempotencyKey?: string) {
+    return await apiCall('/wallet/debit', {
+      method: 'POST',
+      body: JSON.stringify({ userId, amount: amountRub, reason, idempotencyKey }),
+    });
+  },
+};
+
 // Quote service
 export const quoteApi = {
   async getAllQuotes() {
