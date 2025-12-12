@@ -205,8 +205,8 @@ export const useTranscription = ({
 
       addDebugLog(`[Timer] ⏰ Check: timeSinceLastVoice=${(timeSinceLastVoice/1000).toFixed(1)}s, isVoiceActive=${isVoiceActiveRef.current}`);
 
-      // Voice Activity Detection: stop timer if no voice activity for 15 seconds (give user time to start speaking)
-      const vadTimeout = 15000; // 15 seconds total timeout
+      // Voice Activity Detection: stop timer if no voice activity for 30 seconds (less aggressive on iOS)
+      const vadTimeout = 30000; // 30 seconds total timeout
       if (timeSinceLastVoice > vadTimeout && !isVoiceActiveRef.current) {
         addDebugLog(`[VAD] No voice activity for ${vadTimeout/1000}s, stopping timer`);
         stopMobileTranscriptionTimer();
@@ -245,7 +245,7 @@ export const useTranscription = ({
           const volumeLevel = await checkAudioVolume(blob);
           addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
 
-          const volumeThreshold = isIOS ? 5.0 : 0.5; // Higher threshold for iOS to avoid noise detection
+          const volumeThreshold = isIOS ? 0.5 : 0.5; // Lower threshold for iOS to capture quiet speech
 
           if (volumeLevel >= volumeThreshold) {
             // Voice detected in accumulated audio - send it!
@@ -253,38 +253,38 @@ export const useTranscription = ({
 
             // Update VAD state - voice is active
             lastVoiceActivityRef.current = now;
-            setLastVoiceActivityTime(now);
+          setLastVoiceActivityTime(now);
             isVoiceActiveRef.current = true;
-            setIsVoiceActive(true);
+          setIsVoiceActive(true);
             lastSendTimeRef.current = now;
 
             // If TTS is playing and user speaks — barge-in
-            if (isTTSActiveRef.current) {
+          if (isTTSActiveRef.current) {
               addDebugLog(`[Mobile] 🛑 TTS active but voice detected — interrupting`);
-              isTTSActiveRef.current = false;
-              onInterruption?.();
-            }
+            isTTSActiveRef.current = false;
+            onInterruption?.();
+          }
 
             // Send to OpenAI
-            const transcriptionPromise = transcribeWithOpenAI(blob);
+          const transcriptionPromise = transcribeWithOpenAI(blob);
             const timeoutMs = isIOS ? 20000 : 8000; // Longer timeout for iOS
-            const timeoutPromise = new Promise<null>((resolve) => {
-              setTimeout(() => {
-                addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
-                resolve(null);
-              }, timeoutMs);
-            });
+          const timeoutPromise = new Promise<null>((resolve) => {
+            setTimeout(() => {
+              addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
+              resolve(null);
+            }, timeoutMs);
+          });
 
-            const text = await Promise.race([transcriptionPromise, timeoutPromise]);
+          const text = await Promise.race([transcriptionPromise, timeoutPromise]);
 
-            if (text && text.trim()) {
-              const filteredText = filterHallucinatedText(text.trim());
-              if (filteredText) {
-                addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
-                onTranscriptionComplete(filteredText, 'openai');
-              } else {
-                addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
-              }
+          if (text && text.trim()) {
+            const filteredText = filterHallucinatedText(text.trim());
+            if (filteredText) {
+              addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
+              onTranscriptionComplete(filteredText, 'openai');
+            } else {
+              addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
+            }
             }
           } else {
             // Silence detected - update VAD but don't send
@@ -310,6 +310,14 @@ export const useTranscription = ({
       addDebugLog(`[Mobile] Stopping transcription timer`);
       clearInterval(mobileTranscriptionTimerRef.current);
       mobileTranscriptionTimerRef.current = null;
+
+      // Ensure recorder and stream are stopped when timer stops
+      stopMediaRecording();
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((t) => t.stop());
+        audioStreamRef.current = null;
+        addDebugLog(`[Mobile] Audio stream stopped after timer stop`);
+      }
     }
   }, []);
 
@@ -842,8 +850,8 @@ export const useTranscription = ({
 
            if (timeSinceTTSEnd < echoProtectionMs) {
              console.log(`[Transcription] Ignoring interim during echo protection (${timeSinceTTSEnd}ms < ${echoProtectionMs}ms)`);
-             return;
-           }
+               return;
+             }
 
            if (justResumedAfterTTSRef.current) {
              // Send first interim immediately after TTS resumption and echo protection
@@ -1008,10 +1016,10 @@ export const useTranscription = ({
           t.stop();
           console.log('[Transcription] Stopped audio track:', t.label);
         });
-        audioStreamRef.current = null;
+      audioStreamRef.current = null;
       } catch (e) {
         console.log('[Transcription] Error stopping audio tracks:', e.message);
-      }
+    }
     }
 
     console.log('[Transcription] 🧹 Cleanup completed');
