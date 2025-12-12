@@ -753,6 +753,68 @@ const quoteService = {
   async getAllQuotes() {
     const result = await db.select().from(schema.quotes).orderBy(schema.quotes.createdAt);
 
+    // Seed additional quotes if table is empty or too small
+    if (result.length < 30) {
+      const nowTs = toTimestamp(new Date());
+      const seeds = [
+        ["quote_einstein_imagination", "Воображение важнее знания.", "Альберт Эйнштейн", "Мотивация"],
+        ["quote_seneca_way", "Не бывает попутного ветра для корабля без цели.", "Сенека", "Цель"],
+        ["quote_confucius_fast", "Неважно, как медленно ты идешь, пока не останавливаешься.", "Конфуций", "Настойчивость"],
+        ["quote_churchill_nevergiveup", "Никогда, никогда, никогда не сдавайтесь.", "Уинстон Черчилль", "Настойчивость"],
+        ["quote_frankl_meaning", "У того, кто знает зачем жить, найдется почти любое как.", "Виктор Франкл", "Смысл"],
+        ["quote_rumi_light", "Рана – это место, где свет входит в тебя.", "Джалал Руми", "Исцеление"],
+        ["quote_tzu_waves", "Тот, кто обуздал себя, сильнее того, кто победил тысячу в битве.", "Лао-цзы", "Саморазвитие"],
+        ["quote_gandhi_future", "Будущее зависит от того, что ты делаешь сегодня.", "Махатма Ганди", "Действие"],
+        ["quote_davinci_learning", "Учение — единственное, что разум никогда не устает, никогда не боится и никогда не жалеет.", "Леонардо да Винчи", "Развитие"],
+        ["quote_epictetus_control", "Не события тревожат людей, а их мнение о событиях.", "Эпиктет", "Отношение"],
+        ["quote_marquez_live", "Жизнь – не то, что прожито, а то, что запомнилось.", "Габриэль Гарсиа Маркес", "Жизнь"],
+        ["quote_hemingway_brave", "Мужество — это достоинство под давлением.", "Эрнест Хемингуэй", "Сила"],
+        ["quote_mandela_courage", "Я узнал, что мужество — это не отсутствие страха, а победа над ним.", "Нельсон Мандела", "Смелость"],
+        ["quote_tolkien_hope", "Даже самая малая искра надежды способна разжечь великое пламя.", "Дж. Р. Р. Толкин", "Надежда"],
+        ["quote_dostoevsky_heart", "Красота спасет мир.", "Фёдор Достоевский", "Вдохновение"],
+        ["quote_camussisyphean", "Надо представить себе Сизифа счастливым.", "Альбер Камю", "Осознанность"],
+        ["quote_kant_stars", "Две вещи наполняют душу благоговением: звездное небо надо мной и моральный закон во мне.", "Иммануил Кант", "Созерцание"],
+        ["quote_orwell_truth", "В эпоху всеобщего обмана говорить правду — революционный поступок.", "Джордж Оруэлл", "Честность"],
+        ["quote_tzu_steps", "Путешествие в тысячу ли начинается с первого шага.", "Лао-цзы", "Начало"],
+        ["quote_buddha_peace", "Мир внутри — мир снаружи.", "Будда", "Осознанность"],
+        ["quote_carleton_kind", "Доброе слово ничего не стоит, но бесценно в деле.", "Блез Паскаль", "Доброта"],
+        ["quote_twain_future", "Через двадцать лет ты будешь больше разочарован тем, что не сделал, чем тем, что сделал.", "Марк Твен", "Действие"],
+        ["quote_ford_possible", "Если вы думаете, что можете — вы правы. Если думаете, что не можете — тоже правы.", "Генри Форд", "Установка"],
+        ["quote_angelou_rise", "И всё же я поднимаюсь.", "Майя Энджелоу", "Сила"],
+        ["quote_king_dream", "У меня есть мечта.", "Мартин Лютер Кинг", "Мечта"],
+        ["quote_kafka_path", "Путь возникает под ногами идущего.", "Франц Кафка", "Путь"],
+        ["quote_hesse_journey", "Жизнь каждого человека — путь к самому себе.", "Герман Гессе", "Самопознание"],
+        ["quote_yogananda_breathe", "Дыши, улыбайся и шагай вперёд.", "Парамаханса Йогананда", "Спокойствие"],
+        ["quote_pasternak_be", "Быть знаменитым некрасиво. Не это поднимает ввысь.", "Борис Пастернак", "Смысл"],
+        ["quote_pushkin_honor", "И долго буду тем любезен я народу, что чувства добрые я лирой пробуждал.", "Александр Пушкин", "Доброта"],
+      ];
+
+      const existingIds = new Set(result.map((q) => q.id));
+      const insertable = seeds.filter(([id]) => !existingIds.has(id)).map(([id, text, author, category]) => ({
+        id,
+        text,
+        author,
+        category,
+        createdAt: nowTs,
+      }));
+
+      if (insertable.length > 0) {
+        const tx = sqlite.transaction(() => {
+          insertable.forEach((row) => {
+            sqlite
+              .prepare(`INSERT OR IGNORE INTO quotes (id, text, author, category, created_at) VALUES (?, ?, ?, ?, ?)`)
+              .run(row.id, row.text, row.author, row.category, row.createdAt);
+          });
+        });
+        tx();
+        const refreshed = await db.select().from(schema.quotes).orderBy(schema.quotes.createdAt);
+        return refreshed.map((quote) => ({
+          ...quote,
+          createdAt: toDateRequired(quote.createdAt),
+        }));
+      }
+    }
+
     return result.map(quote => ({
       ...quote,
       createdAt: toDateRequired(quote.createdAt),
