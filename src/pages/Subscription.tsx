@@ -108,6 +108,12 @@ const Subscription = () => {
       }
 
       const payment = await response.json();
+      // Сохраняем ID платежа для последующей верификации после возврата
+      if (payment?.id) {
+        localStorage.setItem("pending_payment_id", payment.id);
+        localStorage.setItem("pending_payment_user", user.id);
+      }
+
       const redirectUrl = payment?.confirmation?.confirmation_url || payment?.confirmation?.url;
       if (redirectUrl) {
         window.location.href = redirectUrl;
@@ -124,7 +130,31 @@ const Subscription = () => {
     }
   };
 
+  // Проверяем статус платежа после возврата с redirect (fallback, если вебхук не сработал)
   useEffect(() => {
+    const verifyPayment = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const paymentStatus = urlParams.get("payment");
+      const pendingPaymentId = localStorage.getItem("pending_payment_id");
+      const pendingPaymentUser = localStorage.getItem("pending_payment_user");
+
+      if (paymentStatus === "success" && pendingPaymentId && pendingPaymentUser && user && user.id === pendingPaymentUser) {
+        try {
+          setTopupLoading(true);
+          await fetch(`/api/payments/status?paymentId=${encodeURIComponent(pendingPaymentId)}`);
+          // После возможного дозачисления обновляем баланс
+          await loadWallet();
+        } catch (e) {
+          console.error("Payment status check error", e);
+        } finally {
+          setTopupLoading(false);
+          localStorage.removeItem("pending_payment_id");
+          localStorage.removeItem("pending_payment_user");
+        }
+      }
+    };
+
+    verifyPayment();
     loadWallet();
   }, [user]);
 

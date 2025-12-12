@@ -1266,6 +1266,67 @@ app.post('/api/payments/create', async (req, res) => {
   }
 });
 
+// Payment status + fallback topup
+app.get('/api/payments/status', async (req, res) => {
+  try {
+    const paymentId = req.query.paymentId;
+    if (!paymentId) {
+      return res.status(400).json({ error: 'paymentId is required' });
+    }
+
+    const yookassaResponse = await fetch(`https://api.yookassa.ru/v3/payments/${paymentId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${Buffer.from(`1183996:live_OTmJmdMHX6ysyUcUpBz5kt-dmSq1pT-Y5gLgmpT1jXg`).toString('base64')}`,
+      },
+    });
+
+    if (!yookassaResponse.ok) {
+      const errorText = await yookassaResponse.text();
+      logger.payment.error('status', new Error(errorText));
+      return res.status(500).json({ error: 'Failed to fetch payment status' });
+    }
+
+    const paymentData = await yookassaResponse.json();
+    const metadata = paymentData.metadata || {};
+
+    // Fallback topup if webhook didn't process
+    if (
+      paymentData.status === 'succeeded' &&
+      metadata?.type === 'wallet_topup' &&
+      metadata?.userId &&
+      paymentData.amount?.value
+    ) {
+      const alreadyProcessed = await walletService.hasPaymentTransaction(paymentId);
+      if (!alreadyProcessed) {
+        const amountValue = Number(paymentData.amount.value);
+        const amountKopecks = Math.round(amountValue * 100);
+        if (Number.isFinite(amountKopecks) && amountKopecks > 0) {
+          await walletService.topUp(metadata.userId, amountKopecks, {
+            paymentId,
+            provider: 'yoomoney',
+            type: 'wallet_topup',
+            source: 'status_poll',
+          });
+          logger.payment.succeeded(paymentId, metadata.userId);
+        }
+      }
+    }
+
+    res.json({
+      id: paymentData.id,
+      status: paymentData.status,
+      metadata: paymentData.metadata,
+      amount: paymentData.amount,
+      confirmation: paymentData.confirmation,
+    });
+  } catch (error) {
+    logger.payment.error('status', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Webhook endpoint for Yookassa payment notifications
 app.post('/api/payments/webhook', async (req, res) => {
   try {

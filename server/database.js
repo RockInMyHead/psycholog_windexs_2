@@ -746,6 +746,22 @@ const walletService = {
       },
     };
   },
+
+  async hasPaymentTransaction(paymentId) {
+    if (!paymentId) return false;
+    const existing = await db
+      .select()
+      .from(schema.walletTransactions)
+      .where(
+        and(
+          eq(schema.walletTransactions.type, 'topup'),
+          // meta stored as JSON string, use simple LIKE match
+          sql`${schema.walletTransactions.meta} LIKE ${'%' + paymentId + '%'}`
+        )
+      )
+      .limit(1);
+    return existing.length > 0;
+  },
 };
 
 // Quote service
