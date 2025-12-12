@@ -31,8 +31,8 @@ const Subscription = () => {
 
   const rates = useMemo(
     () => [
-      { label: "Звонок с Марком", price: 8, unit: "₽ / мин", icon: Phone },
-      { label: "Чат с Марком", price: 2, unit: "₽ / мин", icon: MessageCircle },
+      { label: "Звонок с Марком", price: "8₽ / мин", sub: "Списывается за полные минуты", icon: Phone },
+      { label: "Чат с Марком", price: "1 слово = 0.2₽", sub: "Расчёт по словам/токенам", icon: MessageCircle },
     ],
     []
   );
@@ -150,10 +150,10 @@ const Subscription = () => {
                         <Icon className="w-5 h-5 text-primary" />
                         <div>
                           <div className="font-medium">{rate.label}</div>
-                          <div className="text-sm text-muted-foreground">Списывается за каждую полную минуту</div>
+                          <div className="text-sm text-muted-foreground">{rate.sub}</div>
                         </div>
                       </div>
-                      <div className="text-lg font-semibold">{rate.price} {rate.unit}</div>
+                      <div className="text-lg font-semibold whitespace-nowrap">{rate.price}</div>
                     </div>
                   );
                 })}

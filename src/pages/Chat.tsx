@@ -26,20 +26,12 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
-  const [sessionDuration, setSessionDuration] = useState(0);
-  const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const memoryRef = useRef<string>("");
   const sessionTimerRef = useRef<number | null>(null);
-  const billingTimerRef = useRef<number | null>(null);
-  const chatStartRef = useRef<number | null>(null);
-  const minutesChargedRef = useRef(0);
-  const lastUserActivityRef = useRef<number | null>(null);
-
-  const SESSION_DURATION_SECONDS = 30 * 60; // 30 минут
-  const SESSION_WARNING_SECONDS = SESSION_DURATION_SECONDS - 5 * 60; // За 5 минут
+  const [billingCostPreview, setBillingCostPreview] = useState<string | null>(null);
   const {
     isRecording,
     startRecording,
@@ -85,9 +77,6 @@ const Chat = () => {
       // Create new chat session
       const session = await chatApi.createChatSession(userData.id, 'Новая сессия');
       setCurrentSessionId(session.id);
-      chatStartRef.current = null;
-      minutesChargedRef.current = 0;
-      stopBillingTimer();
 
       // Add initial bot message
       await chatApi.addChatMessage(
@@ -214,7 +203,6 @@ const Chat = () => {
       if (sessionTimerRef.current) {
         clearInterval(sessionTimerRef.current);
       }
-      stopBillingTimer();
     };
   }, []);
 
@@ -233,55 +221,10 @@ const Chat = () => {
     }
   };
 
-  const stopBillingTimer = () => {
-    if (billingTimerRef.current) {
-      clearInterval(billingTimerRef.current);
-      billingTimerRef.current = null;
-    }
-  };
-
-  const chargeIfNeeded = async () => {
-    if (!user || !currentSessionId || !chatStartRef.current) return;
-    const now = Date.now();
-
-    // stop if inactivity
-    if (lastUserActivityRef.current && now - lastUserActivityRef.current > 3 * 60 * 1000) {
-      stopBillingTimer();
-      return;
-    }
-
-    const minutesElapsed = Math.floor((now - chatStartRef.current) / 60000);
-    if (minutesElapsed > minutesChargedRef.current) {
-      const minutesToCharge = minutesElapsed - minutesChargedRef.current;
-      const amountRub = minutesToCharge * 2;
-      const minuteIndex = minutesChargedRef.current + 1;
-      const idempotencyKey = `chat-${currentSessionId}-min-${minuteIndex}`;
-      try {
-        await walletApi.debit(user.id, amountRub, 'chat', idempotencyKey);
-        minutesChargedRef.current = minutesElapsed;
-      } catch (err: any) {
-        if (err?.status === 402) {
-          setAudioError("Недостаточно средств для оплаты чата. Пополните кошелёк.");
-          stopBillingTimer();
-        } else {
-          console.error('Chat billing error:', err);
-        }
-      }
-    }
-  };
-
-  const startBillingIfNeeded = () => {
-    const now = Date.now();
-    lastUserActivityRef.current = now;
-    if (!chatStartRef.current) {
-      chatStartRef.current = now;
-      minutesChargedRef.current = 0;
-    }
-    if (!billingTimerRef.current) {
-      billingTimerRef.current = window.setInterval(() => {
-        chargeIfNeeded();
-      }, 10000);
-    }
+  const estimateTokens = (text: string) => {
+    // Simple heuristic: ~4 chars per token
+    const tokens = Math.max(1, Math.ceil(text.length / 4));
+    return tokens;
   };
 
   useEffect(() => {
@@ -306,13 +249,27 @@ const Chat = () => {
     }
 
     try {
-      // Ensure sufficient balance (at least 2₽ for a minute)
-      const wallet = await walletApi.getWallet(user.id);
-      if ((wallet.balance || 0) < 2) {
-        setBillingError("Недостаточно средств. Пополните кошелёк (минимум 2₽).");
-        return;
+      // Billing per token: 1 token = 0.1₽
+      const tokens = estimateTokens(content);
+      const costRub = tokens * 0.1;
+      const idempotencyKey = `chat-${currentSessionId}-msg-${Date.now()}`;
+
+      // Charge immediately
+      try {
+        await walletApi.debit(user.id, costRub, 'chat_token', idempotencyKey);
+        setBillingError(null);
+        setBillingCostPreview(`Списано ${costRub.toFixed(2)}₽ (${tokens} токенов)`);
+        setTimeout(() => setBillingCostPreview(null), 3000);
+      } catch (err: any) {
+        if (err?.status === 402) {
+          setBillingError("Недостаточно средств. Пополните кошелёк.");
+          return;
+        } else {
+          console.error('Chat billing error:', err);
+          setBillingError("Не удалось списать оплату за сообщение.");
+          return;
+        }
       }
-      setBillingError(null);
 
       // Save user message to database
       await chatApi.addChatMessage(currentSessionId, user.id, content, "user");
@@ -326,7 +283,6 @@ const Chat = () => {
       };
 
       setMessages(prev => [...prev, userMessage]);
-      startBillingIfNeeded();
 
       // Get AI response
       setIsTyping(true);
@@ -700,30 +656,6 @@ const Chat = () => {
         <div className="w-full max-w-5xl mx-auto">
           <Card className="bg-card border-0 shadow-none animate-scale-in rounded-3xl">
             <div className="min-h-[calc(100vh-8rem)] flex flex-col">
-              {/* Таймер сессии */}
-              {!loading && sessionDuration > 0 && (
-                <div className="px-6 pt-4 pb-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      Время сессии: {formatDuration(sessionDuration)}
-                    </span>
-                    {sessionDuration >= SESSION_WARNING_SECONDS && (
-                      <span className="text-orange-500 font-medium animate-pulse">
-                        Осталось ~{Math.ceil((SESSION_DURATION_SECONDS - sessionDuration) / 60)} мин
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2 h-1 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-1000 ${sessionDuration >= SESSION_WARNING_SECONDS
-                        ? 'bg-orange-500'
-                        : 'bg-blue-500'
-                        }`}
-                      style={{ width: `${(sessionDuration / SESSION_DURATION_SECONDS) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              )}
               {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {loading ? (
@@ -852,8 +784,9 @@ const Chat = () => {
                     )}
                   </Button>
                 </div>
-                {(isRecording || isProcessingAudio || audioError) && (
+                {(billingCostPreview || isRecording || isProcessingAudio || audioError) && (
                   <div className="mt-3 text-xs text-muted-foreground flex items-center gap-2">
+                    {billingCostPreview && <span className="text-green-600 font-medium">{billingCostPreview}</span>}
                     {isRecording && <span className="text-red-500 font-medium">Идёт запись...</span>}
                     {isProcessingAudio && <span>Обрабатываю голосовое сообщение...</span>}
                     {audioError && <span className="text-destructive">{audioError}</span>}
