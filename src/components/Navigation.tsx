@@ -1,19 +1,16 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Home, MessageCircle, Phone, Lightbulb, PlayCircle, User, Crown, LogOut, Wind } from "lucide-react";
+import { Menu, Home, MessageCircle, Phone, Lightbulb, PlayCircle, User, LogOut, Wind } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { walletApi } from "@/services/api";
-import { Input } from "@/components/ui/input";
 
 const Navigation = () => {
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
-  const [showTopUp, setShowTopUp] = useState(false);
-  const [topUpAmount, setTopUpAmount] = useState(300);
-  const [topUpError, setTopUpError] = useState<string | null>(null);
   const location = useLocation();
   const { user, logout } = useAuth();
 
@@ -23,7 +20,6 @@ const Navigation = () => {
     { path: "/audio", label: "Звонок", icon: Phone },
     { path: "/quotes", label: "Фразы", icon: Lightbulb },
     { path: "/meditations", label: "Медитации", icon: PlayCircle },
-    { path: "/subscription", label: "Подписка", icon: Crown },
     { path: "/profile", label: "Профиль", icon: User },
   ];
 
@@ -43,21 +39,8 @@ const Navigation = () => {
     loadWallet();
   }, [user]);
 
-  const handleTopUp = async () => {
-    if (!user) return;
-    if (topUpAmount <= 0) {
-      setTopUpError('Введите сумму больше 0');
-      return;
-    }
-    try {
-      setTopUpError(null);
-      const data = await walletApi.topUp(user.id, topUpAmount);
-      setWalletBalance(data.balance);
-      setShowTopUp(false);
-    } catch (error) {
-      console.error('Top up failed:', error);
-      setTopUpError('Не удалось пополнить кошелек');
-    }
+  const goToTopUp = () => {
+    navigate('/subscription');
   };
 
   return (
@@ -98,7 +81,7 @@ const Navigation = () => {
             <div className="hidden md:flex items-center gap-3 mx-4 px-3 py-1 rounded-full bg-muted/60 border border-border">
               <span className="text-sm text-muted-foreground">Кошелёк</span>
               <span className="font-semibold">{walletLoading ? '...' : walletBalance !== null ? `${walletBalance.toFixed(2)}₽` : '--'}</span>
-              <Button size="sm" variant="outline" onClick={() => setShowTopUp(true)}>Пополнить</Button>
+              <Button size="sm" variant="outline" onClick={goToTopUp}>Пополнить</Button>
             </div>
           )}
 
@@ -173,8 +156,8 @@ const Navigation = () => {
                   variant="outline"
                   className="w-full mb-2"
                   onClick={() => {
-                    setShowTopUp(true);
                     setIsOpen(false);
+                    goToTopUp();
                   }}
                 >
                   Пополнить
@@ -196,40 +179,6 @@ const Navigation = () => {
         )}
       </div>
 
-      {/* Top-up modal */}
-      {showTopUp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Пополнить кошелёк</h3>
-              <Button variant="ghost" size="icon" onClick={() => setShowTopUp(false)}>
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-            <div className="space-y-3">
-              <div className="text-sm text-muted-foreground">Текущий баланс: {walletBalance !== null ? `${walletBalance.toFixed(2)}₽` : '--'}</div>
-              <Input
-                type="number"
-                min={1}
-                value={topUpAmount}
-                onChange={(e) => setTopUpAmount(Number(e.target.value))}
-                placeholder="Сумма, ₽"
-              />
-              <div className="flex gap-2 flex-wrap">
-                {[100, 300, 500, 1000].map((v) => (
-                  <Button key={v} variant="outline" size="sm" onClick={() => setTopUpAmount(v)}>
-                    +{v}₽
-                  </Button>
-                ))}
-              </div>
-              {topUpError && <div className="text-sm text-destructive">{topUpError}</div>}
-              <Button className="w-full" onClick={handleTopUp} disabled={walletLoading}>
-                Пополнить
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </nav>
   );
 };
