@@ -1278,7 +1278,22 @@ app.post('/api/payments/webhook', async (req, res) => {
       logger.payment.succeeded(payment.id, payment.metadata?.userId);
       logger.debug('WEBHOOK', `Payment metadata for ${payment.id}`, payment.metadata);
 
-      if (payment.metadata?.userId && payment.metadata?.plan) {
+      if (payment.metadata?.type === 'wallet_topup' && payment.metadata?.userId) {
+        // Пополнение кошелька
+        const amountValue = Number(payment.amount?.value || 0);
+        const amountKopecks = Math.round(amountValue * 100);
+        if (Number.isFinite(amountKopecks) && amountKopecks > 0) {
+          await walletService.topUp(payment.metadata.userId, amountKopecks, {
+            paymentId: payment.id,
+            provider: 'yoomoney',
+            type: 'wallet_topup',
+          });
+          logger.payment.succeeded(payment.id, payment.metadata.userId);
+        } else {
+          logger.warn('WEBHOOK', `Invalid amount in payment ${payment.id}`, { amount: payment.amount?.value });
+        }
+      } else if (payment.metadata?.userId && payment.metadata?.plan) {
+        // Старый сценарий подписок
         logger.debug('WEBHOOK', `Creating subscription for user ${payment.metadata.userId}, plan ${payment.metadata.plan}`);
         const subscriptionId = await subscriptionService.createSubscription(
           payment.metadata.userId,
@@ -1289,7 +1304,8 @@ app.post('/api/payments/webhook', async (req, res) => {
       } else {
         logger.warn('WEBHOOK', `Missing metadata in payment ${payment.id}`, {
           userId: payment.metadata?.userId,
-          plan: payment.metadata?.plan
+          plan: payment.metadata?.plan,
+          type: payment.metadata?.type
         });
       }
     }

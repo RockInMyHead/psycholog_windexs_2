@@ -60,16 +60,62 @@ const Subscription = () => {
     }
     try {
       setTopupLoading(true);
-      const data = await walletApi.topUp(user.id, topupAmount);
-      setWallet((prev) => ({
-        ...(prev || data),
-        balance: data.balance,
-        balanceKopecks: data.balanceKopecks,
-        transactions: data.transaction
-          ? [data.transaction, ...(prev?.transactions || [])]
-          : prev?.transactions || [],
-      }));
       setError(null);
+
+      // Создаем платёж в ЮMoney/ЮKassa и уходим на redirect
+      const response = await fetch("/api/payments/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: {
+            value: topupAmount.toFixed(2),
+            currency: "RUB",
+          },
+          confirmation: {
+            type: "redirect",
+            return_url: `${window.location.origin}/subscription?payment=success`,
+          },
+          description: `Пополнение кошелька на ${topupAmount.toFixed(2)}₽`,
+          metadata: {
+            userId: user.id,
+            type: "wallet_topup",
+            amountRub: topupAmount,
+          },
+          receipt: {
+            customer: {
+              email: user.email || "customer@windexs.ru",
+            },
+            items: [
+              {
+                description: `Пополнение кошелька (${topupAmount.toFixed(2)}₽)`,
+                quantity: 1,
+                amount: {
+                  value: topupAmount.toFixed(2),
+                  currency: "RUB",
+                },
+                vat_code: 1,
+                payment_subject: "service",
+                payment_mode: "full_payment",
+              },
+            ],
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Payment creation failed");
+      }
+
+      const payment = await response.json();
+      const redirectUrl = payment?.confirmation?.confirmation_url || payment?.confirmation?.url;
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+        return;
+      }
+
+      // Если по какой-то причине нет redirect URL
+      setError("Не удалось получить ссылку на оплату.");
     } catch (err: any) {
       console.error("Top-up failed:", err);
       setError("Не удалось пополнить кошелек");
