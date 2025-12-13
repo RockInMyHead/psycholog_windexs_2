@@ -404,10 +404,10 @@ export const useTranscription = ({
   const estimateVolumeFromBlob = (audioBlob: Blob): number => {
     const size = audioBlob.size;
     if (size < 1000) return 0.001;       // Very small - likely silence
-    if (size < 5000) return 0.002;       // Small chunks - quiet
-    if (size < 15000) return 0.01;       // Medium chunks - some voice
-    if (size < 30000) return 0.03;       // Large chunks - normal voice
-    return 0.06;                         // Very large - loud voice
+    if (size < 5000) return 0.5;         // Small chunks - could be voice
+    if (size < 15000) return 1.0;        // Medium chunks - likely some voice
+    if (size < 30000) return 3.0;        // Large chunks - normal voice (above iOS 2.5% threshold)
+    return 5.0;                         // Very large - loud voice
   };
 
   // --- OpenAI Fallback Logic (via server API) ---
@@ -641,6 +641,12 @@ export const useTranscription = ({
           confirmationFrames = SAFARI_SPEECH_CONFIRMATION_FRAMES;
         } else {
           // Chrome/others: no interruption to avoid echo
+          return;
+        }
+
+        // Skip voice interruption detection when TTS is active to prevent TTS audio from triggering interruption
+        if (isAssistantActive) {
+          setSafariSpeechDetectionCount(0);
           return;
         }
 
