@@ -605,28 +605,46 @@ export const useTranscription = ({
         analyser.getByteFrequencyData(dataArray);
         const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
 
-        // Safari Optimization Logic
-        if (!hasEchoProblems()) {
-          const isAssistantActive = isTTSActiveRef.current;
-          const threshold = isAssistantActive ? SAFARI_VOICE_DETECTION_THRESHOLD + 15 : SAFARI_VOICE_DETECTION_THRESHOLD;
-          const currentTime = Date.now();
+        // Voice interruption logic for all browsers
+        const isIOS = isIOSDevice();
+        const isAssistantActive = isTTSActiveRef.current;
+        const currentTime = Date.now();
 
-          if (average > threshold) {
-             setSafariSpeechDetectionCount(prev => {
-               const newCount = prev + 1;
-               if (newCount >= SAFARI_SPEECH_CONFIRMATION_FRAMES) {
-                 if (currentTime - lastSafariSpeechTime > SAFARI_SPEECH_DEBOUNCE) {
-                   addDebugLog(`[Volume] 🎤 Voice interruption (vol: ${average.toFixed(1)})`);
-                   setLastSafariSpeechTime(currentTime);
-                   onInterruption?.();
-                   return 0;
-                 }
+        // Use different thresholds for different browsers
+        let threshold: number;
+        let debounceTime: number;
+        let confirmationFrames: number;
+
+        if (isIOS) {
+          // iOS: more aggressive interruption
+          threshold = isAssistantActive ? 30 : 20; // Lower threshold for iOS
+          debounceTime = 300; // Faster debounce for iOS
+          confirmationFrames = 1; // Immediate interruption for iOS
+        } else if (!hasEchoProblems()) {
+          // Safari: original logic
+          threshold = isAssistantActive ? SAFARI_VOICE_DETECTION_THRESHOLD + 15 : SAFARI_VOICE_DETECTION_THRESHOLD;
+          debounceTime = SAFARI_SPEECH_DEBOUNCE;
+          confirmationFrames = SAFARI_SPEECH_CONFIRMATION_FRAMES;
+        } else {
+          // Chrome/others: no interruption to avoid echo
+          return;
+        }
+
+        if (average > threshold) {
+           setSafariSpeechDetectionCount(prev => {
+             const newCount = prev + 1;
+             if (newCount >= confirmationFrames) {
+               if (currentTime - lastSafariSpeechTime > debounceTime) {
+                 addDebugLog(`[Volume] 🎤 Voice interruption (vol: ${average.toFixed(1)}, ${isIOS ? 'iOS' : 'Safari'} mode)`);
+                 setLastSafariSpeechTime(currentTime);
+                 onInterruption?.();
+                 return 0;
                }
-               return newCount;
-             });
-          } else {
-            setSafariSpeechDetectionCount(0);
-          }
+             }
+             return newCount;
+           });
+        } else {
+          setSafariSpeechDetectionCount(0);
         }
         volumeMonitorRef.current = requestAnimationFrame(checkVolume);
       };
@@ -892,11 +910,12 @@ export const useTranscription = ({
         addDebugLog(`[Speech] 🎤 Speech started - resetting processed text`);
         lastProcessedTextRef.current = ''; // Reset for new speech
         onSpeechStart?.();
-        // Safari Optimizations for Interruption
-        if (!hasEchoProblems() && isTTSActiveRef.current) {
+        // Voice interruption for all browsers during TTS
+        if (isTTSActiveRef.current) {
            const currentTime = Date.now();
-           if (currentTime - lastSafariSpeechTime > SAFARI_SPEECH_DEBOUNCE) {
-             addDebugLog(`[Speech] 🎤 Safari voice interruption`);
+           const debounceTime = isIOSDevice() ? 500 : SAFARI_SPEECH_DEBOUNCE; // Faster interruption for iOS
+           if (currentTime - lastSafariSpeechTime > debounceTime) {
+             addDebugLog(`[Speech] 🎤 Voice interruption detected (${isIOSDevice() ? 'iOS fast mode' : 'Safari mode'})`);
              setLastSafariSpeechTime(currentTime);
              onInterruption?.();
            }
