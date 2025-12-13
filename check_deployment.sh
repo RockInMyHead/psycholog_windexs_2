@@ -30,7 +30,7 @@ echo ""
 echo "3. Проверка OpenAI API:"
 CHAT_RESPONSE=$(curl -s -X POST https://psycholog.windexs.ru/api/chat/completions \
     -H "Content-Type: application/json" \
-    -d '{"model":"gpt-5.1","messages":[{"role":"user","content":"test"}]}' 2>/dev/null)
+    -d '{"model":"gpt-5.2","messages":[{"role":"user","content":"test"}]}' 2>/dev/null)
 if echo "$CHAT_RESPONSE" | grep -q "chat.completion"; then
     echo "✅ OK: OpenAI API работает через прокси"
 elif echo "$CHAT_RESPONSE" | grep -q "404"; then
