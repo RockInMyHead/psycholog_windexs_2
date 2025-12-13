@@ -53,6 +53,7 @@ export const useTranscription = ({
   const justResumedAfterTTSRef = useRef(false);
   const ttsEndTimeRef = useRef(0); // Track when TTS ended
   const mobileVoiceDetectionStreakRef = useRef(0); // consecutive detections before sending
+  const unmuteCalledRef = useRef(false); // Prevent duplicate unmute calls
 
   // Constants
   const SAFARI_VOICE_DETECTION_THRESHOLD = 40;
@@ -841,20 +842,33 @@ export const useTranscription = ({
           return;
         }
 
+        // Для iOS: конкатенировать все результаты, не только финальные
+        let fullTranscript = '';
         let finalTranscript = "";
         let interimTranscript = "";
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        for (let i = 0; i < event.results.length; i++) {
           const result = event.results[i];
-          if (result.isFinal) finalTranscript += result[0].transcript;
-          else interimTranscript += result[0].transcript;
+          const transcript = result[0].transcript;
+          fullTranscript += transcript;
+
+          if (result.isFinal) {
+            finalTranscript += transcript;
+            addDebugLog(`[Speech] Final result: "${transcript}"`);
+          } else {
+            interimTranscript += transcript;
+            addDebugLog(`[Speech] Interim result: "${transcript}"`);
+          }
         }
 
-        if (finalTranscript.trim()) {
-          console.log(`[Transcription] Final transcript: "${finalTranscript}"`);
+        // Использовать fullTranscript для обработки на iOS
+        const transcriptToProcess = isIOSDevice() ? fullTranscript : finalTranscript;
+
+        if (transcriptToProcess.trim()) {
+          console.log(`[Transcription] ${isIOSDevice() ? 'Full' : 'Final'} transcript: "${transcriptToProcess}"`);
 
           // Prevent duplicate processing - check if this is just an extension of previous text
-          const trimmedText = finalTranscript.trim();
+          const trimmedText = transcriptToProcess.trim();
           const lastText = lastProcessedTextRef.current;
 
           // If new text starts with previous text and is significantly longer, it's a continuation
@@ -881,10 +895,10 @@ export const useTranscription = ({
             return;
           }
 
-          console.log(`[Transcription] Processing new final transcript`);
+          console.log(`[Transcription] Processing new ${isIOSDevice() ? 'full' : 'final'} transcript`);
           lastProcessedTextRef.current = trimmedText;
 
-          console.log(`[Transcription] Calling onTranscriptionComplete with final transcript`);
+          console.log(`[Transcription] Calling onTranscriptionComplete with ${isIOSDevice() ? 'full' : 'final'} transcript`);
           onTranscriptionComplete(trimmedText, 'browser');
         } else if (interimTranscript.trim()) {
            // Interim transcripts are ignored to prevent premature LLM calls
@@ -1114,6 +1128,13 @@ export const useTranscription = ({
       }
     },
     resumeRecordingAfterTTS: () => {
+      // Prevent duplicate unmute calls
+      if (unmuteCalledRef.current) {
+        console.log(`[Transcription] Unmute already in progress, skipping duplicate call`);
+        return;
+      }
+      unmuteCalledRef.current = true;
+
       // Longer delay for browsers with echo problems (Chrome)
       const resumeDelay = hasEchoProblems() && !isIOSDevice() ? 1200 : 400; // Shorter delay for iOS
 
@@ -1141,6 +1162,11 @@ export const useTranscription = ({
         } catch (e) {
           console.log(`[Transcription] Error resuming recognition: ${e.message}`);
         }
+
+        // Reset the unmute flag after operation completes
+        setTimeout(() => {
+          unmuteCalledRef.current = false;
+        }, resumeDelay + 1000);
       }, resumeDelay);
     }
   };
