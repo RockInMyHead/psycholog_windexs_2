@@ -227,6 +227,7 @@ const AudioCall = () => {
   
   // Audio/Video State
   const [isMuted, setIsMuted] = useState(false);
+  const [markStatus, setMarkStatus] = useState<string>('Готов к разговору');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const callTimerRef = useRef<number | null>(null);
 
@@ -368,9 +369,11 @@ const AudioCall = () => {
   } = useTTS({
     onPlaybackStatusChange: (isActive) => {
       if (isActive) {
+        setMarkStatus('🎤 Говорю');
         // Во время TTS глушим запись/распознавание (кроме Safari — логика внутри useTranscription)
         pauseRecordingForTTS?.();
       } else {
+        setMarkStatus('👂 Слушаю');
         // Возвращаем запись/распознавание только если звонок еще активен
         if (isCallActiveRef.current) {
           resumeRecordingAfterTTS?.();
@@ -382,7 +385,7 @@ const AudioCall = () => {
 
   useEffect(() => {
     isAssistantSpeakingRef.current = isTTSPlaying || isTTSSynthesizing;
-    
+
     // Update video based on TTS state
     if (videoRef.current) {
       if (isAssistantSpeakingRef.current) {
@@ -393,6 +396,19 @@ const AudioCall = () => {
       }
     }
   }, [isTTSPlaying, isTTSSynthesizing]);
+
+  // Update Mark status based on AI processing and TTS state
+  useEffect(() => {
+    if (isAIProcessing) {
+      setMarkStatus('🤔 Думаю');
+    } else if (isTTSPlaying) {
+      setMarkStatus('🎤 Говорю');
+    } else if (isTTSSynthesizing) {
+      setMarkStatus('🎵 Генерирую голос');
+    } else {
+      setMarkStatus('👂 Слушаю');
+    }
+  }, [isAIProcessing, isTTSPlaying, isTTSSynthesizing]);
 
   useEffect(() => {
     isCallActiveRef.current = isCallActive;
@@ -463,6 +479,7 @@ const AudioCall = () => {
       // UI Updates
       setIsCallActive(true);
       setCallDuration(0);
+      setMarkStatus('👋 Приветствую');
       
       // Initial Greeting
       setTimeout(async () => {
@@ -492,6 +509,7 @@ const AudioCall = () => {
     // Сразу помечаем, что звонок завершен, чтобы TTS не возобновлял запись
     isCallActiveRef.current = false;
     setIsCallActive(false);
+    setMarkStatus('Готов к разговору');
 
     // Aggressive cleanup - stop everything
     console.log('[AudioCall] Stopping TTS...');
@@ -640,8 +658,9 @@ const AudioCall = () => {
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-bold mb-2">Звонок идет</h2>
-                  <div className="text-lg font-medium text-primary">{formatDuration(callDuration)}</div>
+                  <h2 className="text-2xl font-bold mb-2">Марк</h2>
+                  <div className="text-lg font-medium text-primary mb-1">{markStatus}</div>
+                  <div className="text-sm text-muted-foreground">{formatDuration(callDuration)}</div>
                 </div>
 
                 <div className="flex justify-center gap-4">
