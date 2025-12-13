@@ -139,12 +139,22 @@ export const useTranscription = ({
       try {
         const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
         setMicrophonePermissionStatus(result.state);
+        addDebugLog(`[Permissions] Microphone permission status: ${result.state}`);
+
         result.addEventListener('change', () => {
           setMicrophonePermissionStatus(result.state);
+          addDebugLog(`[Permissions] Microphone permission changed to: ${result.state}`);
         });
       } catch (error) {
-        console.log("[Permissions] Could not query microphone permissions:", error);
+        addDebugLog(`[Permissions] Could not query microphone permissions: ${error}`);
       }
+    } else {
+      addDebugLog(`[Permissions] Permissions API not available`);
+    }
+
+    // Additional iOS diagnostics
+    if (deviceProfile.isIOS) {
+      addDebugLog(`[iOS Diagnostics] HTTPS: ${location.protocol === 'https:'}, Permissions API: ${!!navigator.permissions}, Secure Context: ${window.isSecureContext}`);
     }
 
     // Reset state
@@ -198,7 +208,50 @@ export const useTranscription = ({
     } catch (error: any) {
       console.error('[Mic] ❌ Failed:', error);
       setMicrophoneAccessGranted(false);
-      onError?.(`Ошибка доступа к микрофону: ${error.message}`);
+
+      // Enhanced error handling for iOS
+      let userFriendlyErrorMessage = "Ошибка доступа к микрофону";
+
+      if (deviceProfile.isIOS) {
+        // iOS-specific error handling
+        if (error.name === 'NotAllowedError') {
+          userFriendlyErrorMessage = "Доступ к микрофону запрещен. В Safari откройте Настройки > Конфиденциальность > Микрофон и разрешите доступ для этого сайта.";
+        } else if (error.name === 'NotFoundError') {
+          userFriendlyErrorMessage = "Микрофон не найден. Убедитесь что у устройства есть микрофон и он работает.";
+        } else if (error.name === 'NotReadableError') {
+          userFriendlyErrorMessage = "Микрофон занят другим приложением. Закройте другие приложения, использующие микрофон, и перезагрузите страницу.";
+        } else if (error.name === 'SecurityError') {
+          userFriendlyErrorMessage = "Требуется защищенное соединение (HTTPS) для доступа к микрофону.";
+        } else if (error.name === 'AbortError') {
+          userFriendlyErrorMessage = "Доступ к микрофону был прерван. Попробуйте еще раз.";
+        } else {
+          userFriendlyErrorMessage = `Ошибка доступа к микрофону на iOS: ${error.message || 'Неизвестная ошибка'}. Попробуйте перезагрузить Safari или использовать другой браузер.`;
+        }
+
+        // Log additional iOS diagnostic info
+        console.log('[iOS Mic Diagnostics]', {
+          errorName: error.name,
+          errorMessage: error.message,
+          httpsRequired: !window.isSecureContext,
+          userAgent: navigator.userAgent,
+          permissionsAPI: !!navigator.permissions
+        });
+      } else {
+        // Generic error handling for other platforms
+        if (error.name === 'NotAllowedError') {
+          userFriendlyErrorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера.";
+        } else if (error.name === 'NotFoundError') {
+          userFriendlyErrorMessage = "Микрофон не найден. Проверьте подключение микрофона.";
+        } else if (error.name === 'NotReadableError') {
+          userFriendlyErrorMessage = "Микрофон занят другим приложением или вкладкой.";
+        } else if (error.name === 'SecurityError') {
+          userFriendlyErrorMessage = "Требуется защищенное соединение (HTTPS) для доступа к микрофону.";
+        } else {
+          userFriendlyErrorMessage = `Ошибка доступа к микрофону: ${error.message || 'Неизвестная ошибка'}`;
+        }
+      }
+
+      onError?.(userFriendlyErrorMessage);
     }
   }, [
     deviceProfile, getTranscriptionStrategy, shouldForceOpenAI,
