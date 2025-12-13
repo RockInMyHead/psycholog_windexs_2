@@ -497,8 +497,33 @@ export const useTranscription = ({
           return;
         }
         if (e.data.size > 0) {
-          recordedChunksRef.current.push(e.data);
-          addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
+          const isIOS = isIOSDevice();
+
+          if (isIOS && e.data.size > 15000) { // iOS: отправлять большие чанки сразу (realtime)
+            addDebugLog(`[MediaRec] 📱 iOS realtime chunk: ${e.data.size} bytes - sending immediately`);
+
+            // Создать blob из текущего чанка
+            const chunkBlob = new Blob([e.data], { type: e.data.type });
+
+            // Отправить на транскрибацию сразу (не ждать таймера)
+            transcribeWithOpenAI(chunkBlob).then(text => {
+              if (text && text.trim()) {
+                const filteredText = filterHallucinatedText(text.trim());
+                if (filteredText) {
+                  addDebugLog(`[Mobile] ✅ iOS Realtime transcribed: "${filteredText}"`);
+                  onTranscriptionComplete(filteredText, 'openai');
+                }
+              }
+            }).catch(error => {
+              addDebugLog(`[Mobile] ❌ iOS realtime transcription error: ${error}`);
+            });
+
+            // Не накапливать для таймера на iOS
+          } else {
+            // Android/Desktop: накопление для таймера
+            recordedChunksRef.current.push(e.data);
+            addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
+          }
 
           // Real-time volume monitoring for voice interruption (use estimate for iOS)
           if (e.data.size > 1000) {
@@ -779,16 +804,19 @@ export const useTranscription = ({
       const android = isAndroidDevice();
       addDebugLog(`[Init] Checking mobile timer: iOS=${ios}, Android=${android}, hasSpeechRec=${hasSupport}`);
 
-      if (shouldForceOpenAI && isMobile) {
-        // Initialize VAD state for mobile transcription
+      if (shouldForceOpenAI && isMobile && !ios) {
+        // Android: использовать таймер с накоплением аудио
         const now = Date.now();
         lastVoiceActivityRef.current = now;
         setLastVoiceActivityTime(now);
         isVoiceActiveRef.current = false;
         setIsVoiceActive(false);
 
-        addDebugLog(`[Init] Starting mobile transcription timer (fallback OpenAI mode on mobile)`);
+        addDebugLog(`[Init] Starting mobile transcription timer (fallback OpenAI mode on Android)`);
         startMobileTranscriptionTimer();
+      } else if (shouldForceOpenAI && ios) {
+        // iOS: realtime отправка без таймера
+        addDebugLog(`[Init] iOS realtime mode - sending audio chunks immediately without timer`);
       } else {
         addDebugLog(`[Init] Not starting mobile timer (using browser SpeechRecognition)`);
       }
