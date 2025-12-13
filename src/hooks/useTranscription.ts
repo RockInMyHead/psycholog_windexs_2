@@ -607,8 +607,8 @@ export const useTranscription = ({
 
         // Voice interruption logic for all browsers
         const isIOS = isIOSDevice();
-        const isAssistantActive = isTTSActiveRef.current;
-        const currentTime = Date.now();
+          const isAssistantActive = isTTSActiveRef.current;
+          const currentTime = Date.now();
 
         // Use different thresholds for different browsers
         let threshold: number;
@@ -616,10 +616,10 @@ export const useTranscription = ({
         let confirmationFrames: number;
 
         if (isIOS) {
-          // iOS: more aggressive interruption
-          threshold = isAssistantActive ? 30 : 20; // Lower threshold for iOS
-          debounceTime = 300; // Faster debounce for iOS
-          confirmationFrames = 1; // Immediate interruption for iOS
+          // iOS: balanced interruption - not too sensitive to noise
+          threshold = isAssistantActive ? 50 : 35; // Higher threshold to avoid noise
+          debounceTime = 500; // Reasonable debounce for iOS
+          confirmationFrames = 2; // Require 2 confirmations to avoid false positives
         } else if (!hasEchoProblems()) {
           // Safari: original logic
           threshold = isAssistantActive ? SAFARI_VOICE_DETECTION_THRESHOLD + 15 : SAFARI_VOICE_DETECTION_THRESHOLD;
@@ -630,21 +630,21 @@ export const useTranscription = ({
           return;
         }
 
-        if (average > threshold) {
-           setSafariSpeechDetectionCount(prev => {
-             const newCount = prev + 1;
+          if (average > threshold) {
+             setSafariSpeechDetectionCount(prev => {
+               const newCount = prev + 1;
              if (newCount >= confirmationFrames) {
                if (currentTime - lastSafariSpeechTime > debounceTime) {
                  addDebugLog(`[Volume] 🎤 Voice interruption (vol: ${average.toFixed(1)}, ${isIOS ? 'iOS' : 'Safari'} mode)`);
-                 setLastSafariSpeechTime(currentTime);
-                 onInterruption?.();
-                 return 0;
+                   setLastSafariSpeechTime(currentTime);
+                   onInterruption?.();
+                   return 0;
+                 }
                }
-             }
-             return newCount;
-           });
-        } else {
-          setSafariSpeechDetectionCount(0);
+               return newCount;
+             });
+          } else {
+            setSafariSpeechDetectionCount(0);
         }
         volumeMonitorRef.current = requestAnimationFrame(checkVolume);
       };
