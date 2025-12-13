@@ -39,9 +39,11 @@ const DebugLogs = ({ logs, isVisible, onToggle, onClear, onCopy }: {
     logs.forEach(log => {
       const timestamp = log.match(/\[(\d{2}:\d{2}:\d{2})\]/)?.[1] || new Date().toLocaleTimeString();
 
-      // Распознавание реплик пользователей
-      if (log.includes('✅ Transcribed') || log.includes('📱 iOS Realtime transcribed')) {
-        const textMatch = log.match(/Transcribed: "([^"]+)"/) || log.match(/transcribed: "([^"]+)"/);
+      // Распознавание реплик пользователей - расширенные паттерны
+      if (log.includes('Transcribed') || log.includes('транскрибирован') || log.includes('🎤')) {
+        const textMatch = log.match(/Transcribed: "([^"]+)"/) ||
+                         log.match(/транскрибирован: "([^"]+)"/) ||
+                         log.match(/"([^"]+)"/);
         if (textMatch) {
           parsed.conversation.push({
             speaker: '👤 Пользователь',
@@ -52,10 +54,10 @@ const DebugLogs = ({ logs, isVisible, onToggle, onClear, onCopy }: {
         }
       }
 
-      // Распознавание ответов Марка
-      if (log.includes('🎭') || log.includes('Ответ от AI') || log.includes('Получен ответ от сервера')) {
+      // Распознавание ответов Марка - расширенные паттерны
+      if (log.includes('Марк') || log.includes('психолог') || log.includes('AI') || log.includes('ответ')) {
         const textMatch = log.match(/"([^"]+)"/) || log.match(/Ответ: ([^\n]+)/);
-        if (textMatch && log.includes('Марк') || log.includes('психолог')) {
+        if (textMatch && (log.includes('Марк') || log.includes('психолог') || log.includes('AI'))) {
           parsed.conversation.push({
             speaker: '🧠 Марк',
             text: textMatch[1],
@@ -65,8 +67,8 @@ const DebugLogs = ({ logs, isVisible, onToggle, onClear, onCopy }: {
         }
       }
 
-      // Время генерации ответа
-      const timingMatch = log.match(/(LLM|OpenAI|TTS|STT).*?(\d+)(мс|ms|сек|s)/);
+      // Время генерации ответа - расширенные паттерны
+      const timingMatch = log.match(/(LLM|OpenAI|TTS|STT|время).*?(\d+(?:\.\d+)?)\s*(мс|ms|сек|секунд|s)/i);
       if (timingMatch) {
         parsed.timing.push({
           operation: timingMatch[1],
@@ -75,8 +77,8 @@ const DebugLogs = ({ logs, isVisible, onToggle, onClear, onCopy }: {
         });
       }
 
-      // Стоимость услуг
-      const costMatch = log.match(/(TTS|LLM|STT).*?(₽|\$|руб).*?(\d+(?:\.\d+)?)/);
+      // Стоимость услуг - расширенные паттерны
+      const costMatch = log.match(/(TTS|LLM|STT|стоимость|цена).*?(₽|\$|руб|рублей).*?(\d+(?:\.\d+)?)/i);
       if (costMatch) {
         parsed.costs.push({
           service: costMatch[1],
@@ -284,6 +286,9 @@ const AudioCall = () => {
     userId: user?.id,
     callId: currentCallId,
     onResponseGenerated: async (text) => {
+      // Log AI response for debugging
+      addDebugLog(`[AI] 🎭 Марк ответил: "${text}"`);
+
       // Update conversation memory after AI response
       if (lastUserMessageRef.current) {
         await updateConversationMemory(lastUserMessageRef.current, text);
@@ -314,6 +319,10 @@ const AudioCall = () => {
     onTranscriptionComplete: async (text, source) => {
       const transcribeId = Date.now();
       console.log(`[AudioCall] onTranscriptionComplete (ID: ${transcribeId}) called with: "${text}" from ${source}`);
+
+      // Log user transcription for debugging
+      addDebugLog(`[User] 🎤 Пользователь сказал: "${text}" (${source})`);
+
       if (!text) return;
 
       // Ignore transcription if microphone is muted
