@@ -24,6 +24,7 @@ echo "  ✅ Removed forced OpenAI mode for iOS - faster and more responsive"
 echo "  ✅ Android: Maintains OpenAI STT with 2s timer and voice detection"
 echo "  ✅ Desktop & iOS: Browser-based speech recognition for instant feedback"
 echo "  ✅ No server delays on iPhone - local speech processing"
+echo "  ✅ Debug logs: Russian interface with conversation display, timing & costs"
 echo ""
 
 echo "🔍 Checking local changes..."
