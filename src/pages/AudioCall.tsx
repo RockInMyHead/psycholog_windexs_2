@@ -369,11 +369,11 @@ const AudioCall = () => {
   } = useTTS({
     onPlaybackStatusChange: (isActive) => {
       if (isActive) {
-        setMarkStatus('🎤 Говорю');
+        setMarkStatus('Говорю');
         // Во время TTS глушим запись/распознавание (кроме Safari — логика внутри useTranscription)
         pauseRecordingForTTS?.();
       } else {
-        setMarkStatus('👂 Слушаю');
+        setMarkStatus('Слушаю');
         // Возвращаем запись/распознавание только если звонок еще активен
         if (isCallActiveRef.current) {
           resumeRecordingAfterTTS?.();
@@ -400,13 +400,13 @@ const AudioCall = () => {
   // Update Mark status based on AI processing and TTS state
   useEffect(() => {
     if (isAIProcessing) {
-      setMarkStatus('🤔 Думаю');
+      setMarkStatus('Думаю');
     } else if (isTTSPlaying) {
-      setMarkStatus('🎤 Говорю');
+      setMarkStatus('Говорю');
     } else if (isTTSSynthesizing) {
-      setMarkStatus('🎵 Генерирую голос');
+      setMarkStatus('Генерирую голос');
     } else {
-      setMarkStatus('👂 Слушаю');
+      setMarkStatus('Слушаю');
     }
   }, [isAIProcessing, isTTSPlaying, isTTSSynthesizing]);
 
@@ -479,7 +479,7 @@ const AudioCall = () => {
       // UI Updates
       setIsCallActive(true);
       setCallDuration(0);
-      setMarkStatus('👋 Приветствую');
+      setMarkStatus('Приветствую');
       
       // Initial Greeting
       setTimeout(async () => {
