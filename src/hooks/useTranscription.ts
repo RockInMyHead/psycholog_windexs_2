@@ -368,8 +368,8 @@ export const useTranscription = ({
   }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, onInterruption, addDebugLog]);
 
   // --- Cleanup ---
-  const cleanup = useCallback(() => {
-    addDebugLog('[Transcription] 🧹 Cleanup called');
+  const cleanup = useCallback((resetMicrophoneState: boolean = true) => {
+    addDebugLog(`[Transcription] 🧹 Cleanup called (resetMic: ${resetMicrophoneState})`);
 
     // Stop everything
     stopMobileTranscriptionTimer();
@@ -384,7 +384,11 @@ export const useTranscription = ({
 
     setTranscriptionStatus(null);
     setTranscriptionMode('browser');
-    setMicrophoneAccessGranted(false);
+
+    // Only reset microphone access if explicitly requested (not during TTS pause/resume)
+    if (resetMicrophoneState) {
+      setMicrophoneAccessGranted(false);
+    }
   }, [
     stopMobileTranscriptionTimer, browserSTT, vad, audioCapture,
     textProcessor, ttsGuard, addDebugLog
@@ -392,7 +396,7 @@ export const useTranscription = ({
 
   // Cleanup on unmount
   useEffect(() => {
-    return cleanup;
+    return () => cleanup(true); // Full cleanup on unmount
   }, [cleanup]);
 
   // Manual microphone access test for troubleshooting
@@ -424,7 +428,7 @@ export const useTranscription = ({
 
   return {
     initializeRecognition,
-    cleanup,
+    cleanup: (resetMicrophoneState = true) => cleanup(resetMicrophoneState),
     transcriptionStatus,
     microphoneAccessGranted,
     microphonePermissionStatus,

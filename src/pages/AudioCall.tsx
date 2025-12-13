@@ -418,7 +418,7 @@ const AudioCall = () => {
     } catch (err: unknown) {
       console.error("Start call error:", err);
       setError(err.message || "Не удалось начать звонок");
-      cleanupRecognition();
+      cleanupRecognition(false); // Don't reset microphone state on start error
       setCurrentCallId(null);
                 } finally {
       setIsInitializingCall(false);
@@ -438,7 +438,7 @@ const AudioCall = () => {
     stopTTS();
 
     console.log('[AudioCall] Cleaning up recognition...');
-    cleanupRecognition();
+    cleanupRecognition(true); // Full cleanup when ending call
 
     // Additional cleanup for any remaining processes
     console.log('[AudioCall] Explicitly stopping recognition...');
@@ -697,12 +697,12 @@ const AudioCall = () => {
                        </div>
                      ) : (
                        <div className="space-y-1">
-                         <p className="text-sm text-red-600 mb-1">
+                     <p className="text-sm text-red-600 mb-1">
                            Ваш микрофон занят другим приложением
-                         </p>
-                         <p className="text-xs text-gray-500">
+                     </p>
+                     <p className="text-xs text-gray-500">
                            Проверьте, не используется ли микрофон другим приложением или вкладкой браузера.
-                         </p>
+                     </p>
                          <Button
                            onClick={() => window.location.reload()}
                            size="sm"
