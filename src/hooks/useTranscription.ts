@@ -616,10 +616,10 @@ export const useTranscription = ({
         let confirmationFrames: number;
 
         if (isIOS) {
-          // iOS: balanced interruption - not too sensitive to noise
-          threshold = isAssistantActive ? 50 : 35; // Higher threshold to avoid noise
-          debounceTime = 500; // Reasonable debounce for iOS
-          confirmationFrames = 2; // Require 2 confirmations to avoid false positives
+          // iOS: sensitive to voice but resistant to noise
+          threshold = isAssistantActive ? 35 : 25; // Lower threshold for voice detection
+          debounceTime = 800; // Longer debounce to avoid noise bursts
+          confirmationFrames = 3; // Require 3 confirmations for stability
         } else if (!hasEchoProblems()) {
           // Safari: original logic
           threshold = isAssistantActive ? SAFARI_VOICE_DETECTION_THRESHOLD + 15 : SAFARI_VOICE_DETECTION_THRESHOLD;
@@ -630,21 +630,29 @@ export const useTranscription = ({
           return;
         }
 
-          if (average > threshold) {
-             setSafariSpeechDetectionCount(prev => {
-               const newCount = prev + 1;
+        if (average > threshold) {
+           setSafariSpeechDetectionCount(prev => {
+             const newCount = prev + 1;
              if (newCount >= confirmationFrames) {
-               if (currentTime - lastSafariSpeechTime > debounceTime) {
-                 addDebugLog(`[Volume] 🎤 Voice interruption (vol: ${average.toFixed(1)}, ${isIOS ? 'iOS' : 'Safari'} mode)`);
-                   setLastSafariSpeechTime(currentTime);
-                   onInterruption?.();
-                   return 0;
-                 }
+               // Additional check for iOS: ensure sound persists (not just a clap)
+               const soundDuration = currentTime - lastSafariSpeechTime;
+               const minDurationForVoice = isIOS ? 1500 : debounceTime; // Voice needs more time than noise
+
+               if (soundDuration > minDurationForVoice) {
+                 addDebugLog(`[Volume] 🎤 Voice interruption (vol: ${average.toFixed(1)}, ${isIOS ? 'iOS' : 'Safari'} mode, duration: ${soundDuration}ms)`);
+                 setLastSafariSpeechTime(currentTime);
+                 onInterruption?.();
+                 return 0;
+               } else if (isIOS && soundDuration > 100) {
+                 // For iOS, reset counter if sound is too short (likely noise)
+                 addDebugLog(`[Volume] ⚠️ Short sound detected (${soundDuration}ms), likely noise - resetting counter`);
+                 return 0;
                }
-               return newCount;
-             });
-          } else {
-            setSafariSpeechDetectionCount(0);
+             }
+             return newCount;
+           });
+        } else {
+          setSafariSpeechDetectionCount(0);
         }
         volumeMonitorRef.current = requestAnimationFrame(checkVolume);
       };
