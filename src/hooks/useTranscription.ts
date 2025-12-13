@@ -726,14 +726,15 @@ export const useTranscription = ({
     const android = isAndroidDevice();
 
     // Desktop работает в Browser Mode для лучшей отзывчивости
-    // Android и iOS используют OpenAI STT для надежности и качества
+    // Android использует OpenAI STT для надежности и качества
+    // iOS использует Browser Mode, но с улучшенным fallback на OpenAI
     // OpenAI-режим для остальных случаев без поддержки
-    const shouldForceOpenAI = !hasSupport || android || ios; // iOS тоже использует OpenAI с накоплением чанков
+    const shouldForceOpenAI = !hasSupport || android; // Только Android принудительно использует OpenAI
 
     addDebugLog(
       `[Strategy] ${shouldForceOpenAI ? 'OpenAI Mode' : 'Browser Mode'} | Reason: ` +
       (android ? 'Android device (OpenAI STT)' :
-       ios ? 'iOS device (OpenAI STT for stability)' :
+       ios ? 'iOS device (Browser STT with OpenAI fallback)' :
        !hasSupport ? 'No SpeechRecognition Support' : 'Browser SpeechRecognition (desktop)')
     );
 
@@ -833,14 +834,14 @@ export const useTranscription = ({
       addDebugLog(`[Init] Checking mobile timer: iOS=${ios}, Android=${android}, hasSpeechRec=${hasSupport}`);
 
       if (shouldForceOpenAI && isMobile) {
-        // Android и iOS: использовать таймер с накоплением аудио
+        // Android: использовать таймер с накоплением аудио
         const now = Date.now();
         lastVoiceActivityRef.current = now;
         setLastVoiceActivityTime(now);
         isVoiceActiveRef.current = false;
         setIsVoiceActive(false);
 
-        addDebugLog(`[Init] Starting mobile transcription timer (OpenAI mode on Android & iOS)`);
+        addDebugLog(`[Init] Starting mobile transcription timer (OpenAI mode on Android)`);
         startMobileTranscriptionTimer();
       } else {
         addDebugLog(`[Init] Using browser SpeechRecognition (desktop and iOS)`);
@@ -1001,32 +1002,57 @@ export const useTranscription = ({
 
         // Switch to OpenAI Fallback
         if (browserRetryCountRef.current >= 3 || ['network', 'audio-capture'].includes(event.error)) {
-           addDebugLog(`[Fallback] Switching to OpenAI (error: ${event.error})`);
-           setTranscriptionMode('openai');
+           const isIOS = isIOSDevice();
 
-           const blob = await stopMediaRecording();
-           addDebugLog(`[Fallback] Recorded blob: ${blob?.size || 0} bytes`);
+           if (isIOS) {
+             // iOS: Switch to OpenAI mode with chunk accumulation
+             addDebugLog(`[Fallback] iOS switching to OpenAI mode with chunk accumulation (error: ${event.error})`);
+             setTranscriptionMode('openai');
+             setForceOpenAI(true); // Force OpenAI mode for iOS
 
-           if (blob && blob.size > 1000) {
-             const text = await transcribeWithOpenAI(blob);
-             if (text) {
-               addDebugLog(`[Fallback] ✅ Transcribed: "${text}"`);
-               onTranscriptionComplete(text, 'openai');
-             } else {
-               addDebugLog(`[Fallback] ❌ Transcription failed`);
-               onError?.("Не удалось распознать речь (OpenAI)");
-             }
+             // Stop browser recognition and start mobile timer
+             recognition.stop();
+             recognitionRef.current = null;
+
+             // Start mobile transcription timer for iOS
+             const now = Date.now();
+             lastVoiceActivityRef.current = now;
+             setLastVoiceActivityTime(now);
+             isVoiceActiveRef.current = false;
+             setIsVoiceActive(false);
+             startMobileTranscriptionTimer();
+
            } else {
-             addDebugLog(`[Fallback] ⚠️ Blob too small: ${blob?.size || 0} bytes`);
+             // Desktop: Try OpenAI with single blob, then resume browser mode
+             addDebugLog(`[Fallback] Desktop switching to OpenAI (error: ${event.error})`);
+             setTranscriptionMode('openai');
+
+             const blob = await stopMediaRecording();
+             addDebugLog(`[Fallback] Recorded blob: ${blob?.size || 0} bytes`);
+
+             if (blob && blob.size > 1000) {
+               const text = await transcribeWithOpenAI(blob);
+               if (text) {
+                 addDebugLog(`[Fallback] ✅ Transcribed: "${text}"`);
+                 onTranscriptionComplete(text, 'openai');
+               } else {
+                 addDebugLog(`[Fallback] ❌ Transcription failed`);
+                 onError?.("Не удалось распознать речь (OpenAI)");
+               }
+             } else {
+               addDebugLog(`[Fallback] ⚠️ Blob too small: ${blob?.size || 0} bytes`);
+             }
+             // Resume browser mode attempt later
+             setTranscriptionMode('browser');
+             browserRetryCountRef.current = 0;
            }
-           // Resume browser mode attempt later
-           setTranscriptionMode('browser');
-           browserRetryCountRef.current = 0;
         }
       };
 
       recognition.onend = () => {
-        if (recognitionActiveRef.current && !isTTSActiveRef.current) {
+        const isIOS = isIOSDevice();
+        // Don't restart browser recognition on iOS if we've switched to OpenAI mode
+        if (recognitionActiveRef.current && !isTTSActiveRef.current && !(isIOS && forceOpenAI)) {
           try {
             recognition.start();
           } catch (e) {
