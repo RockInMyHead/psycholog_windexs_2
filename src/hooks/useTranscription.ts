@@ -1,21 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { psychologistAI } from '@/services/openai';
-
-// Minimal SpeechRecognition type shims for browsers (Safari/Chrome)
-type SpeechRecognitionErrorEvent = Event & { error: string };
-type SpeechRecognitionEvent = Event & { results: SpeechRecognitionResultList; resultIndex: number };
-type SpeechRecognition = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  maxAlternatives: number;
-  start: () => void;
-  stop: () => void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onspeechstart?: () => void;
-  onerror?: (event: SpeechRecognitionErrorEvent) => void;
-  onend?: () => void;
-};
+import { useDeviceProfile } from './useDeviceProfile';
+import { useAudioCapture } from './useAudioCapture';
+import { useVAD } from './useVAD';
+import { useBrowserSTT } from './useBrowserSTT';
+import { useOpenAISTT } from './useOpenAISTT';
+import { useTTSEchoGuard } from './useTTSEchoGuard';
+import { useSTTTextProcessor } from './useSTTTextProcessor';
 
 interface UseTranscriptionProps {
   onTranscriptionComplete: (text: string, source: 'browser' | 'openai' | 'manual') => void;
@@ -31,1125 +21,259 @@ export const useTranscription = ({
   onInterruption,
   isTTSActiveRef,
   onError,
-  addDebugLog = console.log // Default to console.log if not provided
+  addDebugLog = console.log
 }: UseTranscriptionProps & { addDebugLog?: (message: string) => void }) => {
+  // Device detection
+  const { profile: deviceProfile, detectDevice, getTranscriptionStrategy, shouldForceOpenAI } = useDeviceProfile();
+
+  // Initialize device profile
+  useEffect(() => {
+    detectDevice();
+  }, [detectDevice]);
+
   const [transcriptionStatus, setTranscriptionStatus] = useState<string | null>(null);
-  const [isIOS, setIsIOS] = useState(false);
-  const [forceOpenAI, setForceOpenAI] = useState(false);
   const [transcriptionMode, setTranscriptionMode] = useState<'browser' | 'openai'>('browser');
   const [microphoneAccessGranted, setMicrophoneAccessGranted] = useState(false);
   const [microphonePermissionStatus, setMicrophonePermissionStatus] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
+
+  // TTS Echo Guard
+  const ttsGuard = useTTSEchoGuard(deviceProfile!);
+
+  // Text processing
+  const textProcessor = useSTTTextProcessor();
+
+  // Audio capture
+  const audioCapture = useAudioCapture(deviceProfile!);
+
+  // Voice Activity Detection
+  const vad = useVAD(deviceProfile!);
+
+  // Browser STT
+  const browserSTT = useBrowserSTT(
+    deviceProfile!,
+    (text, isFinal) => {
+      if (isFinal) {
+        const normalized = textProcessor.normalizeSTT(text);
+        if (normalized) {
+          addDebugLog(`[User] 🎤 Пользователь сказал: "${normalized}" (browser)`);
+          onTranscriptionComplete(normalized, 'browser');
+        }
+      }
+    },
+    (error) => {
+      addDebugLog(`[BrowserSTT] Error: ${error}`);
+      onError?.(error);
+    },
+    onInterruption
+  );
+
+  // OpenAI STT
+  const openaiSTT = useOpenAISTT(deviceProfile!);
+
+  // Mobile transcription timer
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
-  
-  // Refs
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const recognitionActiveRef = useRef(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-  const audioAnalyserRef = useRef<AnalyserNode | null>(null);
-  const volumeMonitorRef = useRef<number | null>(null);
-  const browserRetryCountRef = useRef(0);
-  const justResumedAfterTTSRef = useRef(false);
-  const ttsEndTimeRef = useRef(0); // Track when TTS ended
-  const mobileVoiceDetectionStreakRef = useRef(0); // consecutive detections before sending
-  const unmuteCalledRef = useRef(false); // Prevent duplicate unmute calls
 
-  // Constants
-  const SAFARI_VOICE_DETECTION_THRESHOLD = 40;
-  const SAFARI_SPEECH_CONFIRMATION_FRAMES = 3;
-  const SAFARI_SPEECH_DEBOUNCE = 1000;
-
-  // Filter out hallucinated text patterns
-  const filterHallucinatedText = (text: string): string | null => {
-    if (!text) return null;
-
-    const lowerText = text.toLowerCase();
-
-    // Common hallucinated patterns
-    const hallucinationPatterns = [
-      /продолжение следует/i,
-      /с вами был/i,
-      /до свидания/i,
-      /до новых встреч/i,
-      /спасибо за внимание/i,
-      /конец/i,
-      /закончили/i,
-      /я мухаммад асад/i,
-      /здравствуйте! я мухаммад асад/i,
-      /я марк/i, // Filter out AI introducing itself
-      /здравствуйте, я марк/i,
-    ];
-
-    // Check if text matches hallucination patterns
-    for (const pattern of hallucinationPatterns) {
-      if (pattern.test(lowerText)) {
-        return null;
-      }
-    }
-
-    // Filter out text that's too long (likely hallucination)
-    if (text.length > 100) {
-      return null;
-    }
-
-    // Filter out text with multiple sentences (likely not user speech)
-    if (text.split(/[.!?]/).length > 2) {
-      return null;
-    }
-
-    // Filter out very short text (likely noise/misinterpretation)
-    if (text.length < 2) {
-      return null;
-    }
-
-    // Filter out single characters or meaningless sounds
-    const meaninglessPatterns = [
-      /^[а-я]{1}$/i, // Single letter
-      /^[эээ|ммм|ааа|ууу|ооо]+$/i, // Only filler sounds
-      /^[а-я]{1,2}$/i, // 1-2 letters (likely noise)
-    ];
-
-    for (const pattern of meaninglessPatterns) {
-      if (pattern.test(text)) {
-        return null;
-      }
-    }
-
-    return text;
-  };
-
-  // Safari Interruption State
-  const [safariSpeechDetectionCount, setSafariSpeechDetectionCount] = useState(0);
-  const [lastSafariSpeechTime, setLastSafariSpeechTime] = useState(0);
-
-  // Voice Activity Detection (VAD) State
-  const [lastVoiceActivityTime, setLastVoiceActivityTime] = useState(0);
-  const lastVoiceActivityRef = useRef(0);
-  const [isVoiceActive, setIsVoiceActive] = useState(false);
-  const isVoiceActiveRef = useRef(false);
-  const lastSendTimeRef = useRef(0);
-
-  // --- Browser Detection Helpers ---
-  const isSafari = useCallback(() => {
-    return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-  }, []);
-
-  const hasEchoProblems = useCallback(() => {
-    const userAgent = navigator.userAgent.toLowerCase();
-    // Добавляем Yandex Browser к списку, т.к. он на Chromium и дает эхо TTS->STT
-    return /chrome|chromium|edg\/|opera|brave|yabrowser|yaapp/.test(userAgent);
-  }, []);
-
-  const isIOSDevice = useCallback(() => {
-    const userAgent = navigator.userAgent.toLowerCase();
-    return /iphone|ipad|ipod/.test(userAgent) ||
-           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  }, []);
-
-  const isLegacyIOS = useCallback(() => {
-    // Простая эвристика: старые iOS 10–12 чаще на iPhone 6/7 и дают сбои с аудио
-    const match = navigator.userAgent.match(/OS (\d+)_/);
-    if (!match) return false;
-    const major = parseInt(match[1], 10);
-    return major > 0 && major <= 12;
-  }, []);
-
-  const isAndroidDevice = useCallback(() => {
-    const userAgent = navigator.userAgent.toLowerCase();
-    return /android/.test(userAgent);
-  }, []);
-
-  const isMobileDevice = useCallback(() => {
-    const userAgent = navigator.userAgent.toLowerCase();
-    const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
-    addDebugLog(`[Mobile] Device: ${isMobile ? 'Mobile' : 'Desktop'} | iOS: ${isIOSDevice()} | Android: ${isAndroidDevice()} | Platform: ${navigator.platform}`);
-    return isMobile;
-  }, [isIOSDevice]);
-
-  // Check microphone permissions (for modern browsers)
-  const checkMicrophonePermissions = useCallback(async () => {
-    if (!navigator.permissions || !navigator.permissions.query) {
-      console.log("[Permissions] Permissions API not available");
-      return;
-    }
-
-    try {
-      const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-      console.log("[Permissions] Microphone permission status:", result.state);
-      setMicrophonePermissionStatus(result.state);
-
-      result.addEventListener('change', () => {
-        console.log("[Permissions] Microphone permission changed to:", result.state);
-        setMicrophonePermissionStatus(result.state);
-      });
-    } catch (error) {
-      console.log("[Permissions] Could not query microphone permissions:", error);
-    }
-  }, []);
-
-  // Mobile-specific transcription timer (checks silence every 2s, sends only when voice detected)
+  // --- Mobile Transcription Timer ---
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    addDebugLog(`[Mobile] Starting transcription timer (2s check interval, 15s timeout, voice-triggered sending)`);
-
-    // Ensure VAD baseline timestamps are fresh when timer starts
-    const now = Date.now();
-    lastVoiceActivityRef.current = now;
-    setLastVoiceActivityTime(now);
-    isVoiceActiveRef.current = false;
-    setIsVoiceActive(false);
+    addDebugLog(`[Mobile] Starting transcription timer (2s check interval)`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
       const now = Date.now();
-      const timeSinceLastVoice = now - lastVoiceActivityRef.current;
 
-      addDebugLog(`[Timer] ⏰ Check: timeSinceLastVoice=${(timeSinceLastVoice/1000).toFixed(1)}s, isVoiceActive=${isVoiceActiveRef.current}`);
-
-      // Voice Activity Detection: stop timer if no voice activity for 45 seconds (less aggressive on iOS)
-      const vadTimeout = 45000; // 45 seconds total timeout
-      if (timeSinceLastVoice > vadTimeout && !isVoiceActiveRef.current) {
-        addDebugLog(`[VAD] No voice activity for ${vadTimeout/1000}s, stopping timer`);
-        stopMobileTranscriptionTimer();
+      // Don't process if TTS is active or in echo protection
+      if (ttsGuard.shouldSuppressSTT(now)) {
         return;
       }
-
-      if (!mediaRecorderRef.current) {
-        addDebugLog(`[Timer] ❌ No media recorder active`);
-        return;
-      }
-
-      // Only process audio if we haven't sent recently (prevent spam)
-      // Wait at least 2 seconds after last successful send
-      const timeSinceLastSend = now - (lastSendTimeRef.current || 0);
-      if (timeSinceLastSend < 2000) {
-        addDebugLog(`[Timer] ⏸️ Too soon since last send (${timeSinceLastSend}ms), skipping`);
-        return;
-      }
-
-      const isAndroid = isAndroidDevice();
-      const isIOS = isIOSDevice();
-      addDebugLog(`[Timer] ✅ Checking audio (iOS=${isIOS}, Android=${isAndroid})...`);
 
       try {
         // Stop recording to get current accumulated audio
-        const blob = await stopMediaRecording();
+        const blob = await audioCapture.stopRecording();
         addDebugLog(`[Timer] Got accumulated blob: ${blob?.size || 0} bytes`);
 
         // IMMEDIATELY restart recording for next segment
-        if (audioStreamRef.current) {
-          startMediaRecording(audioStreamRef.current);
+        if (audioCapture.state.audioStream) {
+          await audioCapture.startRecording(audioCapture.state.audioStream);
         }
 
-        // Only process if we have meaningful audio data
-        if (blob && blob.size > 5000) { // Higher threshold for accumulated audio to ensure quality
-          const volumeLevel = await checkAudioVolume(blob);
-          addDebugLog(`[Mobile] Accumulated audio volume: ${volumeLevel.toFixed(4)}% (RMS calculation)`);
+        // Check if we should send this audio
+        if (blob && await vad.shouldSendAudio(blob, 2000)) { // 2s duration
+          setTranscriptionStatus("Отправляю аудио на сервер...");
+          const text = await openaiSTT.transcribeWithOpenAI(blob);
 
-          const volumeThreshold = isIOS ? 2.5 : 1.5; // Stricter thresholds to avoid noise-triggered sends
-          const sizeThreshold = isIOS ? 40000 : 20000;
-          const hasVoiceLevel = volumeLevel >= volumeThreshold;
-          const hasEnoughSize = blob.size >= sizeThreshold;
-          const shouldSend = hasVoiceLevel && hasEnoughSize; // Require both volume and size everywhere to prevent silent sends
-
-          if (shouldSend) {
-            mobileVoiceDetectionStreakRef.current += 1;
-            const streak = mobileVoiceDetectionStreakRef.current;
-
-            if (streak >= 2) {
-            // Voice detected in accumulated audio - send it!
-            addDebugLog(`[Mobile] 🎤 Voice detected (volume=${volumeLevel.toFixed(4)}%, size=${blob.size}b; thr=${volumeThreshold.toFixed(2)}%, sizeThr=${sizeThreshold}), sending to OpenAI...`);
-            mobileVoiceDetectionStreakRef.current = 0; // reset after confirmed detection
-
-            // Update VAD state - voice is active
-            lastVoiceActivityRef.current = now;
-          setLastVoiceActivityTime(now);
-            isVoiceActiveRef.current = true;
-          setIsVoiceActive(true);
-            lastSendTimeRef.current = now;
-
-            // If TTS is playing and user speaks — barge-in but do not send this noisy chunk
-          if (isTTSActiveRef.current) {
-              addDebugLog(`[Mobile] 🛑 TTS active but voice detected — interrupting and skipping send`);
-            isTTSActiveRef.current = false;
-            onInterruption?.();
-              recordedChunksRef.current = [];
-              return;
+          if (text) {
+            const normalized = textProcessor.normalizeSTT(text);
+            if (normalized) {
+              addDebugLog(`[Mobile] ✅ Transcribed: "${normalized}"`);
+              vad.markSendTime(now);
+              onTranscriptionComplete(normalized, 'openai');
+            }
           }
-
-            // Send to OpenAI
-          const transcriptionPromise = transcribeWithOpenAI(blob);
-            const timeoutMs = isIOS ? 25000 : 8000; // Longer timeout for iOS
-          const timeoutPromise = new Promise<null>((resolve) => {
-            setTimeout(() => {
-              addDebugLog(`[Mobile] ⏱️ OpenAI timeout (${timeoutMs}ms), skipping`);
-              resolve(null);
-            }, timeoutMs);
-          });
-
-          const text = await Promise.race([transcriptionPromise, timeoutPromise]);
-
-          if (text && text.trim()) {
-            const filteredText = filterHallucinatedText(text.trim());
-            if (filteredText) {
-              // Check for duplicates before sending
-              if (recentlyProcessedTextsRef.current.has(filteredText)) {
-                addDebugLog(`[Mobile] Skipping recently processed text: "${filteredText}"`);
-                return;
-              }
-
-              addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
-
-              // Add to recently processed texts
-              recentlyProcessedTextsRef.current.add(filteredText);
-              setTimeout(() => {
-                recentlyProcessedTextsRef.current.delete(filteredText);
-              }, 10000);
-
-              onTranscriptionComplete(filteredText, 'openai');
-            } else {
-              addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
-            }
-            }
-            } else {
-              addDebugLog(`[Mobile] ⏳ Voice candidate but waiting for confirmation (streak ${streak}/2)`);
-            }
-          } else {
-            // Silence detected - update VAD but don't send
-            mobileVoiceDetectionStreakRef.current = 0;
-            isVoiceActiveRef.current = false;
-            setIsVoiceActive(false);
-            addDebugLog(`[Mobile] 🔇 Low volume in accumulated audio (${volumeLevel.toFixed(4)}% < ${volumeThreshold.toFixed(4)}% or size=${blob.size}b < ${sizeThreshold}), not sending`);
-            recordedChunksRef.current = []; // Drop accumulated silence to avoid size-based triggers
-          }
-        } else {
-          addDebugLog(`[Mobile] Audio too small: ${blob?.size || 0} bytes, skipping`);
+          setTranscriptionStatus("");
         }
       } catch (error) {
         addDebugLog(`[Mobile] Error in timer: ${error}`);
         // Restart recording on error
-        if (audioStreamRef.current && !mediaRecorderRef.current) {
-          startMediaRecording(audioStreamRef.current);
+        if (audioCapture.state.audioStream && !audioCapture.state.isRecording) {
+          await audioCapture.startRecording(audioCapture.state.audioStream);
         }
       }
-    }, 2000); // Check every 2 seconds for voice activity
-  }, [isIOSDevice]);
+    }, 2000); // Check every 2 seconds
+  }, [ttsGuard, audioCapture, vad, openaiSTT, textProcessor, onTranscriptionComplete, addDebugLog]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) {
       addDebugLog(`[Mobile] Stopping transcription timer`);
       clearInterval(mobileTranscriptionTimerRef.current);
       mobileTranscriptionTimerRef.current = null;
-
-      // Ensure recorder and stream are stopped when timer stops
-      stopMediaRecording();
-      if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach((t) => t.stop());
-        audioStreamRef.current = null;
-        addDebugLog(`[Mobile] Audio stream stopped after timer stop`);
-      }
     }
-  }, []);
+  }, [addDebugLog]);
 
-  // Restart timer if voice is detected after silence
-  const restartTimerIfNeeded = useCallback(() => {
-    if (!mobileTranscriptionTimerRef.current) {
-      addDebugLog(`[VAD] Voice detected after silence, restarting timer`);
-      startMobileTranscriptionTimer();
-    }
-  }, [startMobileTranscriptionTimer]);
-
-  // Check audio volume level to filter out silence/noise
-  const checkAudioVolume = async (audioBlob: Blob): Promise<number> => {
-    try {
-      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const audioContext = new AudioContextClass();
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      let audioBuffer: AudioBuffer;
-      try {
-        audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      } catch (decodeError) {
-        // iOS/Safari often fails to decode audio/mp4 blobs; use size-based fallback
-        addDebugLog(`[VolumeCheck] decodeAudioData failed: ${decodeError}`);
-        audioContext.close();
-        return estimateVolumeFromBlob(audioBlob);
-      }
-      
-      // Calculate RMS (Root Mean Square) volume across all channels for better accuracy
-      let sumSquares = 0;
-      let count = 0;
-      
-      for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-        const channelData = audioBuffer.getChannelData(channel);
-        for (let i = 0; i < channelData.length; i++) {
-          const sample = channelData[i];
-          sumSquares += sample * sample;
-          count++;
-        }
-      }
-      
-      const rms = Math.sqrt(sumSquares / count);
-      const volumePercent = rms * 100; // Convert to percentage
-      
-      audioContext.close();
-      return volumePercent;
-    } catch (error) {
-      addDebugLog(`[VolumeCheck] Error checking volume: ${error}`);
-      return estimateVolumeFromBlob(audioBlob);
-    }
-  };
-
-  // Fallback volume estimation when Web Audio decoding fails (common on iOS audio/mp4)
-  const estimateVolumeFromBlob = (audioBlob: Blob): number => {
-    const size = audioBlob.size;
-    if (size < 1000) return 0.001;       // Very small - likely silence
-    if (size < 5000) return 0.5;         // Small chunks - could be voice
-    if (size < 15000) return 1.0;        // Medium chunks - likely some voice
-    if (size < 30000) return 3.0;        // Large chunks - normal voice (above iOS 2.5% threshold)
-    return 5.0;                         // Very large - loud voice
-  };
-
-  // --- OpenAI Fallback Logic (via server API) ---
-  const transcribeWithOpenAI = async (audioBlob: Blob, retryCount = 0): Promise<string | null> => {
-    const isIOS = isIOSDevice();
-    const maxRetries = isIOS ? 2 : 1; // More retries for iOS due to connection issues
-
-    try {
-      addDebugLog(`[OpenAI] Starting transcription via server: ${audioBlob.size} bytes (attempt ${retryCount + 1}/${maxRetries + 1})`);
-      setTranscriptionStatus("Отправляю аудио на сервер...");
-
-      const formData = new FormData();
-      formData.append('file', audioBlob, 'voice.webm');
-      formData.append('model', 'whisper-1');
-      formData.append('language', 'ru');
-      formData.append('response_format', 'text');
-      formData.append('prompt', 'Разговор с психологом. Короткие фразы: Привет, Да, Нет, Хорошо, Понял.');
-
-      const response = await fetch('/api/audio/transcriptions', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}`;
-        try {
-          const errorData = await response.json();
-          if (errorData?.error?.message) {
-            errorMessage = `${errorMessage}: ${errorData.error.message}`;
-          }
-        } catch {
-          // ignore JSON parse errors
-        }
-        throw new Error(errorMessage);
-      }
-
-      const transcription = await response.json();
-      const text = (transcription.text || transcription).toString().trim();
-      
-      if (text && text.trim()) {
-        addDebugLog(`[OpenAI] ✅ Server transcription success: "${text.substring(0, 50)}..."`);
-        return text.trim();
-      }
-      addDebugLog(`[OpenAI] ⚠️ Empty transcription result from server`);
-      return null;
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      addDebugLog(`[OpenAI] ❌ Failed (attempt ${retryCount + 1}): ${errorMessage}`);
-
-      // Retry on connection / transient errors
-      if (
-        retryCount < maxRetries &&
-        (
-          errorMessage.includes('Connection') ||
-          errorMessage.includes('Network') ||
-          errorMessage.includes('timeout') ||
-          errorMessage.includes('fetch') ||
-          errorMessage.includes('HTTP 429') ||
-          errorMessage.includes('HTTP 500') ||
-          errorMessage.includes('HTTP 502') ||
-          errorMessage.includes('HTTP 503')
-        )
-      ) {
-        addDebugLog(`[OpenAI] 🔄 Retrying in 1s... (${retryCount + 1}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return transcribeWithOpenAI(audioBlob, retryCount + 1);
-      }
-
-      return null;
-    } finally {
-      setTranscriptionStatus("");
-    }
-  };
-
-  // --- Media Recorder Logic ---
-  const startMediaRecording = (stream: MediaStream) => {
-    if (mediaRecorderRef.current) return;
-
-    try {
-      const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/wav'];
-      const supportedTypes = mimeTypes.filter(type => MediaRecorder.isTypeSupported(type));
-
-      addDebugLog(`[MediaRec] Supported types: ${supportedTypes.join(', ')}`);
-
-      const selectedMimeType = supportedTypes[0];
-
-      if (!selectedMimeType) {
-        addDebugLog(`[MediaRec] ❌ No supported MediaRecorder format found`);
-        return;
-      }
-
-      addDebugLog(`[MediaRec] Using format: ${selectedMimeType}`);
-
-      const recorder = new MediaRecorder(stream, { mimeType: selectedMimeType });
-      mediaRecorderRef.current = recorder;
-      recordedChunksRef.current = [];
-
-      recorder.ondataavailable = async (e) => {
-        // Во время TTS глушим запись (кроме Safari, где оставляем старое поведение)
-        if (!isSafari() && isTTSActiveRef.current) {
-          return;
-        }
-        if (e.data.size > 0) {
-          const isIOS = isIOSDevice();
-
-          // Все устройства: накопление для таймера (кроме Android в OpenAI режиме)
-          recordedChunksRef.current.push(e.data);
-          addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
-
-          // Real-time volume monitoring for voice interruption (use estimate for iOS)
-          if (e.data.size > 1000) {
-            try {
-              // Use Web Audio API for desktop, estimate for iOS
-              const isIOS = isIOSDevice();
-              let volumeLevel: number;
-
-              if (isIOS) {
-                // iOS audio/mp4 often fails with Web Audio API, use size-based estimate
-                volumeLevel = estimateVolumeFromBlob(e.data);
-              } else {
-                // Try Web Audio API for better accuracy on desktop
-                try {
-                  volumeLevel = await checkAudioVolume(e.data);
-                } catch (error) {
-                  // Fallback to estimation if Web Audio fails
-                  volumeLevel = estimateVolumeFromBlob(e.data);
-                }
-              }
-
-              const interruptionThreshold = isIOS ? 0.8 : 0.5; // Lower threshold for iOS interruption to detect user speaking
-
-              if (volumeLevel >= interruptionThreshold) {
-                addDebugLog(`[VoiceInterrupt] 🎤 Voice interruption detected (${volumeLevel.toFixed(4)}% > ${interruptionThreshold.toFixed(4)}%)`);
-                onInterruption?.();
-              }
-            } catch (error) {
-              // Ignore volume monitoring errors
-              addDebugLog(`[VoiceInterrupt] ⚠️ Volume monitoring failed: ${error}`);
-            }
-          }
-        }
-      };
-
-      recorder.onstart = () => {
-        addDebugLog(`[MediaRec] ✅ Recording started (${selectedMimeType})`);
-      };
-
-      recorder.onstop = () => {
-        addDebugLog(`[MediaRec] 🛑 Recording stopped`);
-      };
-
-      recorder.onerror = (event) => {
-        addDebugLog(`[MediaRec] ❌ Recording error: ${event.error?.message || 'Unknown error'}`);
-      };
-
-      // iOS: использовать 2с чанки для большего размера, другие: 1с
-      const chunkDuration = isIOSDevice() ? 2000 : 1000;
-      recorder.start(chunkDuration);
-      addDebugLog(`[MediaRec] Starting recording with ${chunkDuration/1000}s chunks`);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const errorName = error instanceof Error ? error.name : 'Unknown';
-      addDebugLog(`[MediaRec] ❌ Start failed: ${errorMessage} | Name: ${errorName}`);
-    }
-  };
-
-  const stopMediaRecording = async (): Promise<Blob | null> => {
-    return new Promise((resolve) => {
-      if (!mediaRecorderRef.current) {
-        addDebugLog(`[MediaRec] No active recorder to stop`);
-        resolve(null);
-        return;
-      }
-
-      addDebugLog(`[MediaRec] Stopping recording...`);
-
-      mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, {
-          type: mediaRecorderRef.current?.mimeType || 'audio/webm'
-        });
-        addDebugLog(`[MediaRec] Created blob: ${blob.size} bytes, type: ${blob.type}`);
-        recordedChunksRef.current = [];
-        mediaRecorderRef.current = null;
-        resolve(blob);
-      };
-
-      mediaRecorderRef.current.stop();
-    });
-  };
-
-  // --- Volume Monitoring (Interruption) ---
-  const startVolumeMonitoring = async (stream: MediaStream) => {
-    try {
-      addDebugLog(`[Volume] Starting audio analysis...`);
-      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const audioContext = new AudioContextClass();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      audioAnalyserRef.current = analyser;
-      addDebugLog(`[Volume] ✅ Audio context created`);
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      const checkVolume = () => {
-        if (!recognitionActiveRef.current || !audioAnalyserRef.current) return;
-        
-        analyser.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-
-        // Voice interruption logic for all browsers
-        const isIOS = isIOSDevice();
-          const isAssistantActive = isTTSActiveRef.current;
-          const currentTime = Date.now();
-
-        // Use different thresholds for different browsers
-        let threshold: number;
-        let debounceTime: number;
-        let confirmationFrames: number;
-
-        if (isIOS) {
-          // iOS: sensitive to voice but resistant to noise
-          threshold = isAssistantActive ? 35 : 25; // Lower threshold for voice detection
-          debounceTime = 800; // Longer debounce to avoid noise bursts
-          confirmationFrames = 3; // Require 3 confirmations for stability
-        } else if (!hasEchoProblems()) {
-          // Safari: original logic
-          threshold = isAssistantActive ? SAFARI_VOICE_DETECTION_THRESHOLD + 15 : SAFARI_VOICE_DETECTION_THRESHOLD;
-          debounceTime = SAFARI_SPEECH_DEBOUNCE;
-          confirmationFrames = SAFARI_SPEECH_CONFIRMATION_FRAMES;
-        } else {
-          // Chrome/others: no interruption to avoid echo
-          return;
-        }
-
-        // Skip voice interruption detection when TTS is active to prevent TTS audio from triggering interruption
-        if (isAssistantActive) {
-          setSafariSpeechDetectionCount(0);
-          return;
-        }
-
-        if (average > threshold) {
-           setSafariSpeechDetectionCount(prev => {
-             const newCount = prev + 1;
-             if (newCount >= confirmationFrames) {
-               // Additional check for iOS: ensure sound persists (not just a clap)
-               const soundDuration = currentTime - lastSafariSpeechTime;
-               const minDurationForVoice = isIOS ? 1500 : debounceTime; // Voice needs more time than noise
-
-               if (soundDuration > minDurationForVoice) {
-                 addDebugLog(`[Volume] 🎤 Voice interruption (vol: ${average.toFixed(1)}, ${isIOS ? 'iOS' : 'Safari'} mode, duration: ${soundDuration}ms)`);
-                 setLastSafariSpeechTime(currentTime);
-                 onInterruption?.();
-                 return 0;
-               } else if (isIOS && soundDuration > 100) {
-                 // For iOS, reset counter if sound is too short (likely noise)
-                 addDebugLog(`[Volume] ⚠️ Short sound detected (${soundDuration}ms), likely noise - resetting counter`);
-                 return 0;
-               }
-             }
-             return newCount;
-           });
-        } else {
-          setSafariSpeechDetectionCount(0);
-        }
-        volumeMonitorRef.current = requestAnimationFrame(checkVolume);
-      };
-      volumeMonitorRef.current = requestAnimationFrame(checkVolume);
-    } catch (error) {
-      console.warn("[Transcription] Volume monitoring failed:", error);
-    }
-  };
-
-  const stopVolumeMonitoring = () => {
-    if (volumeMonitorRef.current) {
-      cancelAnimationFrame(volumeMonitorRef.current);
-      volumeMonitorRef.current = null;
-    }
-    if (audioAnalyserRef.current) {
-      audioAnalyserRef.current.disconnect();
-      audioAnalyserRef.current = null;
-    }
-  };
-
-    // Track recently processed texts to prevent duplicates
-  const lastProcessedTextRef = useRef<string>('');
-  const recentlyProcessedTextsRef = useRef<Set<string>>(new Set());
-
-  // --- Speech Recognition Setup ---
+  // --- Initialization ---
   const initializeRecognition = useCallback(async () => {
-    console.log("[Transcription] 🚀 Starting recognition initialization...");
+    if (!deviceProfile) return;
 
-    // Check microphone permissions first
-    await checkMicrophonePermissions();
+    addDebugLog(`[Init] 🚀 Starting recognition initialization...`);
 
-    // Reset processed text on initialization
-    lastProcessedTextRef.current = '';
-    recentlyProcessedTextsRef.current.clear();
-
-    // Device Checks
-    const ios = isIOSDevice();
-    const mobile = isMobileDevice();
-    setIsIOS(ios);
-
-    // API Support Check
-    const speechRecognitionSupport = !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition;
-    const mediaDevicesSupport = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    const mediaRecorderSupport = typeof MediaRecorder !== 'undefined';
-
-    addDebugLog(`[API] SpeechRec: ${speechRecognitionSupport ? '✅' : '❌'} | MediaDev: ${mediaDevicesSupport ? '✅' : '❌'} | MediaRec: ${mediaRecorderSupport ? '✅' : '❌'}`);
-    addDebugLog(`[Device] iOS: ${ios} | Mobile: ${mobile} | HTTPS: ${location.protocol === 'https:'} | Touch: ${navigator.maxTouchPoints > 0}`);
-
-    // Check Support
-    const hasSupport = speechRecognitionSupport;
-    const android = isAndroidDevice();
-
-    // Desktop работает в Browser Mode для лучшей отзывчивости
-    // Android использует OpenAI STT для надежности и качества
-    // iOS использует Browser Mode, но с улучшенным fallback на OpenAI
-    // OpenAI-режим для остальных случаев без поддержки
-    const shouldForceOpenAI = !hasSupport || android; // Только Android принудительно использует OpenAI
-
-    addDebugLog(
-      `[Strategy] ${shouldForceOpenAI ? 'OpenAI Mode' : 'Browser Mode'} | Reason: ` +
-      (android ? 'Android device (OpenAI STT)' :
-       ios ? 'iOS device (Browser STT with OpenAI fallback)' :
-       !hasSupport ? 'No SpeechRecognition Support' : 'Browser SpeechRecognition (desktop)')
-    );
-
-    setForceOpenAI(shouldForceOpenAI);
-
-    if (shouldForceOpenAI) {
-      setTranscriptionMode('openai');
+    // Check microphone permissions
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        setMicrophonePermissionStatus(result.state);
+        result.addEventListener('change', () => {
+          setMicrophonePermissionStatus(result.state);
+        });
+      } catch (error) {
+        console.log("[Permissions] Could not query microphone permissions:", error);
+      }
     }
 
-    // Get Microphone Stream
+    // Reset state
+    textProcessor.clearDuplicates();
+    vad.resetVADState();
+    ttsGuard.setTTSActive(false, 0);
+
+    // Get microphone stream
     try {
-      const isMobile = isMobileDevice();
-      const isAndroid = isAndroidDevice();
-
-      // Try different constraint sets for Android devices
-      let constraints;
-      let attemptNumber = 0;
-
-      const tryGetMicrophone = async (audioConstraints: any): Promise<MediaStream> => {
-        try {
-          addDebugLog(`[Mic] Attempt ${attemptNumber + 1}: ${JSON.stringify(audioConstraints).substring(0, 100)}...`);
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-          addDebugLog(`[Mic] ✅ Success on attempt ${attemptNumber + 1}`);
-          return stream;
-        } catch (error: any) {
-          if (error.name === 'NotReadableError' && attemptNumber < 2) {
-            attemptNumber++;
-            addDebugLog(`[Mic] ⚠️ NotReadableError on attempt ${attemptNumber}, trying simpler constraints...`);
-
-            // Try simpler constraints
-            const fallbackConstraints = attemptNumber === 1 ?
-              { echoCancellation: false, noiseSuppression: false, autoGainControl: false } :
-              {}; // Last attempt: minimal constraints
-
-            return tryGetMicrophone(fallbackConstraints);
-          }
-          throw error;
-        }
+      const constraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: deviceProfile.isIOS ? { ideal: 16000 } : { ideal: 44100 },
+        channelCount: { ideal: 1 }
       };
 
-      if (isAndroid) {
-        // Android-specific constraints with fallbacks
-        constraints = {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: { ideal: 16000 }, // Lower sample rate for Android compatibility
-          channelCount: { ideal: 1 }
-        };
-      } else if (isMobile) {
-        const legacyIOS = isIOSDevice() && isLegacyIOS();
-        // iOS constraints (legacy iPhone 6/7: lower sample rate, simpler setup)
-        constraints = {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: legacyIOS ? { ideal: 16000 } : { ideal: 44100 },
-          channelCount: { ideal: 1 },
-          ...(legacyIOS ? {} : { volume: { ideal: 1.0, min: 0.5 } })
-        };
-      } else {
-        // Desktop constraints
-        constraints = {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          volume: { ideal: 1.0, min: 0.5 }
-        };
-      }
+      addDebugLog(`[Mic] Requesting access...`);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+      addDebugLog(`[Mic] ✅ Access granted | Tracks: ${stream.getTracks().length}`);
 
-      addDebugLog(`[Mic] Requesting access | Mobile: ${isMobile} | Android: ${isAndroid} | Constraints: ${JSON.stringify(constraints).substring(0, 50)}...`);
-
-      const stream = await tryGetMicrophone(constraints);
-      addDebugLog(`[Mic] ✅ Access granted | Tracks: ${stream.getTracks().length} | Audio: ${stream.getAudioTracks().length}`);
-
-      // Log track details
-      stream.getAudioTracks().forEach((track, index) => {
-        console.log(`[Transcription] 🎵 Audio track ${index}:`, {
-          enabled: track.enabled,
-          muted: track.muted,
-          readyState: track.readyState,
-          kind: track.kind,
-          label: track.label,
-          id: track.id.substring(0, 8) + '...'
-        });
-      });
-
-      audioStreamRef.current = stream;
       setMicrophoneAccessGranted(true);
 
-      // Start Fallback Recording & Monitoring
-      startMediaRecording(stream);
-      startVolumeMonitoring(stream);
+      // Start audio capture
+      await audioCapture.startRecording(stream);
 
-      // Таймер и кусочное отправление аудио включаем только когда нет SpeechRecognition (fallback режим)
-      const android = isAndroidDevice();
-      addDebugLog(`[Init] Checking mobile timer: iOS=${ios}, Android=${android}, hasSpeechRec=${hasSupport}`);
+      // Start volume monitoring for interruption detection
+      vad.startVolumeMonitoring(stream, onInterruption);
 
-      if (shouldForceOpenAI && isMobile) {
-        // Android: использовать таймер с накоплением аудио
-        const now = Date.now();
-        lastVoiceActivityRef.current = now;
-        setLastVoiceActivityTime(now);
-        isVoiceActiveRef.current = false;
-        setIsVoiceActive(false);
+      // Choose transcription strategy
+      const strategy = getTranscriptionStrategy(deviceProfile);
+      const forceOpenAI = shouldForceOpenAI(deviceProfile);
 
-        addDebugLog(`[Init] Starting mobile transcription timer (OpenAI mode on Android)`);
+      addDebugLog(`[Strategy] ${strategy} | Force OpenAI: ${forceOpenAI}`);
+
+      if (forceOpenAI) {
+        // Android or forced OpenAI mode
+        setTranscriptionMode('openai');
         startMobileTranscriptionTimer();
       } else {
-        addDebugLog(`[Init] Using browser SpeechRecognition (desktop and iOS)`);
-      }
-
-      // If forcing OpenAI, don't start browser recognition
-      if (shouldForceOpenAI) return;
-
-      // Setup Browser Recognition
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognition.lang = "ru-RU";
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        // Echo Prevention for Chrome
-        if (hasEchoProblems() && isTTSActiveRef.current) {
-          console.log("[Transcription] Ignoring input during TTS (Echo Prevention)");
-          return;
-        }
-
-        // Для iOS: конкатенировать все результаты, не только финальные
-        let fullTranscript = '';
-        let finalTranscript = "";
-        let interimTranscript = "";
-
-        for (let i = 0; i < event.results.length; i++) {
-          const result = event.results[i];
-          const transcript = result[0].transcript;
-          fullTranscript += transcript;
-
-          if (result.isFinal) {
-            finalTranscript += transcript;
-            addDebugLog(`[Speech] Final result: "${transcript}"`);
-          } else {
-            interimTranscript += transcript;
-            addDebugLog(`[Speech] Interim result: "${transcript}"`);
-          }
-        }
-
-        // Использовать только финальные результаты для обработки
-        const transcriptToProcess = finalTranscript;
-
-        if (transcriptToProcess.trim()) {
-          console.log(`[Transcription] ${isIOSDevice() ? 'Full' : 'Final'} transcript: "${transcriptToProcess}"`);
-
-          // Prevent duplicate processing - check if this text was recently processed
-          const trimmedText = transcriptToProcess.trim();
-
-          // Skip if this exact text was processed recently (within last 10 seconds)
-          if (recentlyProcessedTextsRef.current.has(trimmedText)) {
-            console.log(`[Transcription] Skipping recently processed text: "${trimmedText}"`);
-            return;
-          }
-
-          const lastText = lastProcessedTextRef.current;
-
-          // If new text starts with previous text and is significantly longer, it's a continuation
-          // Allow small differences (up to 20% length difference) to account for corrections
-          const isExtension = lastText &&
-                             trimmedText.startsWith(lastText) &&
-                             (trimmedText.length - lastText.length) > 5; // At least 5 characters added
-
-          // If it's a minor correction (less than 20% difference), skip it
-          const lengthDiff = Math.abs(trimmedText.length - (lastText?.length || 0));
-          const maxLength = Math.max(trimmedText.length, lastText?.length || 0);
-          const isMinorCorrection = lastText && (lengthDiff / maxLength) < 0.2 && lengthDiff < 50;
-
-          if (isExtension) {
-            console.log(`[Transcription] Text is extension of previous (${lastText?.length} -> ${trimmedText.length} chars), skipping`);
-            lastProcessedTextRef.current = trimmedText;
-            return;
-          } else if (isMinorCorrection) {
-            console.log(`[Transcription] Text is minor correction of previous (${lengthDiff} chars diff), skipping`);
-            lastProcessedTextRef.current = trimmedText;
-            return;
-          } else if (lastProcessedTextRef.current === trimmedText) {
-            console.log(`[Transcription] Skipping exact duplicate text: "${trimmedText}"`);
-            return;
-          }
-
-          console.log(`[Transcription] Processing new ${isIOSDevice() ? 'full' : 'final'} transcript`);
-          lastProcessedTextRef.current = trimmedText;
-
-          // Add to recently processed texts and clean up old entries
-          recentlyProcessedTextsRef.current.add(trimmedText);
-          // Clean up old entries after 10 seconds to prevent memory leaks
-          setTimeout(() => {
-            recentlyProcessedTextsRef.current.delete(trimmedText);
-          }, 10000);
-
-          console.log(`[Transcription] Calling onTranscriptionComplete with ${isIOSDevice() ? 'full' : 'final'} transcript`);
-          onTranscriptionComplete(trimmedText, 'browser');
-        } else if (interimTranscript.trim()) {
-           // Interim transcripts are ignored to prevent premature LLM calls
-           // Except right after TTS resumption - send first interim immediately
-           console.log(`[Transcription] Interim transcript: "${interimTranscript.trim()}"`);
-
-           // Check if we're still in echo protection period (ignore interim for 2 seconds after TTS)
-           const timeSinceTTSEnd = Date.now() - ttsEndTimeRef.current;
-           const echoProtectionMs = hasEchoProblems() ? 2000 : 1000; // 2s for Chrome, 1s for others
-
-           if (timeSinceTTSEnd < echoProtectionMs) {
-             console.log(`[Transcription] Ignoring interim during echo protection (${timeSinceTTSEnd}ms < ${echoProtectionMs}ms)`);
-               return;
-             }
-
-           if (justResumedAfterTTSRef.current) {
-             // Send first interim immediately after TTS resumption and echo protection
-             const trimmedInterim = interimTranscript.trim();
-             if (trimmedInterim.length >= 2) { // Minimum length check
-               console.log(`[Transcription] Sending post-TTS interim after echo protection: "${trimmedInterim}"`);
-               onTranscriptionComplete(trimmedInterim, 'browser');
-               justResumedAfterTTSRef.current = false; // Reset flag after sending
-             }
-           } else {
-             console.log(`[Transcription] Interim ignored (waiting for final)`);
-           }
-        }
-      };
-
-      recognition.onspeechstart = () => {
-        addDebugLog(`[Speech] 🎤 Speech started - resetting processed text`);
-        lastProcessedTextRef.current = ''; // Reset for new speech
-        // Note: recentlyProcessedTextsRef is not reset here to prevent duplicates across speech segments
-        onSpeechStart?.();
-        // Voice interruption - disabled for iOS to avoid noise triggering, only for desktop Safari
-        if (isTTSActiveRef.current && !isIOSDevice()) {
-           const currentTime = Date.now();
-           if (currentTime - lastSafariSpeechTime > SAFARI_SPEECH_DEBOUNCE) {
-             addDebugLog(`[Speech] 🎤 Voice interruption detected (Safari mode)`);
-             setLastSafariSpeechTime(currentTime);
-             onInterruption?.();
-           }
-        }
-      };
-
-      recognition.onerror = async (event: SpeechRecognitionErrorEvent) => {
-        if (event.error === 'no-speech' || event.error === 'aborted') return;
-        console.error("[Transcription] Error:", event.error);
-
-        const retryable = ['network', 'audio-capture', 'not-allowed'];
-        if (retryable.includes(event.error) && browserRetryCountRef.current < 3) {
-          browserRetryCountRef.current++;
-          setTimeout(() => {
-            if (recognitionActiveRef.current) {
-               try {
-                 recognition.start();
-               } catch (e) {
-                 // Ignore start errors during retry
-               }
-            }
-          }, 1000 * browserRetryCountRef.current);
-          return;
-        }
-
-        // Switch to OpenAI Fallback
-        if (browserRetryCountRef.current >= 3 || ['network', 'audio-capture'].includes(event.error)) {
-           const isIOS = isIOSDevice();
-
-           if (isIOS) {
-             // iOS: Switch to OpenAI mode with chunk accumulation
-             addDebugLog(`[Fallback] iOS switching to OpenAI mode with chunk accumulation (error: ${event.error})`);
-             setTranscriptionMode('openai');
-             setForceOpenAI(true); // Force OpenAI mode for iOS
-
-             // Stop browser recognition and start mobile timer
-             recognition.stop();
-             recognitionRef.current = null;
-
-             // Start mobile transcription timer for iOS
-             const now = Date.now();
-             lastVoiceActivityRef.current = now;
-             setLastVoiceActivityTime(now);
-             isVoiceActiveRef.current = false;
-             setIsVoiceActive(false);
-             startMobileTranscriptionTimer();
-
-           } else {
-             // Desktop: Try OpenAI with single blob, then resume browser mode
-             addDebugLog(`[Fallback] Desktop switching to OpenAI (error: ${event.error})`);
-             setTranscriptionMode('openai');
-
-             const blob = await stopMediaRecording();
-             addDebugLog(`[Fallback] Recorded blob: ${blob?.size || 0} bytes`);
-
-             if (blob && blob.size > 1000) {
-               const text = await transcribeWithOpenAI(blob);
-               if (text) {
-                 addDebugLog(`[Fallback] ✅ Transcribed: "${text}"`);
-                 onTranscriptionComplete(text, 'openai');
-               } else {
-                 addDebugLog(`[Fallback] ❌ Transcription failed`);
-                 onError?.("Не удалось распознать речь (OpenAI)");
-               }
-             } else {
-               addDebugLog(`[Fallback] ⚠️ Blob too small: ${blob?.size || 0} bytes`);
-             }
-             // Resume browser mode attempt later
-             setTranscriptionMode('browser');
-             browserRetryCountRef.current = 0;
-           }
-        }
-      };
-
-      recognition.onend = () => {
-        const isIOS = isIOSDevice();
-        // Don't restart browser recognition on iOS if we've switched to OpenAI mode
-        if (recognitionActiveRef.current && !isTTSActiveRef.current && !(isIOS && forceOpenAI)) {
-          try {
-            recognition.start();
-          } catch (e) {
-            // Ignore start errors on end
-          }
-        }
-      };
-
-      recognitionRef.current = recognition;
-      recognitionActiveRef.current = true;
-      recognition.start();
-
-    } catch (error: unknown) {
-      const errorName = error instanceof Error ? error.name : 'Unknown';
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      addDebugLog(`[Mic] ❌ Failed: ${errorName} - ${errorMessage}`);
-
-      // Enhanced error handling for Android devices
-      let userFriendlyErrorMessage = "Ошибка доступа к микрофону";
-      if (errorName === 'NotAllowedError') {
-        userFriendlyErrorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера и приложения.";
-      } else if (errorName === 'NotFoundError') {
-        userFriendlyErrorMessage = "Микрофон не найден. Проверьте подключение микрофона или используйте встроенный микрофон.";
-      } else if (errorName === 'NotReadableError') {
-        if (isAndroidDevice()) {
-          userFriendlyErrorMessage = "Микрофон занят или недоступен. Закройте другие приложения, использующие микрофон, и попробуйте перезагрузить страницу. Если проблема persists, попробуйте другой браузер (Chrome, Firefox).";
+        // iOS starts with browser mode, Android uses OpenAI
+        if (deviceProfile.isIOS) {
+          setTranscriptionMode('browser');
+          browserSTT.start();
         } else {
-          userFriendlyErrorMessage = "Микрофон занят другим приложением.";
+          setTranscriptionMode('openai');
+          startMobileTranscriptionTimer();
         }
-      } else if (errorName === 'OverconstrainedError') {
-        userFriendlyErrorMessage = "Настройки микрофона не поддерживаются устройством. Попробуйте другой браузер.";
-      } else if (errorName === 'SecurityError') {
-        userFriendlyErrorMessage = "Требуется HTTPS для доступа к микрофону.";
-      } else if (errorName === 'AbortError') {
-        userFriendlyErrorMessage = "Доступ к микрофону был прерван.";
       }
 
-      console.error(`[Transcription] 📱 Mobile-specific error analysis:`, {
-        errorType: errorName,
-        isMobile: isMobileDevice(),
-        isIOS: isIOSDevice(),
-        isAndroid: isAndroidDevice(),
-        httpsRequired: !window.isSecureContext,
-        suggestedAction: isAndroidDevice() ?
-          "На Android: Закройте другие аудио-приложения, перезагрузите браузер, попробуйте другой браузер" :
-          isIOSDevice() ?
-          "На iOS: Убедитесь что Safari имеет доступ к микрофону в настройках" :
-          "На десктопе: Проверьте разрешения браузера и подключение микрофона"
-      });
-
-      onError?.(userFriendlyErrorMessage);
+    } catch (error: any) {
+      console.error('[Mic] ❌ Failed:', error);
       setMicrophoneAccessGranted(false);
+      onError?.(`Ошибка доступа к микрофону: ${error.message}`);
     }
-  }, []); // Dependencies intentionally empty for init
+  }, [
+    deviceProfile, getTranscriptionStrategy, shouldForceOpenAI,
+    audioCapture, vad, browserSTT, textProcessor, ttsGuard,
+    onError, onInterruption, addDebugLog, startMobileTranscriptionTimer
+  ]);
 
-  // Cleanup
-  const cleanup = useCallback(() => {
-    console.log('[Transcription] 🧹 Cleanup called - stopping all processes');
+  // --- TTS Control ---
+  const pauseRecordingForTTS = useCallback(() => {
+    addDebugLog(`[TTS] Pausing recording for TTS`);
+    ttsGuard.setTTSActive(true, Date.now());
 
-    // Reset all state
-    lastProcessedTextRef.current = ''; // Reset processed text
-    recentlyProcessedTextsRef.current.clear(); // Clear recently processed texts
-    recognitionActiveRef.current = false;
-    justResumedAfterTTSRef.current = false; // Reset TTS resumption flag
-    browserRetryCountRef.current = 0;
+    // Pause audio capture
+    audioCapture.pauseRecording();
 
-    // Stop recognition
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-        recognitionRef.current = null; // Clear reference
-      } catch (e) {
-        console.log('[Transcription] Ignoring stop error during cleanup:', e.message);
+    // Stop volume monitoring
+    vad.stopVolumeMonitoring();
+
+    // Stop browser STT if active
+    if (transcriptionMode === 'browser') {
+      browserSTT.pause();
+    }
+  }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, addDebugLog]);
+
+  const resumeRecordingAfterTTS = useCallback(() => {
+    const resumeDelay = ttsGuard.getResumeDelay();
+    addDebugLog(`[TTS] Resuming after TTS with ${resumeDelay}ms delay`);
+
+    setTimeout(() => {
+      ttsGuard.setTTSActive(false, Date.now());
+
+      // Resume audio capture
+      if (audioCapture.state.audioStream && audioCapture.state.isPaused) {
+        audioCapture.resumeRecording();
       }
-    }
 
-    // Stop all monitoring and recording
-    stopVolumeMonitoring();
-    stopMobileTranscriptionTimer(); // Stop mobile transcription timer
-    stopMediaRecording(); // Just stop, don't return blob
+      // Restart volume monitoring
+      if (audioCapture.state.audioStream) {
+        vad.startVolumeMonitoring(audioCapture.state.audioStream, onInterruption);
+      }
 
-    // Stop audio stream
-    if (audioStreamRef.current) {
-      try {
-        audioStreamRef.current.getTracks().forEach(t => {
-          t.stop();
-          console.log('[Transcription] Stopped audio track:', t.label);
-        });
-      audioStreamRef.current = null;
-      } catch (e) {
-        console.log('[Transcription] Error stopping audio tracks:', e.message);
-    }
-    }
+      // Resume appropriate transcription
+      if (transcriptionMode === 'browser') {
+        browserSTT.resume();
+      }
+      // Mobile timer continues automatically
+    }, resumeDelay);
+  }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, onInterruption, addDebugLog]);
 
-    console.log('[Transcription] 🧹 Cleanup completed');
-  }, []);
+  // --- Cleanup ---
+  const cleanup = useCallback(() => {
+    addDebugLog('[Transcription] 🧹 Cleanup called');
 
+    // Stop everything
+    stopMobileTranscriptionTimer();
+    browserSTT.stop();
+    vad.stopVolumeMonitoring();
+    audioCapture.cleanup();
+
+    // Reset state
+    textProcessor.clearDuplicates();
+    vad.resetVADState();
+    ttsGuard.setTTSActive(false, 0);
+
+    setTranscriptionStatus(null);
+    setTranscriptionMode('browser');
+    setMicrophoneAccessGranted(false);
+  }, [
+    stopMobileTranscriptionTimer, browserSTT, vad, audioCapture,
+    textProcessor, ttsGuard, addDebugLog
+  ]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return cleanup;
   }, [cleanup]);
@@ -1160,79 +284,12 @@ export const useTranscription = ({
     transcriptionStatus,
     microphoneAccessGranted,
     microphonePermissionStatus,
-    isIOS,
-    forceOpenAI,
+    isIOS: deviceProfile?.isIOS || false,
+    forceOpenAI: shouldForceOpenAI(deviceProfile!),
     transcriptionMode,
-    stopRecognition: () => {
-      recognitionActiveRef.current = false;
-      recognitionRef.current?.stop();
-    },
-    startRecognition: () => {
-      recognitionActiveRef.current = true;
-      try {
-        recognitionRef.current?.start();
-      } catch (e) {
-        // Ignore start errors
-      }
-    },
-    pauseRecordingForTTS: () => {
-      // Stop both browser recognition and media recording
-      recognitionActiveRef.current = false;
-      recognitionRef.current?.stop();
-      stopMediaRecording();
-      recordedChunksRef.current = [];
-
-      // For iOS Safari, also mute the audio track
-      if (isIOSDevice() && audioStreamRef.current) {
-        const audioTracks = audioStreamRef.current.getAudioTracks();
-        audioTracks.forEach(track => {
-          track.enabled = false;
-          addDebugLog(`[iOS Mute] Audio track disabled: ${track.label}`);
-        });
-      }
-    },
-    resumeRecordingAfterTTS: () => {
-      // Prevent duplicate unmute calls
-      if (unmuteCalledRef.current) {
-        console.log(`[Transcription] Unmute already in progress, skipping duplicate call`);
-        return;
-      }
-      unmuteCalledRef.current = true;
-
-      // Longer delay for browsers with echo problems (Chrome)
-      const resumeDelay = hasEchoProblems() && !isIOSDevice() ? 1200 : 400; // Shorter delay for iOS
-
-      console.log(`[Transcription] Resuming after TTS with ${resumeDelay}ms delay`);
-
-      setTimeout(() => {
-        // For iOS Safari, unmute the audio track first
-        if (isIOSDevice() && audioStreamRef.current) {
-          const audioTracks = audioStreamRef.current.getAudioTracks();
-          audioTracks.forEach(track => {
-            track.enabled = true;
-            addDebugLog(`[iOS Mute] Audio track enabled: ${track.label}`);
-          });
-        }
-
-        if (audioStreamRef.current) {
-          startMediaRecording(audioStreamRef.current);
-        }
-        recognitionActiveRef.current = true;
-        justResumedAfterTTSRef.current = true; // Mark that we just resumed after TTS
-        ttsEndTimeRef.current = Date.now() + resumeDelay; // Mark TTS end time
-        try {
-          recognitionRef.current?.start();
-          console.log(`[Transcription] Recognition resumed after TTS (delay: ${resumeDelay}ms)`);
-        } catch (e) {
-          console.log(`[Transcription] Error resuming recognition: ${e.message}`);
-        }
-
-        // Reset the unmute flag after operation completes
-        setTimeout(() => {
-          unmuteCalledRef.current = false;
-        }, resumeDelay + 1000);
-      }, resumeDelay);
-    }
+    stopRecognition: browserSTT.stop,
+    startRecognition: browserSTT.start,
+    pauseRecordingForTTS,
+    resumeRecordingAfterTTS
   };
 };
-
