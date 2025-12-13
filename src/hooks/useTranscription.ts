@@ -499,7 +499,7 @@ export const useTranscription = ({
         if (e.data.size > 0) {
           const isIOS = isIOSDevice();
 
-          if (isIOS && e.data.size > 15000) { // iOS: отправлять большие чанки сразу (realtime)
+          if (isIOS && e.data.size > 60000) { // iOS: отправлять большие чанки сразу (realtime) - увеличить размер для OpenAI
             addDebugLog(`[MediaRec] 📱 iOS realtime chunk: ${e.data.size} bytes - sending immediately`);
 
             // Создать blob из текущего чанка
@@ -571,8 +571,10 @@ export const useTranscription = ({
         addDebugLog(`[MediaRec] ❌ Recording error: ${event.error?.message || 'Unknown error'}`);
       };
 
-      recorder.start(1000);
-      addDebugLog(`[MediaRec] Starting recording with 1s chunks`);
+      // iOS: использовать 2с чанки для большего размера, другие: 1с
+      const chunkDuration = isIOSDevice() ? 2000 : 1000;
+      recorder.start(chunkDuration);
+      addDebugLog(`[MediaRec] Starting recording with ${chunkDuration/1000}s chunks`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorName = error instanceof Error ? error.name : 'Unknown';
