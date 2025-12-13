@@ -18,7 +18,7 @@ interface User {
   email: string;
 }
 
-// Debug Logs Component - улучшенная версия с русским интерфейсом
+// Debug Logs Component - технический формат как в dev tools
 const DebugLogs = ({ logs, isVisible, onToggle, onClear, onCopy }: {
   logs: string[];
   isVisible: boolean;
@@ -28,175 +28,96 @@ const DebugLogs = ({ logs, isVisible, onToggle, onClear, onCopy }: {
 }) => {
   if (!isVisible) return null;
 
-  // Парсинг логов для извлечения полезной информации
-  const parseLogs = () => {
-    const parsed = {
-      conversation: [] as Array<{speaker: string, text: string, time: string, type: 'user' | 'mark'}>,
-      timing: [] as Array<{operation: string, duration: string, time: string}>,
-      costs: [] as Array<{service: string, cost: string, time: string}>
-    };
-
-    logs.forEach(log => {
-      const timestamp = log.match(/\[(\d{2}:\d{2}:\d{2})\]/)?.[1] || new Date().toLocaleTimeString();
-
-      // Распознавание реплик пользователей - расширенные паттерны
-      if (log.includes('Transcribed') || log.includes('транскрибирован') || log.includes('🎤')) {
-        const textMatch = log.match(/Transcribed: "([^"]+)"/) ||
-                         log.match(/транскрибирован: "([^"]+)"/) ||
-                         log.match(/"([^"]+)"/);
-        if (textMatch) {
-          parsed.conversation.push({
-            speaker: '👤 Пользователь',
-            text: textMatch[1],
-            time: timestamp,
-            type: 'user'
-          });
-        }
-      }
-
-      // Распознавание ответов Марка - расширенные паттерны
-      if (log.includes('Марк') || log.includes('психолог') || log.includes('AI') || log.includes('ответ')) {
-        const textMatch = log.match(/"([^"]+)"/) || log.match(/Ответ: ([^\n]+)/);
-        if (textMatch && (log.includes('Марк') || log.includes('психолог') || log.includes('AI'))) {
-          parsed.conversation.push({
-            speaker: '🧠 Марк',
-            text: textMatch[1],
-            time: timestamp,
-            type: 'mark'
-          });
-        }
-      }
-
-      // Время генерации ответа - расширенные паттерны
-      const timingMatch = log.match(/(LLM|OpenAI|TTS|STT|время).*?(\d+(?:\.\d+)?)\s*(мс|ms|сек|секунд|s)/i);
-      if (timingMatch) {
-        parsed.timing.push({
-          operation: timingMatch[1],
-          duration: `${timingMatch[2]}${timingMatch[3]}`,
-          time: timestamp
-        });
-      }
-
-      // Стоимость услуг - расширенные паттерны
-      const costMatch = log.match(/(TTS|LLM|STT|стоимость|цена).*?(₽|\$|руб|рублей).*?(\d+(?:\.\d+)?)/i);
-      if (costMatch) {
-        parsed.costs.push({
-          service: costMatch[1],
-          cost: `${costMatch[3]}${costMatch[2]}`,
-          time: timestamp
-        });
-      }
-    });
-
-    return parsed;
+  const getLogLevel = (log: string) => {
+    if (log.includes('❌') || log.includes('Error') || log.includes('Failed')) return 'error';
+    if (log.includes('⚠️') || log.includes('Warning')) return 'warning';
+    if (log.includes('✅') || log.includes('Success')) return 'success';
+    if (log.includes('🎤') || log.includes('🎭')) return 'info';
+    return 'log';
   };
 
-  const parsedData = parseLogs();
+  const getLogLevelColor = (level: string) => {
+    switch (level) {
+      case 'error': return 'text-red-400';
+      case 'warning': return 'text-yellow-400';
+      case 'success': return 'text-green-400';
+      case 'info': return 'text-blue-400';
+      default: return 'text-gray-300';
+    }
+  };
+
+  const getLogLevelIcon = (level: string) => {
+    switch (level) {
+      case 'error': return '🔴';
+      case 'warning': return '🟡';
+      case 'success': return '🟢';
+      case 'info': return '🔵';
+      default: return '⚪';
+    }
+  };
 
   return (
-    <div className="fixed bottom-4 right-4 w-[500px] max-h-[600px] bg-black/95 text-green-400 font-mono text-sm rounded-lg border border-gray-600 overflow-hidden z-50 shadow-2xl">
-      <div className="flex items-center justify-between p-3 bg-gray-800 border-b border-gray-600">
-        <span className="flex items-center gap-2 text-white font-semibold">
-          <Bug className="w-5 h-5" />
-          Отладочная информация
+    <div className="fixed bottom-4 right-4 left-4 md:left-auto md:right-4 w-auto md:w-[600px] max-h-[70vh] md:max-h-[500px] bg-black/95 text-gray-300 font-mono text-xs rounded-lg border border-gray-600 overflow-hidden z-50 shadow-2xl">
+      <div className="flex items-center justify-between p-2 bg-gray-800 border-b border-gray-600">
+        <span className="flex items-center gap-2 text-white font-semibold text-sm">
+          <Bug className="w-4 h-4" />
+          Console
         </span>
         <div className="flex gap-1">
           <Button
             onClick={onCopy}
             size="sm"
             variant="ghost"
-            className="h-7 px-3 text-xs text-gray-400 hover:text-white hover:bg-gray-700"
+            className="h-6 px-2 text-xs text-gray-400 hover:text-white hover:bg-gray-700"
           >
-            📋 Копировать
+            Copy
           </Button>
           <Button
             onClick={onClear}
             size="sm"
             variant="ghost"
-            className="h-7 px-3 text-xs text-gray-400 hover:text-white hover:bg-gray-700"
+            className="h-6 px-2 text-xs text-gray-400 hover:text-white hover:bg-gray-700"
           >
-            🗑️ Очистить
+            Clear
           </Button>
           <Button
             onClick={onToggle}
             size="sm"
             variant="ghost"
-            className="h-7 w-7 p-0 text-gray-400 hover:text-white hover:bg-gray-700"
+            className="h-6 w-6 p-0 text-gray-400 hover:text-white hover:bg-gray-700"
           >
-            <X className="w-4 h-4" />
+            <X className="w-3 h-3" />
           </Button>
         </div>
       </div>
 
-      <div className="p-3 max-h-[500px] overflow-y-auto space-y-4">
+      <div className="p-2 max-h-[calc(70vh-60px)] md:max-h-[440px] overflow-y-auto">
         {logs.length === 0 ? (
-          <div className="text-gray-500 italic text-center py-8">
-            Логи пока пусты... Начните разговор для отображения информации
+          <div className="text-gray-500 italic py-4 text-center">
+            Console was cleared
           </div>
         ) : (
-          <>
-            {/* Диалог */}
-            {parsedData.conversation.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-yellow-400 font-semibold border-b border-gray-600 pb-1">💬 Диалог</h3>
-                {parsedData.conversation.slice(-10).map((msg, index) => (
-                  <div key={index} className={`p-2 rounded border-l-4 ${
-                    msg.type === 'user' ? 'border-blue-500 bg-blue-900/20' : 'border-green-500 bg-green-900/20'
-                  }`}>
-                    <div className="flex justify-between items-start mb-1">
-                      <span className="font-medium text-white">{msg.speaker}</span>
-                      <span className="text-xs text-gray-400">{msg.time}</span>
-                    </div>
-                    <p className="text-sm text-gray-200 leading-relaxed">{msg.text}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="space-y-0.5">
+            {logs.slice(-100).map((log, index) => {
+              const level = getLogLevel(log);
+              const levelColor = getLogLevelColor(level);
+              const levelIcon = getLogLevelIcon(level);
 
-            {/* Время обработки */}
-            {parsedData.timing.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-blue-400 font-semibold border-b border-gray-600 pb-1">⏱️ Время обработки</h3>
-                {parsedData.timing.slice(-5).map((timing, index) => (
-                  <div key={index} className="flex justify-between items-center p-2 bg-gray-800/50 rounded">
-                    <span className="text-gray-300">{timing.operation}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-green-400 font-mono">{timing.duration}</span>
-                      <span className="text-xs text-gray-500">{timing.time}</span>
-                    </div>
+              return (
+                <div key={index} className="group hover:bg-gray-800/30 px-1 py-0.5 rounded transition-colors">
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-500 text-[10px] mt-0.5 opacity-60">
+                      {new Date().toLocaleTimeString()}
+                    </span>
+                    <span className="text-[10px] mt-0.5 opacity-60">{levelIcon}</span>
+                    <span className={`flex-1 break-all ${levelColor} text-xs leading-tight`}>
+                      {log}
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* Стоимость услуг */}
-            {parsedData.costs.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-purple-400 font-semibold border-b border-gray-600 pb-1">💰 Стоимость услуг</h3>
-                {parsedData.costs.slice(-5).map((cost, index) => (
-                  <div key={index} className="flex justify-between items-center p-2 bg-gray-800/50 rounded">
-                    <span className="text-gray-300">{cost.service}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-yellow-400 font-mono font-semibold">{cost.cost}</span>
-                      <span className="text-xs text-gray-500">{cost.time}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Сырые логи */}
-            <div className="space-y-2">
-              <h3 className="text-gray-400 font-semibold border-b border-gray-600 pb-1">📄 Сырые логи</h3>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {logs.slice(-20).map((log, index) => (
-                  <div key={index} className="text-xs leading-tight opacity-75 hover:opacity-100 transition-opacity">
-                    <span className="text-gray-500">[{new Date().toLocaleTimeString()}]</span> {log}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
