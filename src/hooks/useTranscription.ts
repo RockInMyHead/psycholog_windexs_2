@@ -1091,20 +1091,37 @@ export const useTranscription = ({
       }
     },
     pauseRecordingForTTS: () => {
-      if (isSafari()) return; // Safari оставляем как раньше
+      // Stop both browser recognition and media recording
       recognitionActiveRef.current = false;
       recognitionRef.current?.stop();
       stopMediaRecording();
       recordedChunksRef.current = [];
+
+      // For iOS Safari, also mute the audio track
+      if (isIOSDevice() && audioStreamRef.current) {
+        const audioTracks = audioStreamRef.current.getAudioTracks();
+        audioTracks.forEach(track => {
+          track.enabled = false;
+          addDebugLog(`[iOS Mute] Audio track disabled: ${track.label}`);
+        });
+      }
     },
     resumeRecordingAfterTTS: () => {
-      if (isSafari()) return; // Safari оставляем как раньше
       // Longer delay for browsers with echo problems (Chrome)
-      const resumeDelay = hasEchoProblems() ? 1200 : 400; // 1.2s for Chrome, 0.4s for others
+      const resumeDelay = hasEchoProblems() && !isIOSDevice() ? 1200 : 400; // Shorter delay for iOS
 
-      console.log(`[Transcription] Resuming after TTS with ${resumeDelay}ms delay (echo protection)`);
+      console.log(`[Transcription] Resuming after TTS with ${resumeDelay}ms delay`);
 
       setTimeout(() => {
+        // For iOS Safari, unmute the audio track first
+        if (isIOSDevice() && audioStreamRef.current) {
+          const audioTracks = audioStreamRef.current.getAudioTracks();
+          audioTracks.forEach(track => {
+            track.enabled = true;
+            addDebugLog(`[iOS Mute] Audio track enabled: ${track.label}`);
+          });
+        }
+
         if (audioStreamRef.current) {
           startMediaRecording(audioStreamRef.current);
         }
