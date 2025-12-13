@@ -531,14 +531,14 @@ const AudioCall = () => {
           <Card className="bg-card-gradient border-2 border-border shadow-strong p-6 md:p-8 text-center animate-scale-in">
             {isInitializingCall ? (
               <div className="space-y-8">
-                 <div className="w-[180px] h-[180px] sm:w-[260px] sm:h-[260px] mx-auto rounded-full overflow-hidden shadow-strong">
+                 <div className="w-[180px] h-[180px] sm:w-[260px] sm:h-[260px] mx-auto ml-[20px] md:ml-[20px] rounded-full overflow-hidden shadow-strong">
                   <video ref={videoRef} src="/Untitled Video.mp4" className="w-full h-full object-cover pointer-events-none" muted loop playsInline />
                 </div>
                 <h2 className="text-2xl font-bold">Инициализация...</h2>
               </div>
             ) : !isCallActive ? (
               <div className="space-y-8">
-                <div className="w-[180px] h-[180px] sm:w-[260px] sm:h-[260px] mx-auto rounded-full overflow-hidden shadow-strong">
+                <div className="w-[180px] h-[180px] sm:w-[260px] sm:h-[260px] mx-auto ml-[20px] md:ml-[20px] rounded-full overflow-hidden shadow-strong">
                   <video ref={videoRef} src="/Untitled Video.mp4" className="w-full h-full object-cover pointer-events-none" muted loop playsInline />
                 </div>
 
