@@ -910,12 +910,11 @@ export const useTranscription = ({
         addDebugLog(`[Speech] 🎤 Speech started - resetting processed text`);
         lastProcessedTextRef.current = ''; // Reset for new speech
         onSpeechStart?.();
-        // Voice interruption for all browsers during TTS
-        if (isTTSActiveRef.current) {
+        // Voice interruption - disabled for iOS to avoid noise triggering, only for desktop Safari
+        if (isTTSActiveRef.current && !isIOSDevice()) {
            const currentTime = Date.now();
-           const debounceTime = isIOSDevice() ? 500 : SAFARI_SPEECH_DEBOUNCE; // Faster interruption for iOS
-           if (currentTime - lastSafariSpeechTime > debounceTime) {
-             addDebugLog(`[Speech] 🎤 Voice interruption detected (${isIOSDevice() ? 'iOS fast mode' : 'Safari mode'})`);
+           if (currentTime - lastSafariSpeechTime > SAFARI_SPEECH_DEBOUNCE) {
+             addDebugLog(`[Speech] 🎤 Voice interruption detected (Safari mode)`);
              setLastSafariSpeechTime(currentTime);
              onInterruption?.();
            }
