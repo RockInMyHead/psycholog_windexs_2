@@ -21,15 +21,29 @@ export const useTTS = ({ onPlaybackStatusChange }: UseTTSProps = {}) => {
 
   // Synchronize ref state with React state for UI consumers
   const updatePlayingState = (playing: boolean) => {
+    const wasPlaying = isPlayingAudioRef.current;
     isPlayingAudioRef.current = playing;
     setIsPlaying(playing);
-    onPlaybackStatusChange?.(playing || isSynthesizingRef.current);
+
+    // Only call callback if actual state changed (prevent excessive pausing/resuming)
+    const newActiveState = playing || isSynthesizingRef.current;
+    const oldActiveState = wasPlaying || isSynthesizingRef.current;
+    if (newActiveState !== oldActiveState) {
+      onPlaybackStatusChange?.(newActiveState);
+    }
   };
 
   const updateSynthesizingState = (synthesizing: boolean) => {
+    const wasSynthesizing = isSynthesizingRef.current;
     isSynthesizingRef.current = synthesizing;
     setIsSynthesizing(synthesizing);
-    onPlaybackStatusChange?.(isPlayingAudioRef.current || synthesizing);
+
+    // Only call callback if actual state changed
+    const newActiveState = isPlayingAudioRef.current || synthesizing;
+    const oldActiveState = isPlayingAudioRef.current || wasSynthesizing;
+    if (newActiveState !== oldActiveState) {
+      onPlaybackStatusChange?.(newActiveState);
+    }
   };
 
   const createAudioContext = () => {
