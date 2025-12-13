@@ -37,16 +37,16 @@ export const useTranscription = ({
   const [microphonePermissionStatus, setMicrophonePermissionStatus] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
 
   // TTS Echo Guard
-  const ttsGuard = useTTSEchoGuard(deviceProfile!);
+  const ttsGuard = useTTSEchoGuard(deviceProfile);
 
   // Text processing
   const textProcessor = useSTTTextProcessor();
 
   // Audio capture
-  const audioCapture = useAudioCapture(deviceProfile!);
+  const audioCapture = useAudioCapture(deviceProfile);
 
   // Voice Activity Detection
-  const vad = useVAD(deviceProfile!);
+  const vad = useVAD(deviceProfile);
 
   // Browser STT
   const browserSTT = useBrowserSTT(
@@ -68,7 +68,7 @@ export const useTranscription = ({
   );
 
   // OpenAI STT
-  const openaiSTT = useOpenAISTT(deviceProfile!);
+  const openaiSTT = useOpenAISTT(deviceProfile);
 
   // Mobile transcription timer
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
@@ -132,8 +132,6 @@ export const useTranscription = ({
 
   // --- Initialization ---
   const initializeRecognition = useCallback(async () => {
-    if (!deviceProfile) return;
-
     addDebugLog(`[Init] 🚀 Starting recognition initialization...`);
 
     // Check microphone permissions
@@ -284,8 +282,8 @@ export const useTranscription = ({
     transcriptionStatus,
     microphoneAccessGranted,
     microphonePermissionStatus,
-    isIOS: deviceProfile?.isIOS || false,
-    forceOpenAI: shouldForceOpenAI(deviceProfile!),
+    isIOS: deviceProfile.isIOS,
+    forceOpenAI: shouldForceOpenAI(deviceProfile),
     transcriptionMode,
     stopRecognition: browserSTT.stop,
     startRecognition: browserSTT.start,

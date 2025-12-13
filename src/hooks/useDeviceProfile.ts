@@ -29,43 +29,46 @@ export interface DeviceProfile {
   userAgent: string;
 }
 
+const detectDeviceSync = (): DeviceProfile => {
+  const userAgent = navigator.userAgent.toLowerCase();
+  const platform = navigator.platform;
+
+  // Device detection
+  const isIOS = /iphone|ipad|ipod/.test(userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /android/.test(userAgent);
+  const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+
+  // Browser detection
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+  // API support detection
+  const hasSpeechRecognitionSupport = !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition;
+  const hasMediaDevicesSupport = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const hasMediaRecorderSupport = typeof MediaRecorder !== 'undefined';
+
+  // Echo problems (Chrome-based browsers)
+  const hasEchoProblems = /chrome|chromium|edg\/|opera|brave|yabrowser|yaapp/.test(userAgent);
+
+  return {
+    isIOS,
+    isAndroid,
+    isMobile,
+    isSafari,
+    hasEchoProblems,
+    hasSpeechRecognitionSupport,
+    hasMediaDevicesSupport,
+    hasMediaRecorderSupport,
+    platform,
+    userAgent
+  };
+};
+
 export const useDeviceProfile = () => {
-  const [profile, setProfile] = useState<DeviceProfile | null>(null);
+  const [profile, setProfile] = useState<DeviceProfile>(() => detectDeviceSync());
 
   const detectDevice = useCallback((): DeviceProfile => {
-    const userAgent = navigator.userAgent.toLowerCase();
-    const platform = navigator.platform;
-
-    // Device detection
-    const isIOS = /iphone|ipad|ipod/.test(userAgent) ||
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isAndroid = /android/.test(userAgent);
-    const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
-
-    // Browser detection
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
-    // API support detection
-    const hasSpeechRecognitionSupport = !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition;
-    const hasMediaDevicesSupport = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    const hasMediaRecorderSupport = typeof MediaRecorder !== 'undefined';
-
-    // Echo problems (Chrome-based browsers)
-    const hasEchoProblems = /chrome|chromium|edg\/|opera|brave|yabrowser|yaapp/.test(userAgent);
-
-    const deviceProfile: DeviceProfile = {
-      isIOS,
-      isAndroid,
-      isMobile,
-      isSafari,
-      hasEchoProblems,
-      hasSpeechRecognitionSupport,
-      hasMediaDevicesSupport,
-      hasMediaRecorderSupport,
-      platform,
-      userAgent
-    };
-
+    const deviceProfile = detectDeviceSync();
     setProfile(deviceProfile);
     return deviceProfile;
   }, []);
