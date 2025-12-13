@@ -162,20 +162,82 @@ export const useTranscription = ({
     vad.resetVADState();
     ttsGuard.setTTSActive(false, 0);
 
-    // Get microphone stream
+    // Get microphone stream with progressive fallback
     try {
-      const constraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: deviceProfile.isIOS ? { ideal: 16000 } : { ideal: 44100 },
-        channelCount: { ideal: 1 }
-      };
+      let stream: MediaStream;
 
-      addDebugLog(`[Mic] Requesting access...`);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
-      addDebugLog(`[Mic] ✅ Access granted | Tracks: ${stream.getTracks().length}`);
+      if (deviceProfile.isIOS) {
+        // iOS progressive approach: try simple constraints first, then advanced
+        addDebugLog(`[Mic] iOS: Trying simple constraints first...`);
 
+        try {
+          // Step 1: Try minimal constraints
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+          });
+          addDebugLog(`[Mic] ✅ iOS simple constraints worked | Tracks: ${stream.getTracks().length}`);
+        } catch (simpleError) {
+          addDebugLog(`[Mic] ❌ iOS simple constraints failed: ${simpleError.message}, trying advanced...`);
+
+          // Step 2: Try advanced constraints
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              sampleRate: { ideal: 16000 },
+              channelCount: { ideal: 1 }
+            }
+          });
+          addDebugLog(`[Mic] ✅ iOS advanced constraints worked | Tracks: ${stream.getTracks().length}`);
+        }
+      } else {
+        // Desktop: use full constraints directly
+        const constraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: { ideal: 44100 },
+          channelCount: { ideal: 1 }
+        };
+
+        addDebugLog(`[Mic] Desktop: Requesting access with constraints...`);
+        stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+        addDebugLog(`[Mic] ✅ Desktop access granted | Tracks: ${stream.getTracks().length}`);
+      }
+
+      // Additional iOS diagnostics and track validation
+      const audioTracks = stream.getAudioTracks();
+
+      if (deviceProfile.isIOS) {
+        addDebugLog(`[iOS] Validating ${audioTracks.length} audio tracks...`);
+
+        audioTracks.forEach((track, index) => {
+          addDebugLog(`[iOS Track ${index}] enabled: ${track.enabled}, muted: ${track.muted}, readyState: ${track.readyState}, label: ${track.label}`);
+
+          // Check if track is actually working
+          if (!track.enabled) {
+            addDebugLog(`[iOS] ⚠️ Track ${index} is disabled, trying to enable...`);
+            track.enabled = true;
+          }
+
+          // Monitor track state changes
+          track.onended = () => addDebugLog(`[iOS] Track ${index} ended`);
+          track.onmute = () => addDebugLog(`[iOS] Track ${index} muted`);
+          track.onunmute = () => addDebugLog(`[iOS] Track ${index} unmuted`);
+        });
+
+        // iOS specific: wait a bit for tracks to stabilize
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // Final validation
+      const activeTracks = audioTracks.filter(track => track.enabled && !track.muted);
+      if (activeTracks.length === 0) {
+        throw new Error('No active audio tracks available');
+      }
+
+      addDebugLog(`[Mic] ✅ Final validation passed | Active tracks: ${activeTracks.length}`);
       setMicrophoneAccessGranted(true);
 
       // Start audio capture
@@ -209,45 +271,49 @@ export const useTranscription = ({
       console.error('[Mic] ❌ Failed:', error);
       setMicrophoneAccessGranted(false);
 
-      // Enhanced error handling for iOS
+      // Enhanced error handling for iOS with detailed diagnostics
       let userFriendlyErrorMessage = "Ошибка доступа к микрофону";
+      let diagnosticInfo = {
+        errorName: error.name,
+        errorMessage: error.message,
+        isIOS: deviceProfile.isIOS,
+        httpsEnabled: window.isSecureContext,
+        permissionsAPISupported: !!navigator.permissions,
+        userAgent: navigator.userAgent,
+        timestamp: new Date().toISOString()
+      };
+
+      addDebugLog(`[Mic Error] Detailed diagnostics: ${JSON.stringify(diagnosticInfo, null, 2)}`);
 
       if (deviceProfile.isIOS) {
-        // iOS-specific error handling
+        // iOS-specific error handling with progressive solutions
         if (error.name === 'NotAllowedError') {
-          userFriendlyErrorMessage = "Доступ к микрофону запрещен. В Safari откройте Настройки > Конфиденциальность > Микрофон и разрешите доступ для этого сайта.";
+          userFriendlyErrorMessage = "Доступ к микрофону запрещен. Следуйте инструкциям настройки выше. Если проблема persists, попробуйте: 1) Перезагрузить iPhone 2) Очистить кэш Safari 3) Использовать другой браузер.";
         } else if (error.name === 'NotFoundError') {
-          userFriendlyErrorMessage = "Микрофон не найден. Убедитесь что у устройства есть микрофон и он работает.";
+          userFriendlyErrorMessage = "Микрофон не найден или не работает. Проверьте: 1) Работает ли микрофон в других приложениях (Диктофон) 2) Нет ли физических повреждений 3) Подключен ли внешний микрофон.";
         } else if (error.name === 'NotReadableError') {
-          userFriendlyErrorMessage = "Микрофон занят другим приложением. Закройте другие приложения, использующие микрофон, и перезагрузите страницу.";
+          userFriendlyErrorMessage = "Микрофон занят системой iOS. Попробуйте: 1) Перезагрузить iPhone 2) Закрыть все другие приложения 3) Перезапустить Safari 4) Временно отключить Siri и другие сервисы.";
         } else if (error.name === 'SecurityError') {
-          userFriendlyErrorMessage = "Требуется защищенное соединение (HTTPS) для доступа к микрофону.";
+          userFriendlyErrorMessage = "Требуется защищенное соединение. Убедитесь что адрес начинается с 'https://' и сайт использует SSL-сертификат.";
         } else if (error.name === 'AbortError') {
-          userFriendlyErrorMessage = "Доступ к микрофону был прерван. Попробуйте еще раз.";
+          userFriendlyErrorMessage = "Запрос был прерван. Попробуйте еще раз. Если проблема повторяется - перезагрузите страницу.";
+        } else if (error.name === 'NotSupportedError') {
+          userFriendlyErrorMessage = "Ваш браузер не поддерживает доступ к микрофону. Обновите Safari до последней версии или используйте другой браузер.";
         } else {
-          userFriendlyErrorMessage = `Ошибка доступа к микрофону на iOS: ${error.message || 'Неизвестная ошибка'}. Попробуйте перезагрузить Safari или использовать другой браузер.`;
+          userFriendlyErrorMessage = `Неизвестная ошибка доступа к микрофону на iOS: ${error.message || 'Без описания'}. Рекомендуем: 1) Перезагрузить iPhone 2) Очистить данные Safari 3) Попробовать в приватном режиме.`;
         }
-
-        // Log additional iOS diagnostic info
-        console.log('[iOS Mic Diagnostics]', {
-          errorName: error.name,
-          errorMessage: error.message,
-          httpsRequired: !window.isSecureContext,
-          userAgent: navigator.userAgent,
-          permissionsAPI: !!navigator.permissions
-        });
       } else {
         // Generic error handling for other platforms
         if (error.name === 'NotAllowedError') {
-          userFriendlyErrorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера.";
+          userFriendlyErrorMessage = "Доступ к микрофону запрещен. Разрешите доступ в настройках браузера и перезагрузите страницу.";
         } else if (error.name === 'NotFoundError') {
-          userFriendlyErrorMessage = "Микрофон не найден. Проверьте подключение микрофона.";
+          userFriendlyErrorMessage = "Микрофон не найден. Проверьте подключение микрофона и настройки звука.";
         } else if (error.name === 'NotReadableError') {
-          userFriendlyErrorMessage = "Микрофон занят другим приложением или вкладкой.";
+          userFriendlyErrorMessage = "Микрофон занят другим приложением или вкладкой. Закройте другие приложения.";
         } else if (error.name === 'SecurityError') {
           userFriendlyErrorMessage = "Требуется защищенное соединение (HTTPS) для доступа к микрофону.";
         } else {
-          userFriendlyErrorMessage = `Ошибка доступа к микрофону: ${error.message || 'Неизвестная ошибка'}`;
+          userFriendlyErrorMessage = `Ошибка доступа к микрофону: ${error.message || 'Неизвестная ошибка'}. Попробуйте перезагрузить страницу.`;
         }
       }
 
@@ -329,6 +395,33 @@ export const useTranscription = ({
     return cleanup;
   }, [cleanup]);
 
+  // Manual microphone access test for troubleshooting
+  const testMicrophoneAccess = useCallback(async () => {
+    try {
+      addDebugLog(`[Mic Test] Manual microphone access test starting...`);
+
+      const testStream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceProfile.isIOS ? { echoCancellation: false } : { echoCancellation: true }
+      });
+
+      const tracks = testStream.getAudioTracks();
+      addDebugLog(`[Mic Test] ✅ Access successful | Tracks: ${tracks.length}`);
+
+      // Log track details
+      tracks.forEach((track, index) => {
+        addDebugLog(`[Mic Test Track ${index}] label: ${track.label}, enabled: ${track.enabled}, muted: ${track.muted}`);
+      });
+
+      // Clean up test stream
+      testStream.getTracks().forEach(track => track.stop());
+
+      return { success: true, tracks: tracks.length };
+    } catch (error: any) {
+      addDebugLog(`[Mic Test] ❌ Access failed: ${error.name} - ${error.message}`);
+      return { success: false, error: error.name, message: error.message };
+    }
+  }, [deviceProfile.isIOS, addDebugLog]);
+
   return {
     initializeRecognition,
     cleanup,
@@ -341,6 +434,7 @@ export const useTranscription = ({
     stopRecognition: browserSTT.stop,
     startRecognition: browserSTT.start,
     pauseRecordingForTTS,
-    resumeRecordingAfterTTS
+    resumeRecordingAfterTTS,
+    testMicrophoneAccess
   };
 };

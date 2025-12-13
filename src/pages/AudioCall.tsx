@@ -234,7 +234,8 @@ const AudioCall = () => {
     pauseRecordingForTTS,
     resumeRecordingAfterTTS,
     stopRecognition,
-    startRecognition
+    startRecognition,
+    testMicrophoneAccess
   } = useTranscription({
     isTTSActiveRef: isAssistantSpeakingRef,
     addDebugLog,
@@ -640,22 +641,58 @@ const AudioCall = () => {
                        🚫 Проблема с микрофоном
                      </h3>
                      {isIOS ? (
-                       <div className="space-y-2">
-                         <p className="text-sm text-red-600 mb-1">
-                           На iOS требуется специальная настройка микрофона
-                         </p>
-                         <div className="text-xs text-gray-600 space-y-1">
-                           <p><strong>Инструкция для Safari на iPhone:</strong></p>
-                           <ol className="list-decimal list-inside space-y-1 ml-2">
-                             <li>Откройте <strong>Настройки</strong> на устройстве</li>
-                             <li>Прокрутите вниз и выберите <strong>Safari</strong></li>
-                             <li>Выберите <strong>Микрофон</strong></li>
-                             <li>Выберите <strong>Разрешить</strong> или <strong>Спросить</strong></li>
-                             <li>Перезагрузите эту страницу</li>
-                           </ol>
-                           <p className="mt-2 text-orange-600">
-                             <strong>Важно:</strong> Убедитесь что другие приложения не используют микрофон, и попробуйте перезагрузить Safari.
+                       <div className="space-y-3">
+                         <div className="space-y-2">
+                           <p className="text-sm text-red-600 mb-1">
+                             <strong>Проблема с доступом к микрофону на iPhone</strong>
                            </p>
+                           <div className="text-xs text-gray-600 space-y-2">
+                             <div>
+                               <p className="font-medium">🔧 Попробуйте эти решения по порядку:</p>
+                               <ol className="list-decimal list-inside space-y-1 ml-2 mt-1">
+                                 <li>Перезагрузите Safari (двойное нажатие на home, свайп вверх)</li>
+                                 <li>Откройте <strong>Настройки</strong> → <strong>Safari</strong> → <strong>Микрофон</strong> → <strong>Разрешить</strong></li>
+                                 <li>Перезагрузите iPhone</li>
+                                 <li>Попробуйте другой браузер (Chrome, Firefox)</li>
+                                 <li>Проверьте что сайт использует HTTPS (замок в адресной строке)</li>
+                               </ol>
+                             </div>
+
+                             <div className="bg-blue-50 p-2 rounded border border-blue-200">
+                               <p className="text-blue-800 font-medium text-xs">💡 Дополнительные советы:</p>
+                               <ul className="text-blue-700 text-xs space-y-1 mt-1 ml-2">
+                                 <li>• Убедитесь что другие вкладки Safari закрыты</li>
+                                 <li>• Попробуйте в частном режиме (новая вкладка → приватно)</li>
+                                 <li>• Проверьте что микрофон устройства работает (диктофон)</li>
+                                 <li>• Если ничего не помогает - обратитесь в поддержку</li>
+                               </ul>
+                             </div>
+
+                             <div className="flex gap-2 mt-3">
+                               <Button
+                                 onClick={() => window.location.reload()}
+                                 size="sm"
+                                 className="text-xs bg-blue-600 hover:bg-blue-700"
+                               >
+                                 🔄 Перезагрузить страницу
+                               </Button>
+                               <Button
+                                 onClick={async () => {
+                                   const result = await testMicrophoneAccess();
+                                   if (result.success) {
+                                     alert(`✅ Доступ к микрофону работает! (${result.tracks} треков)\nПерезагрузите страницу для начала разговора.`);
+                                   } else {
+                                     alert(`❌ Доступ все еще заблокирован.\nОшибка: ${result.error}\n${result.message}\n\nСледуйте инструкциям выше.`);
+                                   }
+                                 }}
+                                 size="sm"
+                                 variant="outline"
+                                 className="text-xs"
+                               >
+                                 🔧 Проверить доступ
+                               </Button>
+                             </div>
+                           </div>
                          </div>
                        </div>
                      ) : (
@@ -666,6 +703,13 @@ const AudioCall = () => {
                          <p className="text-xs text-gray-500">
                            Проверьте, не используется ли микрофон другим приложением или вкладкой браузера.
                          </p>
+                         <Button
+                           onClick={() => window.location.reload()}
+                           size="sm"
+                           className="mt-2 text-xs"
+                         >
+                           🔄 Перезагрузить страницу
+                         </Button>
                        </div>
                      )}
                   </div>
