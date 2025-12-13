@@ -293,7 +293,20 @@ export const useTranscription = ({
           if (text && text.trim()) {
             const filteredText = filterHallucinatedText(text.trim());
             if (filteredText) {
+              // Check for duplicates before sending
+              if (recentlyProcessedTextsRef.current.has(filteredText)) {
+                addDebugLog(`[Mobile] Skipping recently processed text: "${filteredText}"`);
+                return;
+              }
+
               addDebugLog(`[Mobile] ✅ Transcribed: "${filteredText}"`);
+
+              // Add to recently processed texts
+              recentlyProcessedTextsRef.current.add(filteredText);
+              setTimeout(() => {
+                recentlyProcessedTextsRef.current.delete(filteredText);
+              }, 10000);
+
               onTranscriptionComplete(filteredText, 'openai');
             } else {
               addDebugLog(`[Mobile] ⚠️ Filtered hallucination: "${text}"`);
@@ -674,8 +687,9 @@ export const useTranscription = ({
     }
   };
 
-    // Track last processed text to prevent duplicates
+    // Track recently processed texts to prevent duplicates
   const lastProcessedTextRef = useRef<string>('');
+  const recentlyProcessedTextsRef = useRef<Set<string>>(new Set());
 
   // --- Speech Recognition Setup ---
   const initializeRecognition = useCallback(async () => {
@@ -686,6 +700,7 @@ export const useTranscription = ({
 
     // Reset processed text on initialization
     lastProcessedTextRef.current = '';
+    recentlyProcessedTextsRef.current.clear();
 
     // Device Checks
     const ios = isIOSDevice();
@@ -861,14 +876,21 @@ export const useTranscription = ({
           }
         }
 
-        // Использовать fullTranscript для обработки на iOS
-        const transcriptToProcess = isIOSDevice() ? fullTranscript : finalTranscript;
+        // Использовать только финальные результаты для обработки
+        const transcriptToProcess = finalTranscript;
 
         if (transcriptToProcess.trim()) {
           console.log(`[Transcription] ${isIOSDevice() ? 'Full' : 'Final'} transcript: "${transcriptToProcess}"`);
 
-          // Prevent duplicate processing - check if this is just an extension of previous text
+          // Prevent duplicate processing - check if this text was recently processed
           const trimmedText = transcriptToProcess.trim();
+
+          // Skip if this exact text was processed recently (within last 10 seconds)
+          if (recentlyProcessedTextsRef.current.has(trimmedText)) {
+            console.log(`[Transcription] Skipping recently processed text: "${trimmedText}"`);
+            return;
+          }
+
           const lastText = lastProcessedTextRef.current;
 
           // If new text starts with previous text and is significantly longer, it's a continuation
@@ -897,6 +919,13 @@ export const useTranscription = ({
 
           console.log(`[Transcription] Processing new ${isIOSDevice() ? 'full' : 'final'} transcript`);
           lastProcessedTextRef.current = trimmedText;
+
+          // Add to recently processed texts and clean up old entries
+          recentlyProcessedTextsRef.current.add(trimmedText);
+          // Clean up old entries after 10 seconds to prevent memory leaks
+          setTimeout(() => {
+            recentlyProcessedTextsRef.current.delete(trimmedText);
+          }, 10000);
 
           console.log(`[Transcription] Calling onTranscriptionComplete with ${isIOSDevice() ? 'full' : 'final'} transcript`);
           onTranscriptionComplete(trimmedText, 'browser');
@@ -931,6 +960,7 @@ export const useTranscription = ({
       recognition.onspeechstart = () => {
         addDebugLog(`[Speech] 🎤 Speech started - resetting processed text`);
         lastProcessedTextRef.current = ''; // Reset for new speech
+        // Note: recentlyProcessedTextsRef is not reset here to prevent duplicates across speech segments
         onSpeechStart?.();
         // Voice interruption - disabled for iOS to avoid noise triggering, only for desktop Safari
         if (isTTSActiveRef.current && !isIOSDevice()) {
@@ -1051,6 +1081,7 @@ export const useTranscription = ({
 
     // Reset all state
     lastProcessedTextRef.current = ''; // Reset processed text
+    recentlyProcessedTextsRef.current.clear(); // Clear recently processed texts
     recognitionActiveRef.current = false;
     justResumedAfterTTSRef.current = false; // Reset TTS resumption flag
     browserRetryCountRef.current = 0;

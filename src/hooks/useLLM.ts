@@ -230,12 +230,27 @@ export const useLLM = ({ userId, callId, onResponseGenerated, onError }: UseLLMP
       return;
     }
 
-    // Prevent processing the same text twice
+    // Prevent processing the same text twice or similar text
     const trimmedText = text.trim();
-    console.log(`[LLM] Current processing text: "${currentProcessingTextRef.current}"`);
+    const currentText = currentProcessingTextRef.current;
+    console.log(`[LLM] Current processing text: "${currentText}"`);
     console.log(`[LLM] New text to process: "${trimmedText}"`);
-    if (currentProcessingTextRef.current === trimmedText) {
+
+    // Skip exact duplicates
+    if (currentText === trimmedText) {
       console.log(`[LLM] Skipping call (ID: ${callId}) - same text already being processed: "${trimmedText}"`);
+      return;
+    }
+
+    // Skip if new text is just an extension of currently processing text (common on iOS)
+    if (currentText && trimmedText.startsWith(currentText) && trimmedText.length > currentText.length) {
+      console.log(`[LLM] Skipping call (ID: ${callId}) - new text "${trimmedText}" is extension of processing text "${currentText}"`);
+      return;
+    }
+
+    // Skip if new text is contained within currently processing text (rare but possible)
+    if (currentText && currentText.includes(trimmedText) && currentText.length > trimmedText.length) {
+      console.log(`[LLM] Skipping call (ID: ${callId}) - new text "${trimmedText}" is contained in processing text "${currentText}"`);
       return;
     }
 
