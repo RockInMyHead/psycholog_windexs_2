@@ -499,31 +499,9 @@ export const useTranscription = ({
         if (e.data.size > 0) {
           const isIOS = isIOSDevice();
 
-          if (isIOS && e.data.size > 60000) { // iOS: отправлять большие чанки сразу (realtime) - увеличить размер для OpenAI
-            addDebugLog(`[MediaRec] 📱 iOS realtime chunk: ${e.data.size} bytes - sending immediately`);
-
-            // Создать blob из текущего чанка
-            const chunkBlob = new Blob([e.data], { type: e.data.type });
-
-            // Отправить на транскрибацию сразу (не ждать таймера)
-            transcribeWithOpenAI(chunkBlob).then(text => {
-              if (text && text.trim()) {
-                const filteredText = filterHallucinatedText(text.trim());
-                if (filteredText) {
-                  addDebugLog(`[Mobile] ✅ iOS Realtime transcribed: "${filteredText}"`);
-                  onTranscriptionComplete(filteredText, 'openai');
-                }
-              }
-            }).catch(error => {
-              addDebugLog(`[Mobile] ❌ iOS realtime transcription error: ${error}`);
-            });
-
-            // Не накапливать для таймера на iOS
-          } else {
-            // Android/Desktop: накопление для таймера
-            recordedChunksRef.current.push(e.data);
-            addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
-          }
+          // Все устройства: накопление для таймера (кроме Android в OpenAI режиме)
+          recordedChunksRef.current.push(e.data);
+          addDebugLog(`[MediaRec] Recorded chunk: ${e.data.size} bytes`);
 
           // Real-time volume monitoring for voice interruption (use estimate for iOS)
           if (e.data.size > 1000) {
@@ -699,16 +677,15 @@ export const useTranscription = ({
     const hasSupport = speechRecognitionSupport;
     const android = isAndroidDevice();
 
-    // Desktop работает в Browser Mode для лучшей отзывчивости
-    // iOS и Android ВСЕГДА используют OpenAI STT для надежности и качества
+    // Desktop и iOS работают в Browser Mode для лучшей отзывчивости
+    // Android использует OpenAI STT для надежности и качества
     // OpenAI-режим для остальных случаев без поддержки
-    const shouldForceOpenAI = !hasSupport || ios || android;
+    const shouldForceOpenAI = !hasSupport || android; // Убрали ios для тестирования браузерного STT
 
     addDebugLog(
       `[Strategy] ${shouldForceOpenAI ? 'OpenAI Mode' : 'Browser Mode'} | Reason: ` +
-      (ios ? 'iOS device (OpenAI STT)' :
-       android ? 'Android device (OpenAI STT)' :
-       !hasSupport ? 'No SpeechRecognition Support' : 'Desktop browser SpeechRecognition')
+      (android ? 'Android device (OpenAI STT)' :
+       !hasSupport ? 'No SpeechRecognition Support' : 'Browser SpeechRecognition (desktop & iOS)')
     );
 
     setForceOpenAI(shouldForceOpenAI);
@@ -806,7 +783,7 @@ export const useTranscription = ({
       const android = isAndroidDevice();
       addDebugLog(`[Init] Checking mobile timer: iOS=${ios}, Android=${android}, hasSpeechRec=${hasSupport}`);
 
-      if (shouldForceOpenAI && isMobile && !ios) {
+      if (shouldForceOpenAI && isMobile) {
         // Android: использовать таймер с накоплением аудио
         const now = Date.now();
         lastVoiceActivityRef.current = now;
@@ -816,11 +793,8 @@ export const useTranscription = ({
 
         addDebugLog(`[Init] Starting mobile transcription timer (fallback OpenAI mode on Android)`);
         startMobileTranscriptionTimer();
-      } else if (shouldForceOpenAI && ios) {
-        // iOS: realtime отправка без таймера
-        addDebugLog(`[Init] iOS realtime mode - sending audio chunks immediately without timer`);
       } else {
-        addDebugLog(`[Init] Not starting mobile timer (using browser SpeechRecognition)`);
+        addDebugLog(`[Init] Using browser SpeechRecognition (desktop and iOS)`);
       }
 
       // If forcing OpenAI, don't start browser recognition
