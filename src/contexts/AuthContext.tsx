@@ -47,77 +47,34 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is logged in on app start
+    // Check if user has active session on app start
     const checkAuth = async () => {
       try {
-        const savedUser = localStorage.getItem('auth_user');
-        console.log('[AuthContext] Checking saved user:', savedUser ? 'exists' : 'not found');
+        console.log('[AuthContext] Checking for active session...');
         
-        if (savedUser) {
-          const userData = JSON.parse(savedUser);
-          console.log('[AuthContext] Restored user from localStorage:', userData.email);
+        // Try to get session from server (using HTTP-only cookie)
+        const sessionResponse = await authApi.getSession();
+        
+        if (sessionResponse?.user) {
+          console.log('[AuthContext] Active session found:', sessionResponse.user.email);
+          setUser(sessionResponse.user);
           
+          // Load user subscription
           try {
-          // Verify user still exists in database
-          let dbUser = await userApi.getUser(userData.id);
-          if (dbUser) {
-              console.log('[AuthContext] User verified in database:', dbUser.email);
-            setUser(dbUser);
-
-            // Load user subscription
-              try {
-            const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
+            const userSubscription = await subscriptionApi.getUserSubscription(sessionResponse.user.id);
             setSubscription(userSubscription);
-                console.log('[AuthContext] User subscription loaded');
-              } catch (subError) {
-                console.error('[AuthContext] Error loading subscription:', subError);
-                // Don't remove user if only subscription loading failed
-              }
-          } else {
-              // Try to find user by email if ID not found
-              console.warn('[AuthContext] User not found by ID, trying to find by email:', userData.email);
-              try {
-                const userByEmail = await userApi.getUserByEmail(userData.email);
-                if (userByEmail) {
-                  console.log('[AuthContext] Found user by email, updating localStorage:', userByEmail.email);
-                  setUser(userByEmail);
-                  localStorage.setItem('auth_user', JSON.stringify(userByEmail));
-
-                  // Load user subscription
-                  try {
-                    const userSubscription = await subscriptionApi.getUserSubscription(userByEmail.id);
-                    setSubscription(userSubscription);
-                    console.log('[AuthContext] User subscription loaded');
-                  } catch (subError) {
-                    console.error('[AuthContext] Error loading subscription:', subError);
-                  }
-                } else {
-                  console.warn('[AuthContext] User not found by email either, clearing localStorage');
-                  localStorage.removeItem('auth_user');
-                }
-              } catch (emailError) {
-                console.error('[AuthContext] Error finding user by email:', emailError);
-                localStorage.removeItem('auth_user');
-              }
-            }
-          } catch (apiError: unknown) {
-            // Don't clear localStorage if it's just a network error
-            if ((apiError as any)?.status === 404) {
-              console.warn('[AuthContext] User not found (404), clearing localStorage');
-            localStorage.removeItem('auth_user');
-            } else {
-              console.error('[AuthContext] API error, keeping user in localStorage:', apiError);
-              // Keep user logged in even if API is temporarily unavailable
-              setUser(userData);
-            }
+            console.log('[AuthContext] User subscription loaded');
+          } catch (subError) {
+            console.error('[AuthContext] Error loading subscription:', subError);
           }
+        } else {
+          console.log('[AuthContext] No active session found');
         }
-      } catch (error) {
-        console.error('[AuthContext] Auth check error:', error);
-        // Only remove if there's a parsing error or critical issue
-        if (error instanceof SyntaxError) {
-          console.warn('[AuthContext] Invalid localStorage data, clearing');
-        localStorage.removeItem('auth_user');
+      } catch (error: any) {
+        if (error?.status === 401) {
+          console.log('[AuthContext] No valid session');
+        } else {
+          console.error('[AuthContext] Error checking session:', error);
         }
       } finally {
         setLoading(false);
@@ -136,8 +93,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (authenticatedUser) {
         console.log('[AuthContext] User authenticated:', authenticatedUser.email);
         setUser(authenticatedUser);
-        localStorage.setItem('auth_user', JSON.stringify(authenticatedUser));
-        console.log('[AuthContext] User saved to localStorage');
         
         // Load user subscription
         try {
@@ -172,8 +127,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       console.log('[AuthContext] User created successfully:', newUser.email);
       
       setUser(newUser);
-      localStorage.setItem('auth_user', JSON.stringify(newUser));
-      console.log('[AuthContext] User saved to localStorage');
       
       // Load user subscription (new users start with free plan)
       try {
@@ -195,12 +148,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  const logout = () => {
-    console.log('[AuthContext] Logging out user');
-    setUser(null);
-    setSubscription(null);
-    localStorage.removeItem('auth_user');
-    console.log('[AuthContext] User logged out, localStorage cleared');
+  const logout = async () => {
+    try {
+      console.log('[AuthContext] Logging out user');
+      await authApi.logout();
+      setUser(null);
+      setSubscription(null);
+      console.log('[AuthContext] User logged out');
+    } catch (error) {
+      console.error('[AuthContext] Logout error:', error);
+      // Clear state even if API call fails
+      setUser(null);
+      setSubscription(null);
+    }
   };
 
   const value: AuthContextType = {

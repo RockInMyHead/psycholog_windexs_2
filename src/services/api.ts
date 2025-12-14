@@ -39,6 +39,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
       'Content-Type': 'application/json',
       ...options.headers,
     },
+    credentials: 'include', // Always include credentials for session cookies
     ...options,
   };
 
@@ -84,6 +85,7 @@ export const authApi = {
     return await apiCall('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password, name }),
+      credentials: 'include', // Important for cookies
     });
   },
 
@@ -91,12 +93,21 @@ export const authApi = {
     return await apiCall('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+      credentials: 'include', // Important for cookies
     });
   },
 
   async logout() {
     return await apiCall('/auth/logout', {
       method: 'POST',
+      credentials: 'include', // Important for cookies
+    });
+  },
+
+  async getSession() {
+    return await apiCall('/auth/session', {
+      method: 'GET',
+      credentials: 'include', // Important for cookies
     });
   },
 };

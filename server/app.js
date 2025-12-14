@@ -4,6 +4,7 @@ const axios = require('axios');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const cookieParser = require('cookie-parser');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const multer = require('multer');
 const FormData = require('form-data');
@@ -19,7 +20,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Import database services
-const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, walletService, _ensureUserPasswordColumn, db, schema, sqlite } = require('./database');
+const { userService, chatService, audioCallService, meditationService, quoteService, userStatsService, subscriptionService, memoryService, userProfileService, accessService, walletService, sessionService, _ensureUserPasswordColumn, db, schema, sqlite } = require('./database');
 const logger = require('./logger');
 
 // Audio conversion function
@@ -254,6 +255,26 @@ async function initializeDatabase() {
       }
     }
 
+    // Create sessions table
+    try {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS sessions (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          last_accessed_at INTEGER NOT NULL,
+          ip_address TEXT,
+          user_agent TEXT,
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+      `);
+    } catch (error) {
+      if (!error.message.includes('already exists')) {
+        throw error;
+      }
+    }
+
     logger.info('DB', 'Database tables created successfully!');
 
     // Check if quotes already exist
@@ -307,6 +328,37 @@ app.use(cors({
 app.options('*', cors());
 
 app.use(express.json());
+app.use(cookieParser());
+
+// Session middleware - check and refresh session on each request
+const sessionMiddleware = async (req, res, next) => {
+  const sessionId = req.cookies?.sessionId;
+  
+  if (sessionId) {
+    try {
+      const session = await sessionService.getSession(sessionId);
+      if (session) {
+        // Session is valid, attach user to request
+        req.session = session;
+        req.userId = session.userId;
+        
+        // Update last accessed time
+        await sessionService.touchSession(sessionId);
+      } else {
+        // Session expired or invalid, clear cookie
+        res.clearCookie('sessionId');
+      }
+    } catch (error) {
+      console.error('[Session Middleware] Error checking session:', error);
+      res.clearCookie('sessionId');
+    }
+  }
+  
+  next();
+};
+
+// Apply session middleware to all routes
+app.use(sessionMiddleware);
 
 // Proxy configuration
 const proxyConfig = {
@@ -648,7 +700,23 @@ app.post('/api/auth/register', async (req, res) => {
       user = await userService.createUser(email, name, password);
     }
 
-    res.status(existingUser ? 200 : 201).json({ user: sanitizeUser(user) });
+    // Create session for new user
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    const userAgent = req.get('user-agent');
+    const session = await sessionService.createSession(user.id, ipAddress, userAgent);
+
+    // Set HTTP-only cookie with session ID
+    res.cookie('sessionId', session.sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+
+    res.status(existingUser ? 200 : 201).json({ 
+      user: sanitizeUser(user),
+      sessionId: session.sessionId 
+    });
   } catch (error) {
     console.error('[Auth] Error registering user:', error);
     res.status(500).json({ error: error.message });
@@ -672,15 +740,134 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    res.json({ user: sanitizeUser(user) });
+    // Create session for logged in user
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    const userAgent = req.get('user-agent');
+    const session = await sessionService.createSession(user.id, ipAddress, userAgent);
+
+    // Set HTTP-only cookie with session ID
+    res.cookie('sessionId', session.sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+
+    res.json({ 
+      user: sanitizeUser(user),
+      sessionId: session.sessionId 
+    });
   } catch (error) {
     console.error('[Auth] Error during login:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/auth/logout', (_req, res) => {
-  res.status(204).send();
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const sessionId = req.cookies?.sessionId;
+    if (sessionId) {
+      await sessionService.deleteSession(sessionId);
+    }
+    res.clearCookie('sessionId');
+    res.status(204).send();
+  } catch (error) {
+    console.error('[Auth] Error during logout:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Session endpoints
+app.get('/api/auth/session', async (req, res) => {
+  try {
+    const sessionId = req.cookies?.sessionId;
+    if (!sessionId) {
+      return res.status(401).json({ error: 'No session found' });
+    }
+
+    const session = await sessionService.getSession(sessionId);
+    if (!session) {
+      res.clearCookie('sessionId');
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    // Update last accessed time
+    await sessionService.touchSession(sessionId);
+
+    // Get user data
+    const user = await userService.getUserById(session.userId);
+    if (!user) {
+      await sessionService.deleteSession(sessionId);
+      res.clearCookie('sessionId');
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ 
+      user: sanitizeUser(user),
+      session: {
+        sessionId: session.sessionId,
+        expiresAt: session.expiresAt
+      }
+    });
+  } catch (error) {
+    console.error('[Session] Error getting session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/auth/sessions', async (req, res) => {
+  try {
+    const sessionId = req.cookies?.sessionId;
+    if (!sessionId) {
+      return res.status(401).json({ error: 'No session found' });
+    }
+
+    const session = await sessionService.getSession(sessionId);
+    if (!session) {
+      res.clearCookie('sessionId');
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    const sessions = await sessionService.getUserSessions(session.userId);
+    res.json({ sessions });
+  } catch (error) {
+    console.error('[Session] Error getting sessions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/auth/sessions/:sessionId', async (req, res) => {
+  try {
+    const currentSessionId = req.cookies?.sessionId;
+    const { sessionId } = req.params;
+
+    if (!currentSessionId) {
+      return res.status(401).json({ error: 'No session found' });
+    }
+
+    const currentSession = await sessionService.getSession(currentSessionId);
+    if (!currentSession) {
+      res.clearCookie('sessionId');
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    // Get the session to delete
+    const sessionToDelete = await sessionService.getSession(sessionId);
+    if (!sessionToDelete) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Make sure user can only delete their own sessions
+    if (sessionToDelete.userId !== currentSession.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    await sessionService.deleteSession(sessionId);
+    res.status(204).send();
+  } catch (error) {
+    console.error('[Session] Error deleting session:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 

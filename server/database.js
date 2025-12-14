@@ -134,6 +134,17 @@ const conversationHistory = sqliteTable('conversation_history', {
   createdAt: integer('created_at').notNull(),
 });
 
+// Таблица сессий для аутентификации
+const sessions = sqliteTable('sessions', {
+  id: text('id').primaryKey(), // Session token
+  userId: text('user_id').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+  lastAccessedAt: integer('last_accessed_at').notNull(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+});
+
 // Таблица профиля пользователя - структурированная память психолога
 const userProfiles = sqliteTable('user_profiles', {
   id: text('id').primaryKey(),
@@ -185,6 +196,7 @@ const schema = {
   subscriptions,
   conversationHistory,
   userProfiles,
+  sessions,
 };
 
 // Create database connection
@@ -1584,6 +1596,105 @@ const accessService = {
   },
 };
 
+// Session Service - для управления сессиями пользователей
+const sessionService = {
+  // Создать новую сессию
+  async createSession(userId, ipAddress, userAgent) {
+    const now = new Date();
+    const sessionId = `sess_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 дней
+
+    await db.insert(schema.sessions).values({
+      id: sessionId,
+      userId,
+      expiresAt: toTimestamp(expiresAt),
+      createdAt: toTimestamp(now),
+      lastAccessedAt: toTimestamp(now),
+      ipAddress: ipAddress || null,
+      userAgent: userAgent || null,
+    });
+
+    return {
+      sessionId,
+      userId,
+      expiresAt: expiresAt.toISOString(),
+    };
+  },
+
+  // Получить сессию по ID
+  async getSession(sessionId) {
+    const sessions = await db.select()
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId));
+
+    if (sessions.length === 0) return null;
+
+    const session = sessions[0];
+    const now = new Date();
+    const expiresAt = toDateRequired(session.expiresAt);
+
+    // Проверить, не истекла ли сессия
+    if (expiresAt < now) {
+      await this.deleteSession(sessionId);
+      return null;
+    }
+
+    return {
+      sessionId: session.id,
+      userId: session.userId,
+      expiresAt: expiresAt.toISOString(),
+      createdAt: toDateRequired(session.createdAt).toISOString(),
+      lastAccessedAt: toDateRequired(session.lastAccessedAt).toISOString(),
+    };
+  },
+
+  // Обновить время последнего доступа к сессии
+  async touchSession(sessionId) {
+    const now = new Date();
+    await db.update(schema.sessions)
+      .set({ lastAccessedAt: toTimestamp(now) })
+      .where(eq(schema.sessions.id, sessionId));
+  },
+
+  // Удалить сессию
+  async deleteSession(sessionId) {
+    await db.delete(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId));
+  },
+
+  // Удалить все сессии пользователя
+  async deleteUserSessions(userId) {
+    await db.delete(schema.sessions)
+      .where(eq(schema.sessions.userId, userId));
+  },
+
+  // Очистить истекшие сессии
+  async cleanupExpiredSessions() {
+    const now = new Date();
+    const result = await db.delete(schema.sessions)
+      .where(sql`${schema.sessions.expiresAt} < ${toTimestamp(now)}`);
+    return result;
+  },
+
+  // Получить активные сессии пользователя
+  async getUserSessions(userId) {
+    const sessions = await db.select()
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, userId))
+      .orderBy(desc(schema.sessions.lastAccessedAt));
+
+    return sessions.map(session => ({
+      sessionId: session.id,
+      userId: session.userId,
+      expiresAt: toDateRequired(session.expiresAt).toISOString(),
+      createdAt: toDateRequired(session.createdAt).toISOString(),
+      lastAccessedAt: toDateRequired(session.lastAccessedAt).toISOString(),
+      ipAddress: session.ipAddress,
+      userAgent: session.userAgent,
+    }));
+  },
+};
+
 module.exports = {
   userService,
   chatService,
@@ -1597,6 +1708,7 @@ module.exports = {
   conversationHistoryService,
   accessService,
   walletService,
+  sessionService,
   _ensureUserPasswordColumn,
   db,
   schema,
