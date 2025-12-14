@@ -56,12 +56,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         const sessionResponse = await authApi.getSession();
         
         if (sessionResponse?.user) {
-          console.log('[AuthContext] Active session found:', sessionResponse.user.email);
+          console.log('[AuthContext] Active session found:', sessionResponse.user?.email);
           setUser(sessionResponse.user);
-          
+
           // Load user subscription
           try {
-            const userSubscription = await subscriptionApi.getUserSubscription(sessionResponse.user.id);
+            const userSubscription = await subscriptionApi.getUserSubscription(sessionResponse.user?.id);
             setSubscription(userSubscription);
             console.log('[AuthContext] User subscription loaded');
           } catch (subError) {
@@ -91,12 +91,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const authenticatedUser = response?.user || response;
 
       if (authenticatedUser) {
-        console.log('[AuthContext] User authenticated:', authenticatedUser.email);
+        console.log('[AuthContext] User authenticated:', authenticatedUser?.email);
         setUser(authenticatedUser);
-        
+
         // Load user subscription
         try {
-          const userSubscription = await subscriptionApi.getUserSubscription(authenticatedUser.id);
+          const userSubscription = await subscriptionApi.getUserSubscription(authenticatedUser?.id);
           setSubscription(userSubscription);
           console.log('[AuthContext] User subscription loaded');
         } catch (subError) {
@@ -124,13 +124,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       
       const response = await authApi.register(email, password, name);
       const newUser = response?.user || response;
-      console.log('[AuthContext] User created successfully:', newUser.email);
-      
+      console.log('[AuthContext] User created successfully:', newUser?.email);
+
       setUser(newUser);
-      
+
       // Load user subscription (new users start with free plan)
       try {
-        const userSubscription = await subscriptionApi.getUserSubscription(newUser.id);
+        const userSubscription = await subscriptionApi.getUserSubscription(newUser?.id);
         setSubscription(userSubscription);
         console.log('[AuthContext] User subscription loaded');
       } catch (subError) {
