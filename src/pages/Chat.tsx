@@ -51,7 +51,7 @@ const Chat = () => {
     if (authUser?.email) {
       // Authenticated user - use real credentials
       return {
-        email: authUser.email,
+        email: authUser?.email,
         name: authUser.name ?? authUser.email
       };
     } else {

@@ -356,7 +356,7 @@ const AudioCall = () => {
 
       if (authUser?.email) {
         // Authenticated user - use real credentials
-        email = authUser.email;
+        email = authUser?.email;
         name = authUser.name ?? authUser.email;
       } else {
         // Anonymous user - generate unique identifier based on browser fingerprint
@@ -370,7 +370,7 @@ const AudioCall = () => {
       setUser(userData);
       
       const wallet = await walletApi.getWallet(userData.id);
-      setWalletBalance(wallet.balance);
+      setWalletBalance(wallet?.balance);
     } catch (err) {
       console.error('Error initializing user:', err);
     } finally {
@@ -389,16 +389,16 @@ const AudioCall = () => {
 
     try {
       // Check wallet balance (at least 1 minute)
-      const wallet = await walletApi.getWallet(user.id);
-      setWalletBalance(wallet.balance);
-      if ((wallet.balance || 0) < 8) {
+      const wallet = await walletApi.getWallet(user?.id);
+      setWalletBalance(wallet?.balance);
+      if ((wallet?.balance || 0) < 8) {
         setError("Недостаточно средств. Пополните кошелёк (минимум 8₽).");
         navigate('/subscription');
         return;
       }
 
       // Create Call Session (but don't count as used session yet)
-      const call = await audioCallApi.createAudioCall(user.id);
+      const call = await audioCallApi.createAudioCall(user?.id);
       setCurrentCallId(call.id);
       
       // Load User Profile
@@ -472,7 +472,7 @@ const AudioCall = () => {
         const minutes = Math.floor(callDuration / 60);
         if (minutes > 0) {
           try {
-            const result = await walletApi.debit(user.id, minutes * 8, 'voice_call', `call-${currentCallId}`);
+            const result = await walletApi.debit(user?.id, minutes * 8, 'voice_call', `call-${currentCallId}`);
             setWalletBalance(result.balance);
             addDebugLog(`[Billing] Charged ${minutes} min x 8₽ = ${minutes * 8}₽`);
           } catch (debitErr: any) {

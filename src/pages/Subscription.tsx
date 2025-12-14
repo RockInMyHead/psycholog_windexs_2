@@ -41,7 +41,7 @@ const Subscription = () => {
     if (!user) return;
     try {
       setLoading(true);
-      const data = await walletApi.getWallet(user.id);
+      const data = await walletApi.getWallet(user?.id);
       setWallet(data);
       setError(null);
     } catch (err: any) {
@@ -77,13 +77,13 @@ const Subscription = () => {
           },
           description: `Пополнение кошелька на ${topupAmount.toFixed(2)}₽`,
           metadata: {
-            userId: user.id,
+            userId: user?.id,
             type: "wallet_topup",
             amountRub: topupAmount,
           },
           receipt: {
             customer: {
-              email: user.email || "customer@windexs.ru",
+              email: user?.email || "customer@windexs.ru",
             },
             items: [
               {
@@ -111,7 +111,7 @@ const Subscription = () => {
       // Сохраняем ID платежа для последующей верификации после возврата
       if (payment?.id) {
         localStorage.setItem("pending_payment_id", payment.id);
-        localStorage.setItem("pending_payment_user", user.id);
+        localStorage.setItem("pending_payment_user", user?.id);
       }
 
       const redirectUrl = payment?.confirmation?.confirmation_url || payment?.confirmation?.url;

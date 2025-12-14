@@ -25,7 +25,7 @@ const Profile = () => {
 
       if (authUser) {
         // Load current user data from database
-        const userData = await userApi.getUser(authUser.id);
+        const userData = await userApi.getUser(authUser?.id);
         setUser(userData);
         setName(userData.name);
         setEmail(userData.email);
@@ -60,7 +60,7 @@ const Profile = () => {
 
     try {
       setLoading(true);
-      await userApi.updateUser(user.id, { name: name.trim(), email: email.trim() });
+      await userApi.updateUser(user?.id, { name: name.trim(), email: email.trim() });
       await loadUserData(); // Reload data
     } catch (error) {
       console.error('Error updating profile:', error);
@@ -108,7 +108,7 @@ const Profile = () => {
               <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground mb-6">
                 <Calendar className="w-4 h-4" />
                 <span>
-                  {loading ? "Загрузка..." : `С нами с ${user ? formatDate(user.createdAt) : ''}`}
+                  {loading ? "Загрузка..." : `С нами с ${user ? formatDate(user?.createdAt) : ''}`}
                 </span>
               </div>
             </Card>
@@ -155,8 +155,8 @@ const Profile = () => {
                     <Button
                       onClick={() => {
                         if (user) {
-                          setName(user.name);
-                          setEmail(user.email);
+                          setName(user?.name || '');
+                          setEmail(user?.email || '');
                         }
                       }}
                       variant="outline"

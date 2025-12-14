@@ -96,7 +96,7 @@ const Meditations = () => {
 
       if (authUser?.email) {
         // Authenticated user - use real credentials
-        email = authUser.email;
+        email = authUser?.email;
         name = authUser.name ?? authUser.email;
       } else {
         // Anonymous user - generate unique identifier based on browser fingerprint
