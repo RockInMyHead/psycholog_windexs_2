@@ -52,3 +52,4 @@ echo "   - Reordered hook initialization (useTTS → useLLM → useTranscription
 echo "   - Proper callback dependencies"
 echo "   - Stable function references across renders"
 echo ""
+

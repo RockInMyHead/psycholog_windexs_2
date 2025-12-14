@@ -63,3 +63,4 @@ else
     echo "  - Upload dist/* to: ${REMOTE_PATH}/"
     exit 1
 fi
+
