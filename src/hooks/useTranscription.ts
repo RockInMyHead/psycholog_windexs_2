@@ -73,6 +73,26 @@ export const useTranscription = ({
   // Mobile transcription timer
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
 
+  // Refs to store current instances (to avoid stale closures in cleanup)
+  const currentInstancesRef = useRef({
+    stopMobileTranscriptionTimer,
+    browserSTT,
+    vad,
+    audioCapture,
+    textProcessor,
+    ttsGuard
+  });
+
+  // Update refs when instances change
+  currentInstancesRef.current = {
+    stopMobileTranscriptionTimer,
+    browserSTT,
+    vad,
+    audioCapture,
+    textProcessor,
+    ttsGuard
+  };
+
   // --- Mobile Transcription Timer ---
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
@@ -369,18 +389,21 @@ export const useTranscription = ({
 
   // --- Cleanup ---
   const cleanup = useCallback((resetMicrophoneState: boolean = true) => {
-    addDebugLog(`[Transcription] 🧹 Cleanup called (resetMic: ${resetMicrophoneState})`);
+    const callStack = new Error().stack;
+    const caller = callStack?.split('\n')[2]?.trim() || 'unknown';
+    addDebugLog(`[Transcription] 🧹 Cleanup called (resetMic: ${resetMicrophoneState}) - Called from: ${caller}`);
 
-    // Stop everything
-    stopMobileTranscriptionTimer();
-    browserSTT.stop();
-    vad.stopVolumeMonitoring();
-    audioCapture.cleanup();
+    // Stop everything using current instances
+    const instances = currentInstancesRef.current;
+    instances.stopMobileTranscriptionTimer();
+    instances.browserSTT.stop();
+    instances.vad.stopVolumeMonitoring();
+    instances.audioCapture.cleanup();
 
     // Reset state
-    textProcessor.clearDuplicates();
-    vad.resetVADState();
-    ttsGuard.setTTSActive(false, 0);
+    instances.textProcessor.clearDuplicates();
+    instances.vad.resetVADState();
+    instances.ttsGuard.setTTSActive(false, 0);
 
     setTranscriptionStatus(null);
     setTranscriptionMode('browser');
@@ -389,15 +412,12 @@ export const useTranscription = ({
     if (resetMicrophoneState) {
       setMicrophoneAccessGranted(false);
     }
-  }, [
-    stopMobileTranscriptionTimer, browserSTT, vad, audioCapture,
-    textProcessor, ttsGuard, addDebugLog
-  ]);
+  }, [addDebugLog]); // Only depend on addDebugLog to prevent excessive re-creations
 
-  // Cleanup on unmount
+  // Cleanup on unmount - only when component actually unmounts
   useEffect(() => {
     return () => cleanup(true); // Full cleanup on unmount
-  }, [cleanup]);
+  }, []); // Remove cleanup dependency to prevent excessive calls
 
   // Manual microphone access test for troubleshooting
   const testMicrophoneAccess = useCallback(async () => {
