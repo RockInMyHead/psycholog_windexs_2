@@ -357,7 +357,7 @@ const AudioCall = () => {
       if (authUser?.email) {
         // Authenticated user - use real credentials
         email = authUser?.email;
-        name = authUser.name ?? authUser.email;
+        name = authUser?.name ?? authUser?.email;
       } else {
         // Anonymous user - generate unique identifier based on browser fingerprint
         const fingerprint = navigator.userAgent + navigator.language + screen.width + screen.height;
@@ -369,7 +369,7 @@ const AudioCall = () => {
       const userData = await userApi.getOrCreateUser(email, name);
       setUser(userData);
       
-      const wallet = await walletApi.getWallet(userData.id);
+      const wallet = await walletApi.getWallet(userData?.id);
       setWalletBalance(wallet?.balance);
     } catch (err) {
       console.error('Error initializing user:', err);
@@ -399,7 +399,7 @@ const AudioCall = () => {
 
       // Create Call Session (but don't count as used session yet)
       const call = await audioCallApi.createAudioCall(user?.id);
-      setCurrentCallId(call.id);
+      setCurrentCallId(call?.id);
       
       // Load User Profile
       await loadUserProfile();
@@ -473,7 +473,7 @@ const AudioCall = () => {
         if (minutes > 0) {
           try {
             const result = await walletApi.debit(user?.id, minutes * 8, 'voice_call', `call-${currentCallId}`);
-            setWalletBalance(result.balance);
+            setWalletBalance(result?.balance);
             addDebugLog(`[Billing] Charged ${minutes} min x 8₽ = ${minutes * 8}₽`);
           } catch (debitErr: any) {
             if (debitErr?.status === 402) {
@@ -690,10 +690,10 @@ const AudioCall = () => {
                                <Button
                                  onClick={async () => {
                                    const result = await testMicrophoneAccess();
-                                   if (result.success) {
-                                     alert(`✅ Доступ к микрофону работает! (${result.tracks} треков)\nПерезагрузите страницу для начала разговора.`);
+                                   if (result?.success) {
+                                     alert(`✅ Доступ к микрофону работает! (${result?.tracks} треков)\nПерезагрузите страницу для начала разговора.`);
                                    } else {
-                                     alert(`❌ Доступ все еще заблокирован.\nОшибка: ${result.error}\n${result.message}\n\nСледуйте инструкциям выше.`);
+                                     alert(`❌ Доступ все еще заблокирован.\nОшибка: ${result?.error}\n${result?.message}\n\nСледуйте инструкциям выше.`);
                                    }
                                  }}
                                  size="sm"

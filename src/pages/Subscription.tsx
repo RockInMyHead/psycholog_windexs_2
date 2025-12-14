@@ -110,7 +110,7 @@ const Subscription = () => {
       const payment = await response.json();
       // Сохраняем ID платежа для последующей верификации после возврата
       if (payment?.id) {
-        localStorage.setItem("pending_payment_id", payment.id);
+        localStorage.setItem("pending_payment_id", payment?.id);
         localStorage.setItem("pending_payment_user", user?.id);
       }
 
@@ -245,7 +245,7 @@ const Subscription = () => {
             {wallet?.transactions?.length ? (
               <div className="space-y-2">
                 {wallet.transactions.map((tx) => (
-                  <div key={tx.id} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                  <div key={tx?.id} className="flex items-center justify-between p-3 rounded-lg border border-border">
                     <div className="flex flex-col">
                       <span className="font-medium">
                         {tx.type === 'topup' ? 'Пополнение' : 'Списание'}
