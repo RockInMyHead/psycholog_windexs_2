@@ -17,6 +17,10 @@ export interface VADConfig {
 }
 
 export const useVAD = (deviceProfile: DeviceProfile) => {
+  // Store deviceProfile in ref to prevent recreating callbacks
+  const deviceProfileRef = useRef(deviceProfile);
+  deviceProfileRef.current = deviceProfile;
+  
   const [state, setState] = useState<VADState>({
     isVoiceActive: false,
     lastVoiceActivity: 0,
@@ -32,7 +36,8 @@ export const useVAD = (deviceProfile: DeviceProfile) => {
   stateRef.current = state;
 
   const getVADConfig = useCallback((): VADConfig => {
-    if (deviceProfile.isIOS) {
+    const profile = deviceProfileRef.current;
+    if (profile?.isIOS) {
       return {
         minVolumeThreshold: 2.5, // RMS percentage
         minSizeThreshold: 40000, // bytes
@@ -49,7 +54,7 @@ export const useVAD = (deviceProfile: DeviceProfile) => {
         volumeDetectionFrames: 2
       };
     }
-  }, [deviceProfile.isIOS]);
+  }, []);
 
   const estimateVolumeFromBlob = useCallback((audioBlob: Blob): number => {
     const size = audioBlob.size;

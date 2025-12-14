@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { DeviceProfile } from './useDeviceProfile';
 
 export interface OpenAISTTConfig {
@@ -8,13 +8,18 @@ export interface OpenAISTTConfig {
 }
 
 export const useOpenAISTT = (deviceProfile: DeviceProfile) => {
+  // Store deviceProfile in ref to prevent recreating callbacks
+  const deviceProfileRef = useRef(deviceProfile);
+  deviceProfileRef.current = deviceProfile;
+  
   const getConfig = useCallback((): OpenAISTTConfig => {
+    const profile = deviceProfileRef.current;
     return {
-      maxRetries: deviceProfile.isIOS ? 2 : 1,
+      maxRetries: profile?.isIOS ? 2 : 1,
       timeoutMs: 30000, // 30 seconds
       prompt: 'Разговор с психологом. Короткие фразы: Привет, Да, Нет, Хорошо, Понял.'
     };
-  }, [deviceProfile.isIOS]);
+  }, []);
 
   const transcribeWithOpenAI = useCallback(async (
     audioBlob: Blob,

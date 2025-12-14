@@ -9,11 +9,17 @@ export interface TTSEchoGuardState {
 }
 
 export const useTTSEchoGuard = (deviceProfile: DeviceProfile) => {
+  // Store deviceProfile in ref to prevent recreating callbacks
+  const deviceProfileRef = useRef(deviceProfile);
+  
+  // Update ref when deviceProfile changes (shouldn't happen after initial render)
+  deviceProfileRef.current = deviceProfile;
+  
   const stateRef = useRef<TTSEchoGuardState>({
     isTTSActive: false,
     ttsStartTime: 0,
     ttsEndTime: 0,
-    echoProtectionMs: deviceProfile.hasEchoProblems ? 2000 : 1000
+    echoProtectionMs: deviceProfile?.hasEchoProblems ? 2000 : 1000
   });
 
   const setTTSActive = useCallback((active: boolean, timestamp: number = Date.now()) => {
@@ -38,8 +44,9 @@ export const useTTSEchoGuard = (deviceProfile: DeviceProfile) => {
   }, [isEchoProtectionActive]);
 
   const getResumeDelay = useCallback((): number => {
-    return deviceProfile.hasEchoProblems && !deviceProfile.isIOS ? 1200 : 400;
-  }, [deviceProfile]);
+    const profile = deviceProfileRef.current;
+    return profile?.hasEchoProblems && !profile?.isIOS ? 1200 : 400;
+  }, []);
 
   const canResumeSTT = useCallback((currentTime: number = Date.now()): boolean => {
     const timeSinceTTSEnd = currentTime - stateRef.current.ttsEndTime;
