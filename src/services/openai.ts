@@ -225,7 +225,7 @@ class PsychologistAI {
       ];
 
     const requestBody = {
-        model: 'gpt-5.2',
+        model: 'gpt-4o',
         messages: conversation,
         max_completion_tokens: 500,
         temperature: 0.7,
@@ -465,7 +465,7 @@ ${memoryContext}
       ];
 
       const requestBody = {
-        model: "gpt-5.2",
+        model: "gpt-4o",
         messages: conversation,
         max_completion_tokens: fastMode ? 300 : 500, // Быстрый режим: 300 токенов, обычный: 500
         temperature: fastMode ? 0.5 : 0.6, // Быстрый режим: более детерминированные ответы

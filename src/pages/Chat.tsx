@@ -17,6 +17,10 @@ interface Message {
 }
 
 const Chat = () => {
+  // Session constants
+  const SESSION_DURATION_SECONDS = 1800; // 30 minutes
+  const SESSION_WARNING_SECONDS = 1500; // 25 minutes (5 minutes before end)
+
   const { user: authUser } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -28,9 +32,12 @@ const Chat = () => {
   const [audioError, setAudioError] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [sessionDuration, setSessionDuration] = useState(0);
+  const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const messagesRef = useRef<Message[]>([]);
   const memoryRef = useRef<string>("");
   const sessionTimerRef = useRef<number | null>(null);
+  const billingTimerRef = useRef<number | null>(null);
   const [billingCostPreview, setBillingCostPreview] = useState<string | null>(null);
   const {
     isRecording,
@@ -126,6 +133,13 @@ const Chat = () => {
         return next;
       });
     }, 1000);
+  };
+
+  const stopBillingTimer = () => {
+    if (billingTimerRef.current) {
+      clearInterval(billingTimerRef.current);
+      billingTimerRef.current = null;
+    }
   };
 
   const generateSessionSummary = async () => {
