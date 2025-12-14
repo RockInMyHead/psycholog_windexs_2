@@ -196,7 +196,22 @@ const AudioCall = () => {
   // Общий ref для статуса "Ассистент говорит"
   const isAssistantSpeakingRef = useRef(false);
 
-  // 1. LLM Service (Logic)
+  // 1. TTS Service (Speech Synthesis) - Инициализируем ПЕРВЫМ, чтобы функции были доступны
+  const {
+    speak,
+    stop: stopTTS,
+    resetDeduplication,
+    isPlaying: isTTSPlaying,
+    isSynthesizing: isTTSSynthesizing,
+    isPlayingRef: isTTSPlayingRef,
+    isSynthesizingRef: isTTSSynthesizingRef
+  } = useTTS({
+    onPlaybackStatusChange: (isActive) => {
+      // Этот callback будет обновлен через useEffect ниже
+    }
+  });
+
+  // 2. LLM Service (Logic)
   const {
     processUserMessage,
     loadUserProfile,
@@ -267,7 +282,7 @@ const AudioCall = () => {
     setError(err);
   }, [setError]);
 
-  // 2. Transcription Service (Speech Recognition)
+  // 3. Transcription Service (Speech Recognition)
   const {
     initializeRecognition,
     cleanup: cleanupRecognition,
@@ -290,31 +305,21 @@ const AudioCall = () => {
     onError: handleTranscriptionError
   });
 
-  // 3. TTS Service (Speech Synthesis)
-  const {
-    speak,
-    stop: stopTTS,
-    resetDeduplication,
-    isPlaying: isTTSPlaying,
-    isSynthesizing: isTTSSynthesizing,
-    isPlayingRef: isTTSPlayingRef, // Needed for transcription hook ref
-    isSynthesizingRef: isTTSSynthesizingRef // Needed for logic
-  } = useTTS({
-    onPlaybackStatusChange: (isActive) => {
-      if (isActive) {
-        setMarkStatus('Говорю');
-        // Во время TTS глушим запись/распознавание (кроме Safari — логика внутри useTranscription)
-        pauseRecordingForTTS?.();
-      } else {
-        setMarkStatus('Слушаю');
-        // Возвращаем запись/распознавание только если звонок еще активен
-        if (isCallActiveRef.current) {
-          resumeRecordingAfterTTS?.();
-          console.log('[TTS] TTS session ended, ready for new text');
-        }
+  // Update TTS playback status change handler with pauseRecordingForTTS/resumeRecordingAfterTTS
+  useEffect(() => {
+    // Мы не можем изменить onPlaybackStatusChange после инициализации useTTS,
+    // поэтому управляем состоянием через useEffect
+    if (isTTSPlaying || isTTSSynthesizing) {
+      setMarkStatus('Говорю');
+      pauseRecordingForTTS?.();
+    } else {
+      setMarkStatus('Слушаю');
+      if (isCallActiveRef.current) {
+        resumeRecordingAfterTTS?.();
+        console.log('[TTS] TTS session ended, ready for new text');
       }
     }
-  });
+  }, [isTTSPlaying, isTTSSynthesizing, pauseRecordingForTTS, resumeRecordingAfterTTS]);
 
   useEffect(() => {
     isAssistantSpeakingRef.current = isTTSPlaying || isTTSSynthesizing;
