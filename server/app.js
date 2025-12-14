@@ -985,15 +985,24 @@ function normalizeWalletResponse(wallet) {
   return {
     balance: Number((wallet.balance / 100).toFixed(2)),
     balanceKopecks: wallet.balance,
-    transactions: (wallet.transactions || []).map((t) => ({
-      id: t.id,
-      type: t.type,
-      amount: t.amount,
-      amountRub: Number((t.amount / 100).toFixed(2)),
-      meta: t.meta ? JSON.parse(t.meta) : undefined,
-      idempotencyKey: t.idempotencyKey,
-      createdAt: t.createdAt,
-    })),
+    transactions: (wallet.transactions || []).map((t) => {
+      let parsedMeta = undefined;
+      try {
+        parsedMeta = t.meta && typeof t.meta === 'string' ? JSON.parse(t.meta) : undefined;
+      } catch (error) {
+        console.warn('Failed to parse transaction meta:', error);
+        parsedMeta = undefined;
+      }
+      return {
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        amountRub: Number((t.amount / 100).toFixed(2)),
+        meta: parsedMeta,
+        idempotencyKey: t.idempotencyKey,
+        createdAt: t.createdAt,
+      };
+    }),
   };
 }
 

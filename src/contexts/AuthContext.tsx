@@ -59,11 +59,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           
           try {
           // Verify user still exists in database
-          const dbUser = await userApi.getUser(userData.id);
+          let dbUser = await userApi.getUser(userData.id);
           if (dbUser) {
               console.log('[AuthContext] User verified in database:', dbUser.email);
             setUser(dbUser);
-              
+
             // Load user subscription
               try {
             const userSubscription = await subscriptionApi.getUserSubscription(dbUser.id);
@@ -74,12 +74,35 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
                 // Don't remove user if only subscription loading failed
               }
           } else {
-              console.warn('[AuthContext] User not found in database, clearing localStorage');
-              localStorage.removeItem('auth_user');
+              // Try to find user by email if ID not found
+              console.warn('[AuthContext] User not found by ID, trying to find by email:', userData.email);
+              try {
+                const userByEmail = await userApi.getUserByEmail(userData.email);
+                if (userByEmail) {
+                  console.log('[AuthContext] Found user by email, updating localStorage:', userByEmail.email);
+                  setUser(userByEmail);
+                  localStorage.setItem('auth_user', JSON.stringify(userByEmail));
+
+                  // Load user subscription
+                  try {
+                    const userSubscription = await subscriptionApi.getUserSubscription(userByEmail.id);
+                    setSubscription(userSubscription);
+                    console.log('[AuthContext] User subscription loaded');
+                  } catch (subError) {
+                    console.error('[AuthContext] Error loading subscription:', subError);
+                  }
+                } else {
+                  console.warn('[AuthContext] User not found by email either, clearing localStorage');
+                  localStorage.removeItem('auth_user');
+                }
+              } catch (emailError) {
+                console.error('[AuthContext] Error finding user by email:', emailError);
+                localStorage.removeItem('auth_user');
+              }
             }
           } catch (apiError: unknown) {
             // Don't clear localStorage if it's just a network error
-            if (apiError?.status === 404) {
+            if ((apiError as any)?.status === 404) {
               console.warn('[AuthContext] User not found (404), clearing localStorage');
             localStorage.removeItem('auth_user');
             } else {

@@ -351,8 +351,8 @@ const AudioCall = () => {
 
   const initializeUser = useCallback(async () => {
     try {
-      let email: string;
-      let name: string;
+      let email: string = '';
+      let name: string = '';
 
       if (authUser?.email) {
         // Authenticated user - use real credentials
