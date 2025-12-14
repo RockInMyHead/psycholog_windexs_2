@@ -73,29 +73,6 @@ export const useTranscription = ({
   // Mobile transcription timer
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
 
-  // Refs to store current instances (to avoid stale closures in cleanup)
-  // Initialize with dummy functions to prevent "uninitialized variable" errors
-  const currentInstancesRef = useRef({
-    stopMobileTranscriptionTimer: () => {},
-    browserSTT: { stop: () => {} },
-    vad: { stopVolumeMonitoring: () => {}, resetVADState: () => {} },
-    audioCapture: { cleanup: () => {} },
-    textProcessor: { clearDuplicates: () => {} },
-    ttsGuard: { setTTSActive: () => {} }
-  });
-
-  // Update refs when instances change (after hooks are initialized)
-  useEffect(() => {
-    currentInstancesRef.current = {
-      stopMobileTranscriptionTimer,
-      browserSTT,
-      vad,
-      audioCapture,
-      textProcessor,
-      ttsGuard
-    };
-  }, [stopMobileTranscriptionTimer, browserSTT, vad, audioCapture, textProcessor, ttsGuard]);
-
   // --- Mobile Transcription Timer ---
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
@@ -396,26 +373,34 @@ export const useTranscription = ({
     const caller = callStack?.split('\n')[2]?.trim() || 'unknown';
     addDebugLog(`[Transcription] 🧹 Cleanup called (resetMic: ${resetMicrophoneState}) - Called from: ${caller}`);
 
-    // Stop everything using current instances
-    const instances = currentInstancesRef.current;
-    instances.stopMobileTranscriptionTimer();
-    instances.browserSTT.stop();
-    instances.vad.stopVolumeMonitoring();
-    instances.audioCapture.cleanup();
+    try {
+      // Safe cleanup - check if functions exist before calling
+      if (mobileTranscriptionTimerRef.current) {
+        clearInterval(mobileTranscriptionTimerRef.current);
+        mobileTranscriptionTimerRef.current = null;
+      }
 
-    // Reset state
-    instances.textProcessor.clearDuplicates();
-    instances.vad.resetVADState();
-    instances.ttsGuard.setTTSActive(false, 0);
+      // Stop audio stream if it exists
+      if (audioCapture?.state?.audioStream) {
+        audioCapture.state.audioStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) { /* ignore */ }
+        });
+      }
 
-    setTranscriptionStatus(null);
-    setTranscriptionMode('browser');
+      // Reset basic state
+      setTranscriptionStatus(null);
+      setTranscriptionMode('browser');
 
-    // Only reset microphone access if explicitly requested (not during TTS pause/resume)
-    if (resetMicrophoneState) {
-      setMicrophoneAccessGranted(false);
+      // Only reset microphone access if explicitly requested
+      if (resetMicrophoneState) {
+        setMicrophoneAccessGranted(false);
+      }
+
+      addDebugLog(`[Transcription] 🧹 Cleanup completed successfully`);
+    } catch (error) {
+      addDebugLog(`[Transcription] Cleanup error (non-critical): ${error}`);
     }
-  }, [addDebugLog]); // Only depend on addDebugLog to prevent excessive re-creations
+  }, [addDebugLog]); // Only depend on addDebugLog
 
   // Cleanup on unmount - only when component actually unmounts
   useEffect(() => {
