@@ -65,13 +65,13 @@ const detectDeviceSync = (): DeviceProfile => {
 };
 
 export const useDeviceProfile = () => {
-  const [profile, setProfile] = useState<DeviceProfile>(() => detectDeviceSync());
+  // Always initialize synchronously so profile is NEVER null
+  const [profile] = useState<DeviceProfile>(() => detectDeviceSync());
 
   const detectDevice = useCallback((): DeviceProfile => {
-    const deviceProfile = detectDeviceSync();
-    setProfile(deviceProfile);
-    return deviceProfile;
-  }, []);
+    // Return current profile (already detected synchronously)
+    return profile;
+  }, [profile]);
 
   const getTranscriptionStrategy = useCallback((deviceProfile: DeviceProfile) => {
     // Android always uses OpenAI for reliability

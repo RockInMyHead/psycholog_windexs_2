@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useDeviceProfile } from './useDeviceProfile';
 import { useAudioCapture } from './useAudioCapture';
 import { useVAD } from './useVAD';
@@ -23,13 +23,8 @@ export const useTranscription = ({
   onError,
   addDebugLog = console.log
 }: UseTranscriptionProps & { addDebugLog?: (message: string) => void }) => {
-  // Device detection
-  const { profile: deviceProfile, detectDevice, getTranscriptionStrategy, shouldForceOpenAI } = useDeviceProfile();
-
-  // Initialize device profile
-  useEffect(() => {
-    detectDevice();
-  }, [detectDevice]);
+  // Device detection (synchronously initialized, never null)
+  const { profile: deviceProfile, getTranscriptionStrategy, shouldForceOpenAI } = useDeviceProfile();
 
   const [transcriptionStatus, setTranscriptionStatus] = useState<string | null>(null);
   const [transcriptionMode, setTranscriptionMode] = useState<'browser' | 'openai'>('browser');
@@ -50,7 +45,7 @@ export const useTranscription = ({
 
   // Browser STT
   const browserSTT = useBrowserSTT(
-    deviceProfile!,
+    deviceProfile,
     (text, isFinal) => {
       if (isFinal) {
         const normalized = textProcessor.normalizeSTT(text);
