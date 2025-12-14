@@ -74,24 +74,27 @@ export const useTranscription = ({
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
 
   // Refs to store current instances (to avoid stale closures in cleanup)
+  // Initialize with dummy functions to prevent "uninitialized variable" errors
   const currentInstancesRef = useRef({
-    stopMobileTranscriptionTimer,
-    browserSTT,
-    vad,
-    audioCapture,
-    textProcessor,
-    ttsGuard
+    stopMobileTranscriptionTimer: () => {},
+    browserSTT: { stop: () => {} },
+    vad: { stopVolumeMonitoring: () => {}, resetVADState: () => {} },
+    audioCapture: { cleanup: () => {} },
+    textProcessor: { clearDuplicates: () => {} },
+    ttsGuard: { setTTSActive: () => {} }
   });
 
-  // Update refs when instances change
-  currentInstancesRef.current = {
-    stopMobileTranscriptionTimer,
-    browserSTT,
-    vad,
-    audioCapture,
-    textProcessor,
-    ttsGuard
-  };
+  // Update refs when instances change (after hooks are initialized)
+  useEffect(() => {
+    currentInstancesRef.current = {
+      stopMobileTranscriptionTimer,
+      browserSTT,
+      vad,
+      audioCapture,
+      textProcessor,
+      ttsGuard
+    };
+  }, [stopMobileTranscriptionTimer, browserSTT, vad, audioCapture, textProcessor, ttsGuard]);
 
   // --- Mobile Transcription Timer ---
   const startMobileTranscriptionTimer = useCallback(() => {
