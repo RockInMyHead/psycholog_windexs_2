@@ -222,6 +222,51 @@ const AudioCall = () => {
     onError: (err) => setError(err)
   });
 
+  // Stable callbacks to prevent useTranscription hook re-initialization
+  const handleTranscriptionComplete = useCallback(async (text: string, source: 'browser' | 'openai' | 'manual') => {
+    const transcribeId = Date.now();
+    console.log(`[AudioCall] onTranscriptionComplete (ID: ${transcribeId}) called with: "${text}" from ${source}`);
+
+    // Log user transcription for debugging
+    addDebugLog(`[User] 🎤 Пользователь сказал: "${text}" (${source})`);
+
+    if (!text) return;
+
+    // Ignore transcription if microphone is muted
+    if (isMuted) {
+      console.log(`[AudioCall] Ignoring transcription - microphone is muted`);
+      return;
+    }
+
+    // Save user message for memory update
+    lastUserMessageRef.current = text;
+
+    // Stop TTS if user interrupted (handled by hook, but good to ensure)
+    if (source !== 'manual') stopTTS();
+
+    // Reset TTS deduplication for new user input
+    resetDeduplication();
+
+    console.log(`[AudioCall] About to call processUserMessage (ID: ${transcribeId})`);
+    await processUserMessage(text);
+    console.log(`[AudioCall] processUserMessage completed (ID: ${transcribeId})`);
+  }, [isMuted, addDebugLog, stopTTS, resetDeduplication, processUserMessage]);
+
+  const handleInterruption = useCallback(() => {
+    addDebugLog(`[AudioCall] 🎤 Voice interruption detected - stopping TTS and resuming listening`);
+    stopTTS();
+    // Reset TTS deduplication for new user input after interruption
+    resetDeduplication();
+  }, [addDebugLog, stopTTS, resetDeduplication]);
+
+  const handleSpeechStart = useCallback(() => {
+     // Optional: UI indication
+  }, []);
+
+  const handleTranscriptionError = useCallback((err: string) => {
+    setError(err);
+  }, [setError]);
+
   // 2. Transcription Service (Speech Recognition)
   const {
     initializeRecognition,
@@ -239,44 +284,10 @@ const AudioCall = () => {
   } = useTranscription({
     isTTSActiveRef: isAssistantSpeakingRef,
     addDebugLog,
-    onTranscriptionComplete: async (text, source) => {
-      const transcribeId = Date.now();
-      console.log(`[AudioCall] onTranscriptionComplete (ID: ${transcribeId}) called with: "${text}" from ${source}`);
-
-      // Log user transcription for debugging
-      addDebugLog(`[User] 🎤 Пользователь сказал: "${text}" (${source})`);
-
-      if (!text) return;
-
-      // Ignore transcription if microphone is muted
-      if (isMuted) {
-        console.log(`[AudioCall] Ignoring transcription - microphone is muted`);
-        return;
-      }
-
-      // Save user message for memory update
-      lastUserMessageRef.current = text;
-
-      // Stop TTS if user interrupted (handled by hook, but good to ensure)
-      if (source !== 'manual') stopTTS();
-
-      // Reset TTS deduplication for new user input
-      resetDeduplication();
-
-      console.log(`[AudioCall] About to call processUserMessage (ID: ${transcribeId})`);
-      await processUserMessage(text);
-      console.log(`[AudioCall] processUserMessage completed (ID: ${transcribeId})`);
-    },
-    onInterruption: () => {
-      addDebugLog(`[AudioCall] 🎤 Voice interruption detected - stopping TTS and resuming listening`);
-      stopTTS();
-      // Reset TTS deduplication for new user input after interruption
-      resetDeduplication();
-    },
-    onSpeechStart: () => {
-       // Optional: UI indication
-    },
-    onError: (err) => setError(err)
+    onTranscriptionComplete: handleTranscriptionComplete,
+    onInterruption: handleInterruption,
+    onSpeechStart: handleSpeechStart,
+    onError: handleTranscriptionError
   });
 
   // 3. TTS Service (Speech Synthesis)
