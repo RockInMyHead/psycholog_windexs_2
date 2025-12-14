@@ -91,8 +91,8 @@ const Meditations = () => {
       setLoading(true);
 
       // Use real user from auth context, or generate unique ID for anonymous users
-      let email: string;
-      let name: string;
+      let email: string = '';
+      let name: string = '';
 
       if (authUser?.email) {
         // Authenticated user - use real credentials
