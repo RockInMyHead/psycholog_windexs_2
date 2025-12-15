@@ -171,8 +171,7 @@ const Index = () => {
                   className="bg-blue-500 hover:bg-blue-600 text-white border-0 text-lg px-10 py-7 animate-scale-in"
                   style={{ animationDelay: '200ms' }}
                 >
-                  <TelegramIcon className="w-6 h-6 mr-2" />
-                  Спросить
+                  <TelegramIcon className="w-8 h-8" />
                 </Button>
               </a>
             </div>
