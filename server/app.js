@@ -596,42 +596,17 @@ app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) =>
 
     console.log(`[TRANSCRIPTION] Detected input format: ${inputFormat}`);
 
-    // For webm files, we MUST convert to WAV as OpenAI doesn't support webm/opus
-    let conversionAttempted = false;
+    // For webm files, try direct upload first, fallback to conversion
     if (req.file.mimetype.includes('webm')) {
-      console.log(`[TRANSCRIPTION] WebM file detected - conversion to WAV is mandatory`);
-      try {
-        console.log(`[TRANSCRIPTION] Attempting webm->wav conversion...`);
-        convertedBuffer = await convertAudioToWav(req.file.buffer, 'webm');
-        audioBuffer = convertedBuffer;
-        filename = 'audio.wav';
-        mimetype = 'audio/wav';
-        conversionAttempted = true;
-        console.log(`[TRANSCRIPTION] ✅ WebM->WAV conversion successful: ${convertedBuffer.length} bytes`);
-      } catch (conversionError) {
-        console.log(`[TRANSCRIPTION] ❌ WebM conversion failed: ${conversionError.message}`);
-        logger.error('TRANSCRIPTION', `WebM conversion failed: ${conversionError.message}`);
+      console.log(`[TRANSCRIPTION] WebM file detected - trying direct upload first`);
 
-        // Try alternative conversion approach for webm
-        console.log(`[TRANSCRIPTION] Trying alternative webm conversion...`);
-        try {
-          convertedBuffer = await convertAudioToWavAlternative(req.file.buffer);
-          audioBuffer = convertedBuffer;
-          filename = 'audio.wav';
-          mimetype = 'audio/wav';
-          conversionAttempted = true;
-          console.log(`[TRANSCRIPTION] ✅ Alternative WebM->WAV conversion successful`);
-        } catch (altConversionError) {
-          console.log(`[TRANSCRIPTION] ❌ Alternative conversion also failed: ${altConversionError.message}`);
+      // Try sending webm directly to OpenAI (they might support it)
+      console.log(`[TRANSCRIPTION] Attempting direct webm upload to OpenAI...`);
+      audioBuffer = req.file.buffer;
+      filename = 'audio.webm';
+      mimetype = 'audio/webm';
 
-          // Last resort: try sending webm as wav (MIME type spoofing)
-          console.log(`[TRANSCRIPTION] Last resort: sending webm as wav to OpenAI`);
-          audioBuffer = req.file.buffer;
-          filename = 'audio.wav'; // Lie about the format
-          mimetype = 'audio/wav'; // Lie about MIME type
-          console.log(`[TRANSCRIPTION] Using webm file but pretending it's wav`);
-        }
-      }
+      console.log(`[TRANSCRIPTION] Using webm format directly - testing OpenAI support`);
     } else {
       // For other formats, try conversion but allow fallback
       try {
@@ -730,6 +705,64 @@ app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) =>
 
     } catch (apiError) {
       console.log(`[TRANSCRIPTION] ❌ OpenAI SDK call failed:`, apiError.message);
+
+      // If webm file failed and we haven't tried conversion yet, try converting to WAV
+      if (mimetype === 'audio/webm' && req.file.mimetype.includes('webm')) {
+        console.log(`[TRANSCRIPTION] WebM direct upload failed, trying conversion to WAV...`);
+
+        try {
+          // Try conversion as fallback
+          let conversionSuccess = false;
+
+          try {
+            convertedBuffer = await convertAudioToWav(req.file.buffer, 'webm');
+            conversionSuccess = true;
+            console.log(`[TRANSCRIPTION] ✅ Fallback WebM->WAV conversion successful`);
+          } catch (convError) {
+            console.log(`[TRANSCRIPTION] ❌ Fallback conversion failed: ${convError.message}`);
+            try {
+              convertedBuffer = await convertAudioToWavAlternative(req.file.buffer);
+              conversionSuccess = true;
+              console.log(`[TRANSCRIPTION] ✅ Fallback alternative conversion successful`);
+            } catch (altConvError) {
+              console.log(`[TRANSCRIPTION] ❌ Fallback alternative conversion also failed: ${altConvError.message}`);
+            }
+          }
+
+          if (conversionSuccess && convertedBuffer) {
+            // Retry with converted file
+            const retryTempPath = path.join(__dirname, `temp_retry_${Date.now()}.wav`);
+            fs.writeFileSync(retryTempPath, convertedBuffer);
+
+            console.log(`[TRANSCRIPTION] Retrying with converted WAV file...`);
+            const retryTranscription = await openai.audio.transcriptions.create({
+              file: fs.createReadStream(retryTempPath),
+              model: 'whisper-1',
+              language: req.body.language || 'ru',
+              response_format: req.body.response_format || 'text',
+              prompt: req.body.prompt || undefined
+            });
+
+            // Clean up retry temp file
+            try {
+              fs.unlinkSync(retryTempPath);
+            } catch (cleanupError) {
+              console.log(`[TRANSCRIPTION] Failed to delete retry temp file: ${cleanupError.message}`);
+            }
+
+            console.log(`[TRANSCRIPTION] ✅ Retry with WAV successful`);
+            if (typeof retryTranscription === 'string') {
+              res.json({ text: retryTranscription });
+            } else {
+              res.json(retryTranscription);
+            }
+            return;
+          }
+        } catch (retryError) {
+          console.log(`[TRANSCRIPTION] ❌ Retry with conversion also failed: ${retryError.message}`);
+        }
+      }
+
       console.log(`[TRANSCRIPTION] Error stack:`, apiError.stack);
       throw apiError;
     }
