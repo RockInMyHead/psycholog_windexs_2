@@ -265,25 +265,16 @@ const AudioCall = () => {
 
     console.log(`[AudioCall] About to call processUserMessage (ID: ${transcribeId})`);
 
-      // Add iOS-specific error handling
-      if (isIOS) {
-        console.log(`[iOS] Processing transcription on iOS device`);
-        // Add small delay for iOS to prevent race conditions
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-
     await processUserMessage(text);
     console.log(`[AudioCall] processUserMessage completed (ID: ${transcribeId})`);
     } catch (error) {
       console.error(`[AudioCall] Error in handleTranscriptionComplete:`, error);
       addDebugLog(`[Error] Transcription processing failed: ${error}`);
 
-      // On iOS, show user-friendly error and don't crash
-      if (isIOS) {
-        setError("Ошибка обработки речи. Попробуйте перезагрузить страницу.");
-      }
+      // Show generic error message (iOS-specific handling is in the hooks)
+      setError("Ошибка обработки речи. Попробуйте перезагрузить страницу.");
     }
-  }, [isMuted, isIOS, addDebugLog, stopTTS, resetDeduplication, processUserMessage]);
+  }, [isMuted, addDebugLog, stopTTS, resetDeduplication, processUserMessage]);
 
   const handleInterruption = useCallback(() => {
     addDebugLog(`[AudioCall] 🎤 Voice interruption detected - stopping TTS and resuming listening`);
