@@ -429,6 +429,13 @@ const AudioCall = () => {
 
       // Don't increment session count here - will be done in endCall if conversation actually happened
 
+      // Check microphone permission before initializing recognition
+      if (microphonePermissionStatus === 'denied') {
+        setError("Доступ к микрофону заблокирован. Разрешите доступ в настройках браузера и перезагрузите страницу.");
+        setIsInitializingCall(false);
+        return;
+      }
+
       // Initialize Audio/Recognition
       await initializeRecognition();
       
@@ -683,7 +690,39 @@ const AudioCall = () => {
                 </div>
 
                 {/* Mobile/No-Mic Text Fallback */}
-                {!microphoneAccessGranted && (
+                {microphonePermissionStatus === 'denied' && (
+                  <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <h3 className="text-sm font-medium mb-3 text-red-800">
+                      🚫 Доступ к микрофону заблокирован
+                    </h3>
+                    <div className="space-y-3">
+                      <p className="text-sm text-red-600">
+                        Браузер заблокировал доступ к микрофону. Разрешите доступ для использования голосового чата.
+                      </p>
+                      <div className="text-xs text-gray-600 space-y-2">
+                        <div>
+                          <p className="font-medium">🔧 Как разрешить доступ:</p>
+                          <ol className="list-decimal list-inside space-y-1 ml-2 mt-1">
+                            <li>В адресной строке браузера нажмите на 🔒 (замочек)</li>
+                            <li>Выберите "Разрешить" для микрофона</li>
+                            <li>Перезагрузите страницу</li>
+                          </ol>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          onClick={() => window.location.reload()}
+                          size="sm"
+                          className="text-xs"
+                        >
+                          🔄 Перезагрузить страницу
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!microphoneAccessGranted && microphonePermissionStatus !== 'denied' && (
                    <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
                      <h3 className="text-sm font-medium mb-3 text-red-800">
                        🚫 Проблема с микрофоном
