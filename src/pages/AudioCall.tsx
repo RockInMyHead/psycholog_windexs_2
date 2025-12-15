@@ -254,16 +254,16 @@ const AudioCall = () => {
     }
 
     try {
-      // Save user message for memory update
-      lastUserMessageRef.current = text;
+    // Save user message for memory update
+    lastUserMessageRef.current = text;
 
-      // Stop TTS if user interrupted (handled by hook, but good to ensure)
-      if (source !== 'manual') stopTTS();
+    // Stop TTS if user interrupted (handled by hook, but good to ensure)
+    if (source !== 'manual') stopTTS();
 
-      // Reset TTS deduplication for new user input
-      resetDeduplication();
+    // Reset TTS deduplication for new user input
+    resetDeduplication();
 
-      console.log(`[AudioCall] About to call processUserMessage (ID: ${transcribeId})`);
+    console.log(`[AudioCall] About to call processUserMessage (ID: ${transcribeId})`);
 
       // Add iOS-specific error handling
       if (isIOS) {
@@ -272,8 +272,8 @@ const AudioCall = () => {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      await processUserMessage(text);
-      console.log(`[AudioCall] processUserMessage completed (ID: ${transcribeId})`);
+    await processUserMessage(text);
+    console.log(`[AudioCall] processUserMessage completed (ID: ${transcribeId})`);
     } catch (error) {
       console.error(`[AudioCall] Error in handleTranscriptionComplete:`, error);
       addDebugLog(`[Error] Transcription processing failed: ${error}`);
@@ -328,12 +328,12 @@ const AudioCall = () => {
     // Мы не можем изменить onPlaybackStatusChange после инициализации useTTS,
     // поэтому управляем состоянием через useEffect
     if (isTTSPlaying || isTTSSynthesizing) {
-      setMarkStatus('Говорю');
-      pauseRecordingForTTS?.();
-    } else {
-      setMarkStatus('Слушаю');
-      if (isCallActiveRef.current) {
-        resumeRecordingAfterTTS?.();
+        setMarkStatus('Говорю');
+        pauseRecordingForTTS?.();
+      } else {
+        setMarkStatus('Слушаю');
+        if (isCallActiveRef.current) {
+          resumeRecordingAfterTTS?.();
         // Remove excessive logging - only log once per session
         if (!isTTSPlaying && !isTTSSynthesizing) {
           console.log('[TTS] TTS session ended, ready for new text');
@@ -458,7 +458,7 @@ const AudioCall = () => {
          }
 
          try {
-           await speak(greeting);
+         await speak(greeting);
          } catch (error) {
            console.error(`[iOS] Initial greeting TTS failed:`, error);
            if (isIOS) {

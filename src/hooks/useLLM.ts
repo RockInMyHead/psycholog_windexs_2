@@ -261,47 +261,47 @@ export const useLLM = ({ userId, callId, onResponseGenerated, onError }: UseLLMP
     }
 
     try {
-      setIsProcessing(true);
-      currentProcessingTextRef.current = trimmedText;
-      console.log(`[LLM] Started processing call (ID: ${callId}) for text: "${trimmedText}"`);
-      conversationRef.current.push({ role: "user", content: text });
-      console.log(`[LLM] Added user message to conversation`);
+    setIsProcessing(true);
+    currentProcessingTextRef.current = trimmedText;
+    console.log(`[LLM] Started processing call (ID: ${callId}) for text: "${trimmedText}"`);
+    conversationRef.current.push({ role: "user", content: text });
+    console.log(`[LLM] Added user message to conversation`);
 
-      try {
-        // Generate response
-        console.log(`[LLM] Calling getVoiceResponse...`);
-        const assistantReply = await psychologistAI.getVoiceResponse(
-          conversationRef.current,
-          memoryRef.current,
-          false
-        );
-        console.log(`[LLM] Got response: "${assistantReply?.substring(0, 50)}..."`);
+    try {
+      // Generate response
+      console.log(`[LLM] Calling getVoiceResponse...`);
+      const assistantReply = await psychologistAI.getVoiceResponse(
+        conversationRef.current,
+        memoryRef.current,
+        false
+      );
+      console.log(`[LLM] Got response: "${assistantReply?.substring(0, 50)}..."`);
 
-        conversationRef.current.push({ role: "assistant", content: assistantReply });
+      conversationRef.current.push({ role: "assistant", content: assistantReply });
 
         // iOS-specific: Add delay before TTS to prevent conflicts
         if (isIOS) {
           await new Promise(resolve => setTimeout(resolve, 200));
         }
 
-        // Callback to play audio
-        if (onResponseGenerated) {
-          console.log(`[LLM] Calling onResponseGenerated callback`);
-          await onResponseGenerated(assistantReply);
-          console.log(`[LLM] onResponseGenerated completed`);
-        }
+      // Callback to play audio
+      if (onResponseGenerated) {
+        console.log(`[LLM] Calling onResponseGenerated callback`);
+        await onResponseGenerated(assistantReply);
+        console.log(`[LLM] onResponseGenerated completed`);
+      }
 
-        // Update user profile and conversation memory
-        void updateUserProfile(text, assistantReply);
-        void updateConversationMemory(text, assistantReply);
+      // Update user profile and conversation memory
+      void updateUserProfile(text, assistantReply);
+      void updateConversationMemory(text, assistantReply);
 
-      } catch (error) {
-        console.error("[LLM] Error generating response:", error);
+    } catch (error) {
+      console.error("[LLM] Error generating response:", error);
         // On iOS, provide more specific error message
         if (isIOS) {
           onError?.("Ошибка на iOS. Попробуйте перезагрузить страницу.");
         } else {
-          onError?.("Не удалось сгенерировать ответ");
+      onError?.("Не удалось сгенерировать ответ");
         }
       }
     } catch (outerError) {

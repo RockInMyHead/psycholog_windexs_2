@@ -341,7 +341,7 @@ export const useTranscription = ({
     const resumeDelay = ttsGuard.getResumeDelay();
     // Reduce logging frequency - only log important events
     if (resumeDelay > 1000) { // Only log if delay is significant
-      addDebugLog(`[TTS] Resuming after TTS with ${resumeDelay}ms delay`);
+    addDebugLog(`[TTS] Resuming after TTS with ${resumeDelay}ms delay`);
     }
 
     setTimeout(() => {

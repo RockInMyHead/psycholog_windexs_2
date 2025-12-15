@@ -56,33 +56,33 @@ export const useTTS = ({ onPlaybackStatusChange }: UseTTSProps = {}) => {
 
   const initializeAudioContext = async () => {
     try {
-      const audioContext = createAudioContext();
+    const audioContext = createAudioContext();
 
-      if (!speakerGainRef.current && audioContext) {
-        const gainNode = audioContext.createGain();
-        gainNode.gain.value = 1;
-        gainNode.connect(audioContext.destination);
-        speakerGainRef.current = gainNode;
-      }
+    if (!speakerGainRef.current && audioContext) {
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = 1;
+      gainNode.connect(audioContext.destination);
+      speakerGainRef.current = gainNode;
+    }
 
-      if (audioContext && audioContext.state === 'suspended') {
+    if (audioContext && audioContext.state === 'suspended') {
         // iOS-specific: add delay before resume to prevent issues
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         if (isIOS) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        try {
-          await audioContext.resume();
-        } catch (error) {
-          console.warn("[TTS] Failed to resume AudioContext:", error);
+      try {
+        await audioContext.resume();
+      } catch (error) {
+        console.warn("[TTS] Failed to resume AudioContext:", error);
           // On iOS, don't throw error, just continue
           if (!isIOS) {
             throw error;
           }
-        }
       }
-      return audioContext;
+    }
+    return audioContext;
     } catch (error) {
       console.error("[TTS] AudioContext initialization failed:", error);
       // On iOS, return null instead of throwing to prevent white screen
