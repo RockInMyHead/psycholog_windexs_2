@@ -1,0 +1,50 @@
+TROUBLESHOOTING: "Cannot access uninitialized variable" error persists
+
+PROBLEM: Error still shows after deployment
+
+SOLUTION CHECKLIST:
+==================
+
+1. VERIFY FILES ON SERVER:
+   ssh root@77.37.146.116
+   ls -la /var/www/psycholog.windexs.ru/assets/
+   # Should show: index-D9_ZgnPJ.js (NEW)
+   # Should NOT show: index-Dtn52uhQ.js (OLD)
+
+2. CLEAR BROWSER CACHE:
+   - Chrome: Ctrl+Shift+Delete → Clear browsing data → Cached images/files
+   - Firefox: Ctrl+Shift+Delete → Cache
+   - Or use incognito/private mode
+
+3. HARD REFRESH PAGE:
+   - Ctrl+F5 (Windows/Linux)
+   - Cmd+Shift+R (Mac)
+   - Or hold Ctrl/Cmd and click refresh button
+
+4. CHECK WEBSITE RESPONSE:
+   curl -s "https://psycholog.windexs.ru" | grep "index-.*\.js"
+   # Should return: index-D9_ZgnPJ.js
+
+5. CLEAR SERVER CACHE:
+   ssh root@77.37.146.116
+   systemctl reload nginx  # Reload nginx config
+   # If using CDN, clear CDN cache
+
+6. VERIFY DEPLOYMENT:
+   Run on server: ./check_deployment_server.sh
+
+EXPECTED RESULT:
+- JavaScript file: index-D9_ZgnPJ.js
+- No "Cannot access uninitialized variable" errors
+- Audio calls work properly
+
+IF STILL BROKEN:
+- Files not uploaded correctly
+- Wrong server path used
+- CDN caching old files
+- Browser cache not cleared
+
+QUICK FIX:
+1. Upload files again
+2. Clear all caches
+3. Test in incognito mode
