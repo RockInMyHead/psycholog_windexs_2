@@ -28,7 +28,21 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
   }, []);
 
   const startRecording = useCallback(async (stream: MediaStream) => {
-    if (mediaRecorderRef.current) return;
+    // Allow restart if previous recorder exists but is not recording
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      console.log('[AudioCapture] Already recording, skipping start');
+      return;
+    }
+
+    // Clean up previous recorder if exists
+    if (mediaRecorderRef.current) {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        // Ignore stop errors
+      }
+      mediaRecorderRef.current = null;
+    }
 
     try {
       const supportedTypes = getSupportedMimeTypes();
@@ -45,11 +59,14 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
+          console.log(`[AudioCapture] Data available: ${e.data.size} bytes, total chunks: ${recordedChunksRef.current.length + 1}`);
           recordedChunksRef.current.push(e.data);
           setState(prev => ({
             ...prev,
             recordedChunks: [...recordedChunksRef.current]
           }));
+        } else {
+          console.log(`[AudioCapture] Data available but empty (0 bytes)`);
         }
       };
 
@@ -79,8 +96,12 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
         }));
       };
 
-      // iOS: 2s chunks, others: 1s
-      const chunkDuration = deviceProfile.isIOS ? 2000 : 1000;
+      // Platform-specific chunk durations for optimal performance:
+      // - iOS: 2s (Safari requires longer chunks for stability)
+      // - Android: 1s (standard duration)
+      // - Desktop (Mac/Windows Chrome/Firefox): 500ms (faster response)
+      const chunkDuration = deviceProfile.isIOS ? 2000 : (deviceProfile.isAndroid ? 1000 : 500);
+      console.log(`[AudioCapture] Starting recording with ${chunkDuration}ms chunks for ${deviceProfile.isIOS ? 'iOS' : deviceProfile.isAndroid ? 'Android' : 'Desktop'}`);
       recorder.start(chunkDuration);
 
     } catch (error) {
@@ -127,6 +148,29 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
     }
   }, []);
 
+  const requestData = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.requestData();
+    }
+  }, []);
+
+  const getAndClearChunks = useCallback((): Blob | null => {
+    if (recordedChunksRef.current.length === 0) return null;
+    
+    const blob = new Blob(recordedChunksRef.current, {
+      type: mediaRecorderRef.current?.mimeType || 'audio/webm'
+    });
+    
+    // Clear chunks for next segment
+    recordedChunksRef.current = [];
+    setState(prev => ({
+      ...prev,
+      recordedChunks: []
+    }));
+    
+    return blob;
+  }, []);
+
   const clearRecordedChunks = useCallback(() => {
     recordedChunksRef.current = [];
     setState(prev => ({ ...prev, recordedChunks: [] }));
@@ -160,6 +204,8 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
     pauseRecording,
     resumeRecording,
     clearRecordedChunks,
-    cleanup
+    cleanup,
+    requestData,
+    getAndClearChunks
   };
 };

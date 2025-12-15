@@ -72,7 +72,12 @@ export const useTranscription = ({
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    addDebugLog(`[Mobile] Starting transcription timer (2s check interval)`);
+    // Platform-specific timer intervals:
+    // - iOS: 2000ms (Safari needs more time for stable chunks)
+    // - Android: 2000ms (standard)
+    // - Desktop: 1500ms (faster response on powerful devices)
+    const timerInterval = deviceProfile.isIOS || deviceProfile.isAndroid ? 2000 : 1500;
+    addDebugLog(`[Transcription] Starting timer (${timerInterval}ms interval) for ${deviceProfile.isIOS ? 'iOS' : deviceProfile.isAndroid ? 'Android' : 'Desktop'}`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
       const now = Date.now();
@@ -83,34 +88,17 @@ export const useTranscription = ({
       }
 
       try {
-        // Pause recording to get current accumulated audio
-        audioCapture.pauseRecording();
-        addDebugLog(`[Timer] Recording paused, getting accumulated audio`);
-
-        // Get current recorded chunks as blob
-        const chunks = audioCapture.state.recordedChunks;
-        const blob = chunks.length > 0 ? new Blob(chunks, { type: audioCapture.state.mimeType || 'audio/webm' }) : null;
-        addDebugLog(`[Timer] Got accumulated blob: ${blob?.size || 0} bytes from ${chunks.length} chunks`);
-
-        // Clear chunks for next segment
-        audioCapture.clearRecordedChunks();
-
-        // Resume recording immediately for next segment
-        try {
-          audioCapture.resumeRecording();
-          addDebugLog(`[Timer] Recording resumed for next segment`);
-        } catch (resumeError) {
-          addDebugLog(`[Timer] Failed to resume recording: ${resumeError}`);
-          // Try to restart recording completely
-          if (audioCapture.state.audioStream && !audioCapture.state.isRecording) {
-            try {
-              await audioCapture.startRecording(audioCapture.state.audioStream);
-              addDebugLog(`[Timer] Recording restarted completely`);
-            } catch (restartError) {
-              addDebugLog(`[Timer] Failed to restart recording: ${restartError}`);
-            }
-          }
-        }
+        // Request data to force generation of current chunk
+        audioCapture.requestData();
+        
+        // Wait a bit for ondataavailable to fire
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Get accumulated audio without stopping recording
+        const blob = audioCapture.getAndClearChunks();
+        addDebugLog(`[Timer] Got accumulated blob: ${blob?.size || 0} bytes`);
+        
+        // Recording continues automatically without restart
 
         // Check if we should send this audio
         if (blob && blob.size > 0 && await vad.shouldSendAudio(blob, 2000)) { // 2s duration
@@ -126,16 +114,26 @@ export const useTranscription = ({
             }
           }
           setTranscriptionStatus("");
+        } else {
+          // If blob is empty or too small, just continue recording
+          if (!blob || blob.size === 0) {
+            addDebugLog(`[Timer] Empty blob, continuing recording`);
+          }
         }
       } catch (error) {
         addDebugLog(`[Mobile] Error in timer: ${error}`);
-        // Restart recording on error
-        if (audioCapture.state.audioStream && !audioCapture.state.isRecording) {
-          await audioCapture.startRecording(audioCapture.state.audioStream);
+        // Check if recording is still active
+        if (!audioCapture.state.isRecording && audioCapture.state.audioStream) {
+          try {
+            await audioCapture.startRecording(audioCapture.state.audioStream);
+            addDebugLog(`[Timer] Recording restarted after error`);
+          } catch (restartError) {
+            addDebugLog(`[Timer] Failed to restart recording: ${restartError}`);
+          }
         }
       }
-    }, 2000); // Check every 2 seconds
-  }, [ttsGuard, audioCapture, vad, openaiSTT, textProcessor, onTranscriptionComplete, addDebugLog, setTranscriptionStatus]);
+    }, timerInterval); // Platform-specific interval
+  }, [deviceProfile, ttsGuard, audioCapture, vad, openaiSTT, textProcessor, onTranscriptionComplete, addDebugLog, setTranscriptionStatus]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) {
