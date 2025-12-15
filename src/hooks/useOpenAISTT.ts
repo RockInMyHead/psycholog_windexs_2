@@ -28,30 +28,80 @@ export const useOpenAISTT = (deviceProfile: DeviceProfile) => {
     const config = getConfig();
 
     try {
-      console.log(`[OpenAI] Starting transcription via server: ${audioBlob.size} bytes (attempt ${retryCount + 1}/${config.maxRetries + 1})`);
+      console.log(`[OpenAI] Starting transcription via server: ${audioBlob.size} bytes, type: ${audioBlob.type} (attempt ${retryCount + 1}/${config.maxRetries + 1})`);
+
+      // Validate blob
+      if (audioBlob.size === 0) {
+        console.log(`[OpenAI] ❌ Audio blob is empty (0 bytes), skipping transcription`);
+        return null;
+      }
+
+      if (audioBlob.size < 1000) {
+        console.log(`[OpenAI] ⚠️ Audio blob too small (${audioBlob.size} bytes), might not contain valid audio`);
+      }
+
+      // Determine file extension based on MIME type
+      let filename = 'voice.webm';
+      if (audioBlob.type.includes('mp4')) {
+        filename = 'voice.mp4';
+      } else if (audioBlob.type.includes('wav')) {
+        filename = 'voice.wav';
+      } else if (audioBlob.type.includes('mpeg') || audioBlob.type.includes('mp3')) {
+        filename = 'voice.mp3';
+      } else if (audioBlob.type.includes('ogg')) {
+        filename = 'voice.ogg';
+      }
+
+      console.log(`[OpenAI] Using filename: ${filename} for MIME type: ${audioBlob.type}`);
 
       const formData = new FormData();
-      formData.append('file', audioBlob, 'voice.webm');
+      formData.append('file', audioBlob, filename);
       formData.append('model', 'whisper-1');
       formData.append('language', 'ru');
       formData.append('response_format', 'text');
       formData.append('prompt', config.prompt);
+
+      console.log(`[OpenAI] Sending request to /api/audio/transcriptions`);
 
       const response = await fetch('/api/audio/transcriptions', {
         method: 'POST',
         body: formData,
       });
 
+      console.log(`[OpenAI] Response status: ${response.status} ${response.statusText}`);
+
       if (!response.ok) {
         let errorMessage = `HTTP ${response.status}`;
+        let errorDetails = null;
         try {
           const errorData = await response.json();
+          errorDetails = errorData;
           if (errorData?.error?.message) {
             errorMessage = `${errorMessage}: ${errorData.error.message}`;
           }
-        } catch {
-          // ignore JSON parse errors
+          console.log(`[OpenAI] Error response data:`, errorData);
+        } catch (parseError) {
+          // Try to get text response
+          try {
+            const textError = await response.text();
+            console.log(`[OpenAI] Error response text:`, textError);
+            if (textError) {
+              errorMessage = `${errorMessage}: ${textError}`;
+            }
+          } catch {
+            console.log(`[OpenAI] Could not parse error response`);
+          }
         }
+        
+        console.log(`[OpenAI] ❌ Full error details:`, {
+          status: response.status,
+          statusText: response.statusText,
+          blobSize: audioBlob.size,
+          blobType: audioBlob.type,
+          filename,
+          errorDetails
+        });
+        
         throw new Error(errorMessage);
       }
 

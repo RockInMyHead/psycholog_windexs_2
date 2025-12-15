@@ -20,17 +20,22 @@ export default defineConfig(({ mode }) => ({
       key: './server/key.pem',
       cert: './server/cert.pem',
     } : false,
-    // Настраиваем proxy - используем production URL
+    // Настраиваем proxy - для разработки используем локальный сервер
     proxy: {
       '/api': {
-        target: 'https://psycholog.windexs.ru',
+        target: process.env.NODE_ENV === 'production' 
+          ? 'https://psycholog.windexs.ru' 
+          : 'http://localhost:1033',
         changeOrigin: true,
-        secure: true,
+        secure: false, // false для локальной разработки
+        ws: true, // поддержка WebSocket
       },
       '/health': {
-        target: 'https://psycholog.windexs.ru',
+        target: process.env.NODE_ENV === 'production' 
+          ? 'https://psycholog.windexs.ru' 
+          : 'http://localhost:1033',
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
     },
   },

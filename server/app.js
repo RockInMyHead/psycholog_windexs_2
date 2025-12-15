@@ -29,32 +29,135 @@ const convertAudioToWav = (inputBuffer, inputFormat) => {
     const tempInputPath = path.join(__dirname, `temp_input_${Date.now()}.${inputFormat}`);
     const tempOutputPath = path.join(__dirname, `temp_output_${Date.now()}.wav`);
 
-    // Write input buffer to temp file
-    fs.writeFileSync(tempInputPath, inputBuffer);
+    console.log(`[FFMPEG] Starting conversion: ${inputFormat} -> WAV`);
+    console.log(`[FFMPEG] Input file: ${tempInputPath}, size: ${inputBuffer.length} bytes`);
+    console.log(`[FFMPEG] Output file: ${tempOutputPath}`);
 
-    ffmpeg(tempInputPath)
-      .toFormat('wav')
-      .audioCodec('pcm_s16le')
-      .audioChannels(1)
-      .audioFrequency(16000)
+    try {
+      // Write input buffer to temp file
+      fs.writeFileSync(tempInputPath, inputBuffer);
+      console.log(`[FFMPEG] Input file written successfully`);
+    } catch (writeError) {
+      console.log(`[FFMPEG] Failed to write input file: ${writeError.message}`);
+      reject(writeError);
+      return;
+    }
+
+    // Special handling for webm files
+    const ffmpegCommand = ffmpeg(tempInputPath);
+
+    if (inputFormat === 'webm') {
+      console.log(`[FFMPEG] Using webm-specific settings`);
+      ffmpegCommand
+        .inputOptions(['-f', 'webm']) // Force webm format
+        .toFormat('wav')
+        .audioCodec('pcm_s16le')
+        .audioChannels(1)
+        .audioFrequency(16000);
+    } else {
+      ffmpegCommand
+        .inputFormat(inputFormat)
+        .toFormat('wav')
+        .audioCodec('pcm_s16le')
+        .audioChannels(1)
+        .audioFrequency(16000);
+    }
+
+    ffmpegCommand
+      .on('start', (commandLine) => {
+        console.log(`[FFMPEG] Spawned FFmpeg with command: ${commandLine}`);
+      })
+      .on('progress', (progress) => {
+        console.log(`[FFMPEG] Processing: ${progress.percent}% done`);
+      })
       .on('end', () => {
+        console.log(`[FFMPEG] Conversion completed successfully`);
         try {
           const outputBuffer = fs.readFileSync(tempOutputPath);
+          console.log(`[FFMPEG] Output file read: ${outputBuffer.length} bytes`);
+
           // Clean up temp files
           fs.unlinkSync(tempInputPath);
           fs.unlinkSync(tempOutputPath);
+          console.log(`[FFMPEG] Temp files cleaned up`);
+
           resolve(outputBuffer);
         } catch (error) {
+          console.log(`[FFMPEG] Failed to read output file: ${error.message}`);
           reject(error);
         }
       })
       .on('error', (err) => {
+        console.log(`[FFMPEG] Conversion failed: ${err.message}`);
+
         // Clean up temp files on error
         try {
           if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
           if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
+          console.log(`[FFMPEG] Temp files cleaned up after error`);
         } catch (cleanupError) {
-          logger.warn('CLEANUP', `Failed to cleanup temp files: ${cleanupError.message}`);
+          console.log(`[FFMPEG] Failed to cleanup temp files: ${cleanupError.message}`);
+        }
+        reject(err);
+      })
+      .save(tempOutputPath);
+  });
+};
+
+// Alternative conversion function specifically for webm files
+const convertAudioToWavAlternative = (inputBuffer) => {
+  return new Promise((resolve, reject) => {
+    const tempInputPath = path.join(__dirname, `temp_alt_input_${Date.now()}.webm`);
+    const tempOutputPath = path.join(__dirname, `temp_alt_output_${Date.now()}.wav`);
+
+    console.log(`[FFMPEG-ALT] Starting alternative webm->wav conversion`);
+    console.log(`[FFMPEG-ALT] Input: ${tempInputPath}, Output: ${tempOutputPath}`);
+
+    try {
+      fs.writeFileSync(tempInputPath, inputBuffer);
+      console.log(`[FFMPEG-ALT] Input file written`);
+    } catch (writeError) {
+      console.log(`[FFMPEG-ALT] Failed to write input: ${writeError.message}`);
+      reject(writeError);
+      return;
+    }
+
+    // Try with different FFmpeg options for webm
+    ffmpeg(tempInputPath)
+      .inputOptions(['-f', 'matroska,webm', '-err_detect', 'ignore_err']) // More permissive webm parsing
+      .toFormat('wav')
+      .audioCodec('pcm_s16le')
+      .audioChannels(1)
+      .audioFrequency(16000)
+      .outputOptions(['-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1']) // Explicit output options
+      .on('start', (commandLine) => {
+        console.log(`[FFMPEG-ALT] Command: ${commandLine}`);
+      })
+      .on('end', () => {
+        console.log(`[FFMPEG-ALT] Alternative conversion successful`);
+        try {
+          const outputBuffer = fs.readFileSync(tempOutputPath);
+          console.log(`[FFMPEG-ALT] Output file read: ${outputBuffer.length} bytes`);
+
+          fs.unlinkSync(tempInputPath);
+          fs.unlinkSync(tempOutputPath);
+          console.log(`[FFMPEG-ALT] Temp files cleaned up`);
+
+          resolve(outputBuffer);
+        } catch (error) {
+          console.log(`[FFMPEG-ALT] Failed to read output: ${error.message}`);
+          reject(error);
+        }
+      })
+      .on('error', (err) => {
+        console.log(`[FFMPEG-ALT] Alternative conversion failed: ${err.message}`);
+
+        try {
+          if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
+          if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
+          console.log(`[FFMPEG-ALT] Temp files cleaned up after error`);
+        } catch (cleanupError) {
+          console.log(`[FFMPEG-ALT] Failed to cleanup: ${cleanupError.message}`);
         }
         reject(err);
       })
@@ -458,72 +561,178 @@ app.post('/api/chat/completions', async (req, res) => {
 app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) => {
   let convertedBuffer = null;
 
+  console.log(`[TRANSCRIPTION] POST /api/audio/transcriptions - Request received`);
+  console.log(`[TRANSCRIPTION] Headers:`, req.headers['content-type']);
+  console.log(`[TRANSCRIPTION] Body keys:`, Object.keys(req.body || {}));
+  console.log(`[TRANSCRIPTION] File present:`, !!req.file);
+
   try {
     if (!req.file) {
+      console.log(`[TRANSCRIPTION] ❌ No file in request!`);
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
     logger.debug('TRANSCRIPTION', `Received file: ${req.file.originalname}, size: ${req.file.size} bytes, type: ${req.file.mimetype}`);
 
     const axiosInstance = createAxiosInstance();
-    const formData = new FormData();
 
     let audioBuffer = req.file.buffer;
     let filename = req.file.originalname || 'audio.wav';
     let mimetype = req.file.mimetype;
 
-    // Convert MP4 to WAV for better OpenAI Whisper compatibility
+    // Try to convert to WAV, but fallback to original if conversion fails
+    logger.debug('TRANSCRIPTION', `Processing ${req.file.mimetype} file, size: ${req.file.size} bytes`);
+
+    let inputFormat = 'webm'; // default for MediaRecorder
     if (req.file.mimetype === 'audio/mp4') {
-      logger.debug('TRANSCRIPTION', 'Converting MP4 to WAV for better compatibility...');
+      inputFormat = 'mp4';
+    } else if (req.file.mimetype === 'audio/mpeg' || req.file.mimetype === 'audio/mp3') {
+      inputFormat = 'mp3';
+    } else if (req.file.mimetype === 'audio/wav') {
+      inputFormat = 'wav';
+    } else if (req.file.mimetype.includes('webm')) {
+      inputFormat = 'webm';
+    }
+
+    console.log(`[TRANSCRIPTION] Detected input format: ${inputFormat}`);
+
+    // For webm files, we MUST convert to WAV as OpenAI doesn't support webm/opus
+    let conversionAttempted = false;
+    if (req.file.mimetype.includes('webm')) {
+      console.log(`[TRANSCRIPTION] WebM file detected - conversion to WAV is mandatory`);
       try {
-        convertedBuffer = await convertAudioToWav(req.file.buffer, 'mp4');
+        console.log(`[TRANSCRIPTION] Attempting webm->wav conversion...`);
+        convertedBuffer = await convertAudioToWav(req.file.buffer, 'webm');
         audioBuffer = convertedBuffer;
-        filename = filename.replace(/\.[^/.]+$/, '.wav');
+        filename = 'audio.wav';
         mimetype = 'audio/wav';
-        logger.debug('TRANSCRIPTION', `Conversion successful: ${convertedBuffer.length} bytes`);
+        conversionAttempted = true;
+        console.log(`[TRANSCRIPTION] ✅ WebM->WAV conversion successful: ${convertedBuffer.length} bytes`);
       } catch (conversionError) {
-        logger.warn('TRANSCRIPTION', `MP4 conversion failed, using original: ${conversionError.message}`);
-        // Continue with original MP4 file if conversion fails
-        filename = filename.replace(/\.[^/.]+$/, '.mp4');
+        console.log(`[TRANSCRIPTION] ❌ WebM conversion failed: ${conversionError.message}`);
+        logger.error('TRANSCRIPTION', `WebM conversion failed: ${conversionError.message}`);
+
+        // Try alternative conversion approach for webm
+        console.log(`[TRANSCRIPTION] Trying alternative webm conversion...`);
+        try {
+          convertedBuffer = await convertAudioToWavAlternative(req.file.buffer);
+          audioBuffer = convertedBuffer;
+          filename = 'audio.wav';
+          mimetype = 'audio/wav';
+          conversionAttempted = true;
+          console.log(`[TRANSCRIPTION] ✅ Alternative WebM->WAV conversion successful`);
+        } catch (altConversionError) {
+          console.log(`[TRANSCRIPTION] ❌ Alternative conversion also failed: ${altConversionError.message}`);
+
+          // Last resort: try sending webm as wav (MIME type spoofing)
+          console.log(`[TRANSCRIPTION] Last resort: sending webm as wav to OpenAI`);
+          audioBuffer = req.file.buffer;
+          filename = 'audio.wav'; // Lie about the format
+          mimetype = 'audio/wav'; // Lie about MIME type
+          console.log(`[TRANSCRIPTION] Using webm file but pretending it's wav`);
+        }
       }
     } else {
-      // Ensure correct extension for other formats
-      if (req.file.mimetype === 'audio/webm') {
-        filename = filename.replace(/\.[^/.]+$/, '.webm');
-      } else if (req.file.mimetype === 'audio/wav') {
-        filename = filename.replace(/\.[^/.]+$/, '.wav');
-      } else if (req.file.mimetype === 'audio/mpeg' || req.file.mimetype === 'audio/mp3') {
-        filename = filename.replace(/\.[^/.]+$/, '.mp3');
+      // For other formats, try conversion but allow fallback
+      try {
+        console.log(`[TRANSCRIPTION] Attempting conversion for ${inputFormat}...`);
+        convertedBuffer = await convertAudioToWav(req.file.buffer, inputFormat);
+        audioBuffer = convertedBuffer;
+        filename = 'audio.wav';
+        mimetype = 'audio/wav';
+        conversionAttempted = true;
+        console.log(`[TRANSCRIPTION] ✅ Conversion successful: ${convertedBuffer.length} bytes WAV file`);
+      } catch (conversionError) {
+        console.log(`[TRANSCRIPTION] ❌ Conversion failed: ${conversionError.message}, using original format`);
+        // Keep original format for supported formats
+        audioBuffer = req.file.buffer;
+        filename = `audio.${inputFormat}`;
+        mimetype = req.file.mimetype;
       }
     }
 
-    // Add the file to form data
-    formData.append('file', audioBuffer, {
-      filename: filename,
-      contentType: mimetype
-    });
+    // Validate audio buffer
+    if (!audioBuffer || audioBuffer.length === 0) {
+      throw new Error('Audio buffer is empty or invalid');
+    }
 
-    // Force whisper-1 model as it's the only one for transcription
-    formData.append('model', 'whisper-1');
+    console.log(`[TRANSCRIPTION] Audio buffer size: ${audioBuffer.length} bytes, ready for OpenAI SDK`);
+    logger.debug('TRANSCRIPTION', `Sending to OpenAI SDK: model=whisper-1, language=${req.body.language}, format=${req.body.response_format}, final_type=${mimetype}, file_size=${audioBuffer.length} bytes`);
 
-    // Pass other parameters if present
-    if (req.body.language) formData.append('language', req.body.language);
-    if (req.body.response_format) formData.append('response_format', req.body.response_format);
-    if (req.body.prompt) formData.append('prompt', req.body.prompt);
+    // Check file size limit (25MB for OpenAI Whisper)
+    const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
+    if (audioBuffer.length > MAX_FILE_SIZE) {
+      logger.error('TRANSCRIPTION', `File too large: ${audioBuffer.length} bytes (max: ${MAX_FILE_SIZE})`);
+      return res.status(400).json({ error: `File too large: ${audioBuffer.length} bytes. Maximum allowed: ${MAX_FILE_SIZE} bytes` });
+    }
 
-    logger.debug('TRANSCRIPTION', `Sending to OpenAI: model=whisper-1, language=${req.body.language}, format=${req.body.response_format}, final_type=${mimetype}`);
-    logger.openai.request('transcription', null);
-
-    const response = await axiosInstance.post('https://api.openai.com/v1/audio/transcriptions', formData, {
-      headers: {
-        ...formData.getHeaders(),
-        'Content-Type': undefined // Let axios/form-data set the correct Content-Type with boundary
+    // Log request data (without binary file data)
+    const requestInfo = {
+      file: {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        converted: convertedBuffer !== null
       },
-      timeout: 30000 // 30 second timeout for transcription
-    });
+      body: {
+        language: req.body.language,
+        response_format: req.body.response_format,
+        prompt: req.body.prompt ? `${req.body.prompt.substring(0, 50)}...` : null,
+        model: req.body.model
+      },
+      final: {
+        mimeType: mimetype,
+        filename: filename,
+        fileSize: audioBuffer.length
+      }
+    };
+    logger.debug('TRANSCRIPTION', `Request info:`, requestInfo);
 
-    logger.debug('TRANSCRIPTION', `OpenAI response received successfully`);
-    res.json(response.data);
+    console.log(`[TRANSCRIPTION] Sending to OpenAI using SDK...`);
+
+    try {
+      logger.openai.request('transcription', { fileSize: audioBuffer.length, mimeType: mimetype });
+
+      // Use OpenAI SDK for reliable file upload
+      // Create a proper file object from the buffer by writing to temp file
+      const tempFilePath = path.join(__dirname, `temp_transcribe_${Date.now()}.${filename.split('.').pop()}`);
+      
+      // Write buffer to temp file
+      fs.writeFileSync(tempFilePath, audioBuffer);
+      console.log(`[TRANSCRIPTION] Temp file created: ${tempFilePath}`);
+
+      // Use OpenAI SDK to transcribe
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(tempFilePath),
+        model: 'whisper-1',
+        language: req.body.language || 'ru',
+        response_format: req.body.response_format || 'text',
+        prompt: req.body.prompt || undefined
+      });
+
+      // Clean up temp file
+      try {
+        fs.unlinkSync(tempFilePath);
+        console.log(`[TRANSCRIPTION] Temp file deleted: ${tempFilePath}`);
+      } catch (cleanupError) {
+        console.log(`[TRANSCRIPTION] Failed to delete temp file: ${cleanupError.message}`);
+      }
+
+      console.log(`[TRANSCRIPTION] ✅ OpenAI SDK call successful`);
+      console.log(`[TRANSCRIPTION] Transcription type:`, typeof transcription);
+
+      // Return in the expected format
+      if (typeof transcription === 'string') {
+        res.json({ text: transcription });
+      } else {
+        res.json(transcription);
+      }
+
+    } catch (apiError) {
+      console.log(`[TRANSCRIPTION] ❌ OpenAI SDK call failed:`, apiError.message);
+      console.log(`[TRANSCRIPTION] Error stack:`, apiError.stack);
+      throw apiError;
+    }
 
   } catch (error) {
     logger.error('TRANSCRIPTION', `Transcription failed: ${error.message}`, {

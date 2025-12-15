@@ -28,23 +28,29 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
   }, []);
 
   const startRecording = useCallback(async (stream: MediaStream) => {
-    // Allow restart if previous recorder exists but is not recording
+    // Allow restart if previous recorder exists and is actively recording
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       console.log('[AudioCapture] Already recording, skipping start');
       return;
     }
 
-    // Clean up previous recorder if exists
-    if (mediaRecorderRef.current) {
+    // Clean up previous recorder if exists and is not already stopped/inactive
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
+        console.log(`[AudioCapture] Stopped previous recorder (state: ${mediaRecorderRef.current.state})`);
       } catch (e) {
-        // Ignore stop errors
+        console.log(`[AudioCapture] Stop error (expected): ${e.message}`);
       }
       mediaRecorderRef.current = null;
     }
 
     try {
+      // Verify stream is still active
+      if (!stream.active) {
+        throw new Error('MediaStream is not active');
+      }
+
       const supportedTypes = getSupportedMimeTypes();
       const selectedMimeType = supportedTypes[0];
 
@@ -52,6 +58,7 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
         throw new Error('No supported MediaRecorder format found');
       }
 
+      console.log(`[AudioCapture] Creating MediaRecorder with mimeType: ${selectedMimeType}`);
       const recorder = new MediaRecorder(stream, { mimeType: selectedMimeType });
       mediaRecorderRef.current = recorder;
       audioStreamRef.current = stream;
@@ -59,12 +66,16 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
-          console.log(`[AudioCapture] Data available: ${e.data.size} bytes, total chunks: ${recordedChunksRef.current.length + 1}`);
+          const beforeCount = recordedChunksRef.current.length;
+          console.log(`[AudioCapture] Data available: ${e.data.size} bytes, chunks before: ${beforeCount}, after: ${beforeCount + 1}`);
           recordedChunksRef.current.push(e.data);
+          console.log(`[AudioCapture] Chunk added, array now has ${recordedChunksRef.current.length} chunks`);
+
           setState(prev => ({
             ...prev,
             recordedChunks: [...recordedChunksRef.current]
           }));
+          console.log(`[AudioCapture] State updated with ${recordedChunksRef.current.length} chunks`);
         } else {
           console.log(`[AudioCapture] Data available but empty (0 bytes)`);
         }
@@ -75,8 +86,10 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
           ...prev,
           isRecording: true,
           isPaused: false,
-          mimeType: selectedMimeType
+          mimeType: selectedMimeType,
+          audioStream: stream
         }));
+        console.log(`[AudioCapture] Recording started successfully`);
       };
 
       recorder.onstop = () => {
@@ -128,9 +141,12 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
         recordedChunksRef.current = [];
         setState(prev => ({
           ...prev,
-          recordedChunks: []
+          recordedChunks: [],
+          isRecording: false,
+          isPaused: false
         }));
         mediaRecorderRef.current = null;
+        console.log(`[AudioCapture] Recording stopped, blob size: ${blob.size} bytes`);
         resolve(blob);
       };
 
@@ -167,19 +183,41 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
   }, []);
 
   const getAndClearChunks = useCallback((): Blob | null => {
-    if (recordedChunksRef.current.length === 0) return null;
-    
+    const chunkCount = recordedChunksRef.current.length;
+    console.log(`[AudioCapture] getAndClearChunks called, chunks in array: ${chunkCount}`);
+
+    if (chunkCount === 0) {
+      console.log(`[AudioCapture] No chunks available, returning null`);
+      return null;
+    }
+
+    // Calculate total size before creating blob
+    const totalSize = recordedChunksRef.current.reduce((sum, chunk) => sum + chunk.size, 0);
+    console.log(`[AudioCapture] Creating blob from ${chunkCount} chunks, total size: ${totalSize} bytes`);
+
+    // Get MIME type from MediaRecorder, fallback to audio/webm
+    const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+    console.log(`[AudioCapture] Using MIME type: ${mimeType}`);
+
     const blob = new Blob(recordedChunksRef.current, {
-      type: mediaRecorderRef.current?.mimeType || 'audio/webm'
+      type: mimeType
     });
-    
+
+    console.log(`[AudioCapture] ✅ Blob created: ${blob.size} bytes, type: "${blob.type}", chunks: ${chunkCount}`);
+
+    // Validate blob
+    if (blob.size === 0) {
+      console.log(`[AudioCapture] ⚠️ Warning: blob size is 0 despite having ${chunkCount} chunks`);
+    }
+
     // Clear chunks for next segment
     recordedChunksRef.current = [];
     setState(prev => ({
       ...prev,
       recordedChunks: []
     }));
-    
+
+    console.log(`[AudioCapture] Chunks cleared, ready for next segment`);
     return blob;
   }, []);
 
@@ -209,6 +247,10 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
     });
   }, []);
 
+  const getAudioStream = useCallback(() => {
+    return audioStreamRef.current;
+  }, []);
+
   return {
     state,
     startRecording,
@@ -218,6 +260,7 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
     clearRecordedChunks,
     cleanup,
     requestData,
-    getAndClearChunks
+    getAndClearChunks,
+    getAudioStream
   };
 };

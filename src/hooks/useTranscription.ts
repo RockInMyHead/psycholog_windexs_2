@@ -137,9 +137,10 @@ export const useTranscription = ({
       } catch (error) {
         addDebugLog(`[Mobile] Error in timer: ${error}`);
         // Check if recording is still active
-        if (!audioCapture.state.isRecording && audioCapture.state.audioStream) {
+        const stream = audioCapture.getAudioStream();
+        if (!audioCapture.state.isRecording && stream && stream.active) {
           try {
-            await audioCapture.startRecording(audioCapture.state.audioStream);
+            await audioCapture.startRecording(stream);
             addDebugLog(`[Timer] Recording restarted after error`);
           } catch (restartError) {
             addDebugLog(`[Timer] Failed to restart recording: ${restartError}`);
@@ -380,8 +381,16 @@ export const useTranscription = ({
       // Always restart recording completely after TTS - more reliable than resume
       addDebugLog(`[TTS] Always restarting recording completely after TTS for reliability`);
 
-      if (audioCapture.state.audioStream) {
-        // First stop any existing recording
+      // Use getAudioStream() to get stream from ref instead of state
+      const stream = audioCapture.getAudioStream();
+      addDebugLog(`[TTS] Audio stream available: ${!!stream}, active: ${stream?.active}`);
+
+      if (stream && stream.active) {
+        // Clear any accumulated chunks before restart to prevent mixing old and new data
+        audioCapture.clearRecordedChunks();
+        addDebugLog(`[TTS] Cleared accumulated chunks before restart`);
+
+        // Stop any existing recording first
         try {
           audioCapture.stopRecording();
           addDebugLog(`[TTS] Stopped existing recording before restart`);
@@ -389,24 +398,45 @@ export const useTranscription = ({
           addDebugLog(`[TTS] Stop recording error (expected if not recording): ${stopError}`);
         }
 
-        // Then restart recording completely
-        setTimeout(() => {
-          audioCapture.startRecording(audioCapture.state.audioStream).catch(error => {
-            addDebugLog(`[TTS] Failed to restart recording after TTS: ${error}`);
-          });
-        }, 100); // Small delay to ensure clean restart
-      }
+        // Wait longer for clean MediaRecorder cleanup before restart
+        setTimeout(async () => {
+          try {
+            // Double-check stream is still active
+            if (!stream.active) {
+              addDebugLog(`[TTS] AudioStream became inactive, cannot restart recording`);
+              return;
+            }
 
-      // Restart volume monitoring
-      if (audioCapture.state.audioStream) {
-        vad.startVolumeMonitoring(audioCapture.state.audioStream, onInterruption);
-      }
+            await audioCapture.startRecording(stream);
+            addDebugLog(`[TTS] ✅ Successfully restarted recording after TTS`);
 
-      // Resume appropriate transcription
-      if (transcriptionMode === 'browser') {
-        browserSTT.resume();
+            // Restart volume monitoring after recording is confirmed started
+            setTimeout(() => {
+              const currentStream = audioCapture.getAudioStream();
+              if (currentStream && currentStream.active) {
+                vad.startVolumeMonitoring(currentStream, onInterruption);
+                addDebugLog(`[TTS] ✅ Volume monitoring restarted`);
+              }
+
+              // Resume appropriate transcription
+              if (transcriptionMode === 'browser') {
+                browserSTT.resume();
+                addDebugLog(`[TTS] ✅ Browser STT resumed`);
+              }
+              addDebugLog(`[TTS] ✅ Full recording restart complete`);
+              // Mobile timer continues automatically
+            }, 200); // Additional delay to ensure recording is stable
+
+          } catch (error) {
+            addDebugLog(`[TTS] ❌ Failed to restart recording after TTS: ${error}`);
+            // Try to reinitialize audio capture completely as fallback
+            addDebugLog(`[TTS] Attempting complete audio reinitialization...`);
+            // The parent component should handle this case by reinitializing the entire audio setup
+          }
+        }, 300); // Increased delay for MediaRecorder cleanup
+      } else {
+        addDebugLog(`[TTS] ❌ No audio stream available for restart (stream=${!!stream}, active=${stream?.active})`);
       }
-      // Mobile timer continues automatically
     }, resumeDelay);
   }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, onInterruption, addDebugLog]);
 
@@ -424,8 +454,9 @@ export const useTranscription = ({
       }
 
       // Stop audio stream if it exists
-      if (audioCapture?.state?.audioStream) {
-        audioCapture.state.audioStream.getTracks().forEach(track => {
+      const stream = audioCapture?.getAudioStream();
+      if (stream) {
+        stream.getTracks().forEach(track => {
           try { track.stop(); } catch (e) { /* ignore */ }
         });
       }

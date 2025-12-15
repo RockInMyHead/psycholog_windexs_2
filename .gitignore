@@ -38,3 +38,13 @@ server/key.pem
 # Database files
 *.db
 zen-mind-mate.db
+
+# Server temporary files
+server/temp_*.wav
+server/temp_*.webm
+server/temp_*.mp3
+server/temp_*.mp4
+
+# Temporary directories
+temp/
+temp_vocalis/
