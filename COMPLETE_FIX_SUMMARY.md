@@ -32,6 +32,12 @@
 **Solution:** Implemented continuous recording with requestData() pattern
 **Status:** FIXED ✅
 
+### 7. ✅ TTS Recording Restart Failure
+**Problem:** MediaRecorder completely stopped after TTS playback (isRecording=false)
+**Root Cause:** Safari/iOS doesn't reliably resume paused MediaRecorder
+**Solution:** Always restart recording completely after TTS instead of resume
+**Status:** FIXED ✅
+
 ## Cross-Platform Support
 
 ### 🖥️ **Desktop (Mac/Windows)**
@@ -103,7 +109,7 @@
 - `src/hooks/useAudioCapture.ts` - requestData(), getAndClearChunks()
 
 ### Build Info:
-- Bundle: `index-DwKbkrgF.js` (954KB)
+- Bundle: `index-Csi01gVi.js` (953KB)
 - CSS: `index-DTCsXawP.css` (79KB)
 - Archive: `audio-fix-deploy.tar.gz` (3.2MB)
 
