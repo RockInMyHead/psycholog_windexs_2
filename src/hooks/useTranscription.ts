@@ -364,11 +364,17 @@ export const useTranscription = ({
     // Stop volume monitoring
     vad.stopVolumeMonitoring();
 
-    // Stop browser STT if active
+    // Stop browser STT if active - with special handling for iOS
     if (transcriptionMode === 'browser') {
-      browserSTT.pause();
+      if (deviceProfile.isIOS) {
+        // On iOS, completely stop browser STT during TTS to prevent conflicts
+        console.log('[TTS] iOS: Completely stopping browser STT during TTS');
+        browserSTT.pause();
+      } else {
+        browserSTT.pause();
+      }
     }
-  }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, addDebugLog]);
+  }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, deviceProfile.isIOS, addDebugLog]);
 
   const resumeRecordingAfterTTS = useCallback(() => {
     const resumeDelay = ttsGuard.getResumeDelay();
@@ -402,9 +408,14 @@ export const useTranscription = ({
         vad.startVolumeMonitoring(audioCapture.state.audioStream, onInterruption);
       }
 
-      // Resume appropriate transcription
+      // Resume appropriate transcription with delay for TTS cleanup
       if (transcriptionMode === 'browser') {
-        browserSTT.resume();
+        // Add extra delay for iOS/Safari to ensure TTS is fully completed
+        const browserResumeDelay = deviceProfile.isIOS ? resumeDelay + 500 : resumeDelay;
+        setTimeout(() => {
+          console.log('[TTS] Resuming browser STT after TTS completion');
+          browserSTT.resume();
+        }, browserResumeDelay);
       }
       // Mobile timer continues automatically
     }, resumeDelay);

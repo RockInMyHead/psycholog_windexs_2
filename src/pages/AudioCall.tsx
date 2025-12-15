@@ -315,23 +315,28 @@ const AudioCall = () => {
   });
 
   // Update TTS playback status change handler with pauseRecordingForTTS/resumeRecordingAfterTTS
+  const lastTTSStateRef = useRef<boolean>(false);
   useEffect(() => {
-    // Мы не можем изменить onPlaybackStatusChange после инициализации useTTS,
-    // поэтому управляем состоянием через useEffect
-    if (isTTSPlaying || isTTSSynthesizing) {
+    const isCurrentlySpeaking = isTTSPlaying || isTTSSynthesizing;
+    const wasSpeaking = lastTTSStateRef.current;
+
+    // Only act on state changes to prevent multiple calls
+    if (isCurrentlySpeaking !== wasSpeaking) {
+      lastTTSStateRef.current = isCurrentlySpeaking;
+
+      if (isCurrentlySpeaking) {
+        console.log('[TTS] TTS started, pausing recording');
         setMarkStatus('Говорю');
         pauseRecordingForTTS?.();
       } else {
+        console.log('[TTS] TTS ended, resuming recording');
         setMarkStatus('Слушаю');
         if (isCallActiveRef.current) {
           resumeRecordingAfterTTS?.();
-        // Remove excessive logging - only log once per session
-        if (!isTTSPlaying && !isTTSSynthesizing) {
-          console.log('[TTS] TTS session ended, ready for new text');
         }
       }
     }
-  }, [isTTSPlaying, isTTSSynthesizing]); // Remove function dependencies to prevent infinite loops
+  }, [isTTSPlaying, isTTSSynthesizing, pauseRecordingForTTS, resumeRecordingAfterTTS]);
 
   useEffect(() => {
     isAssistantSpeakingRef.current = isTTSPlaying || isTTSSynthesizing;

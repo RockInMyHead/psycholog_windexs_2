@@ -129,13 +129,21 @@ export const useBrowserSTT = (
 
   const handleError = useCallback((event: SpeechRecognitionErrorEvent) => {
     const error = event.error;
-    console.error('[BrowserSTT] Recognition error:', error);
 
+    if (error === 'aborted') {
+      // Aborted is normal when TTS interrupts speech recognition on iOS/Safari
+      console.log('[BrowserSTT] Speech recognition aborted (normal during TTS on iOS)');
+      setState(prev => ({ ...prev, isListening: false, error: null }));
+      return;
+    }
+
+    console.error('[BrowserSTT] Recognition error:', error);
     setState(prev => ({ ...prev, error }));
 
     // Handle retriable errors
     const retriableErrors = ['network', 'audio-capture', 'not-allowed'];
     if (retriableErrors.includes(error) && state.retryCount < 3) {
+      console.log(`[BrowserSTT] Retriable error '${error}', attempt ${state.retryCount + 1}/3`);
       setState(prev => ({ ...prev, retryCount: prev.retryCount + 1 }));
 
       setTimeout(() => {
@@ -146,7 +154,7 @@ export const useBrowserSTT = (
       return;
     }
 
-    // For iOS, switch to OpenAI fallback
+    // For iOS, switch to OpenAI fallback for serious errors
     if (deviceProfile.isIOS && ['network', 'audio-capture'].includes(error)) {
       onError(`Browser STT failed (${error}), switching to OpenAI mode`);
       return;
