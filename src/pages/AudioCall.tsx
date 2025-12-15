@@ -253,19 +253,37 @@ const AudioCall = () => {
       return;
     }
 
-    // Save user message for memory update
-    lastUserMessageRef.current = text;
+    try {
+      // Save user message for memory update
+      lastUserMessageRef.current = text;
 
-    // Stop TTS if user interrupted (handled by hook, but good to ensure)
-    if (source !== 'manual') stopTTS();
+      // Stop TTS if user interrupted (handled by hook, but good to ensure)
+      if (source !== 'manual') stopTTS();
 
-    // Reset TTS deduplication for new user input
-    resetDeduplication();
+      // Reset TTS deduplication for new user input
+      resetDeduplication();
 
-    console.log(`[AudioCall] About to call processUserMessage (ID: ${transcribeId})`);
-    await processUserMessage(text);
-    console.log(`[AudioCall] processUserMessage completed (ID: ${transcribeId})`);
-  }, [isMuted, addDebugLog, stopTTS, resetDeduplication, processUserMessage]);
+      console.log(`[AudioCall] About to call processUserMessage (ID: ${transcribeId})`);
+
+      // Add iOS-specific error handling
+      if (isIOS) {
+        console.log(`[iOS] Processing transcription on iOS device`);
+        // Add small delay for iOS to prevent race conditions
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      await processUserMessage(text);
+      console.log(`[AudioCall] processUserMessage completed (ID: ${transcribeId})`);
+    } catch (error) {
+      console.error(`[AudioCall] Error in handleTranscriptionComplete:`, error);
+      addDebugLog(`[Error] Transcription processing failed: ${error}`);
+
+      // On iOS, show user-friendly error and don't crash
+      if (isIOS) {
+        setError("Ошибка обработки речи. Попробуйте перезагрузить страницу.");
+      }
+    }
+  }, [isMuted, isIOS, addDebugLog, stopTTS, resetDeduplication, processUserMessage]);
 
   const handleInterruption = useCallback(() => {
     addDebugLog(`[AudioCall] 🎤 Voice interruption detected - stopping TTS and resuming listening`);
@@ -395,6 +413,12 @@ const AudioCall = () => {
     setIsInitializingCall(true);
     setError(null);
 
+    // iOS-specific safety check
+    if (isIOS) {
+      console.log(`[iOS] Starting call on iOS device`);
+      addDebugLog(`[iOS] Инициализация звонка на iOS`);
+    }
+
     try {
       // Check wallet balance (at least 1 minute)
       const wallet = await walletApi.getWallet(user?.id);
@@ -426,7 +450,21 @@ const AudioCall = () => {
       setTimeout(async () => {
          const greeting = "Здравствуйте. Я Марк, психолог. Рад вас слышать. Что вас беспокоит?";
          addToConversation('assistant', greeting);
-         await speak(greeting);
+
+         // iOS-specific delay before TTS
+         if (isIOS) {
+           console.log(`[iOS] Adding delay before initial greeting TTS`);
+           await new Promise(resolve => setTimeout(resolve, 500));
+         }
+
+         try {
+           await speak(greeting);
+         } catch (error) {
+           console.error(`[iOS] Initial greeting TTS failed:`, error);
+           if (isIOS) {
+             addDebugLog(`[iOS] TTS не работает. Проверьте настройки звука.`);
+           }
+         }
       }, 1000);
 
       // Start Timer

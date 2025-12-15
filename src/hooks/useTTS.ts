@@ -55,23 +55,43 @@ export const useTTS = ({ onPlaybackStatusChange }: UseTTSProps = {}) => {
   };
 
   const initializeAudioContext = async () => {
-    const audioContext = createAudioContext();
+    try {
+      const audioContext = createAudioContext();
 
-    if (!speakerGainRef.current && audioContext) {
-      const gainNode = audioContext.createGain();
-      gainNode.gain.value = 1;
-      gainNode.connect(audioContext.destination);
-      speakerGainRef.current = gainNode;
-    }
-
-    if (audioContext && audioContext.state === 'suspended') {
-      try {
-        await audioContext.resume();
-      } catch (error) {
-        console.warn("[TTS] Failed to resume AudioContext:", error);
+      if (!speakerGainRef.current && audioContext) {
+        const gainNode = audioContext.createGain();
+        gainNode.gain.value = 1;
+        gainNode.connect(audioContext.destination);
+        speakerGainRef.current = gainNode;
       }
+
+      if (audioContext && audioContext.state === 'suspended') {
+        // iOS-specific: add delay before resume to prevent issues
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        try {
+          await audioContext.resume();
+        } catch (error) {
+          console.warn("[TTS] Failed to resume AudioContext:", error);
+          // On iOS, don't throw error, just continue
+          if (!isIOS) {
+            throw error;
+          }
+        }
+      }
+      return audioContext;
+    } catch (error) {
+      console.error("[TTS] AudioContext initialization failed:", error);
+      // On iOS, return null instead of throwing to prevent white screen
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        return null;
+      }
+      throw error;
     }
-    return audioContext;
   };
 
   const stop = useCallback(() => {
@@ -121,6 +141,7 @@ export const useTTS = ({ onPlaybackStatusChange }: UseTTSProps = {}) => {
     const audioContext = await initializeAudioContext();
 
     if (!audioContext) {
+      console.warn("[TTS] No AudioContext available, clearing queue");
       audioQueueRef.current = [];
       return;
     }
@@ -188,6 +209,22 @@ export const useTTS = ({ onPlaybackStatusChange }: UseTTSProps = {}) => {
   const speak = useCallback(async (text: string) => {
     const callId = Date.now(); // Unique ID for this speak call
     console.log(`[TTS] speak called (ID: ${callId}) with text: "${text?.substring(0, 50)}..."`);
+
+    // iOS-specific check to prevent white screen issues
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      console.log(`[TTS] iOS device detected, adding safety checks`);
+      try {
+        // Check if AudioContext is available and working
+        if (!audioContextRef.current) {
+          console.log(`[TTS] Initializing AudioContext for iOS`);
+          await initializeAudioContext();
+        }
+      } catch (error) {
+        console.error(`[TTS] AudioContext initialization failed on iOS:`, error);
+        return; // Don't proceed with TTS on iOS if AudioContext fails
+      }
+    }
 
     // Prevent duplicate TTS processing
     const trimmedText = text?.trim() || '';

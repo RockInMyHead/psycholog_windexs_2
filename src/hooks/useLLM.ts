@@ -224,6 +224,12 @@ export const useLLM = ({ userId, callId, onResponseGenerated, onError }: UseLLMP
     console.log(`[LLM] processUserMessage called (ID: ${callId}) with: "${text}"`);
     if (!text.trim()) return;
 
+    // iOS-specific safety check
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      console.log(`[LLM] Processing on iOS device`);
+    }
+
     // Prevent concurrent processing of user messages
     if (isProcessing) {
       console.log(`[LLM] Skipping call (ID: ${callId}) - already processing a message`);
@@ -254,38 +260,56 @@ export const useLLM = ({ userId, callId, onResponseGenerated, onError }: UseLLMP
       return;
     }
 
-    setIsProcessing(true);
-    currentProcessingTextRef.current = trimmedText;
-    console.log(`[LLM] Started processing call (ID: ${callId}) for text: "${trimmedText}"`);
-    conversationRef.current.push({ role: "user", content: text });
-    console.log(`[LLM] Added user message to conversation`);
-
     try {
-      // Generate response
-      console.log(`[LLM] Calling getVoiceResponse...`);
-      const assistantReply = await psychologistAI.getVoiceResponse(
-        conversationRef.current,
-        memoryRef.current,
-        false
-      );
-      console.log(`[LLM] Got response: "${assistantReply?.substring(0, 50)}..."`);
+      setIsProcessing(true);
+      currentProcessingTextRef.current = trimmedText;
+      console.log(`[LLM] Started processing call (ID: ${callId}) for text: "${trimmedText}"`);
+      conversationRef.current.push({ role: "user", content: text });
+      console.log(`[LLM] Added user message to conversation`);
 
-      conversationRef.current.push({ role: "assistant", content: assistantReply });
+      try {
+        // Generate response
+        console.log(`[LLM] Calling getVoiceResponse...`);
+        const assistantReply = await psychologistAI.getVoiceResponse(
+          conversationRef.current,
+          memoryRef.current,
+          false
+        );
+        console.log(`[LLM] Got response: "${assistantReply?.substring(0, 50)}..."`);
 
-      // Callback to play audio
-      if (onResponseGenerated) {
-        console.log(`[LLM] Calling onResponseGenerated callback`);
-        await onResponseGenerated(assistantReply);
-        console.log(`[LLM] onResponseGenerated completed`);
+        conversationRef.current.push({ role: "assistant", content: assistantReply });
+
+        // iOS-specific: Add delay before TTS to prevent conflicts
+        if (isIOS) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        // Callback to play audio
+        if (onResponseGenerated) {
+          console.log(`[LLM] Calling onResponseGenerated callback`);
+          await onResponseGenerated(assistantReply);
+          console.log(`[LLM] onResponseGenerated completed`);
+        }
+
+        // Update user profile and conversation memory
+        void updateUserProfile(text, assistantReply);
+        void updateConversationMemory(text, assistantReply);
+
+      } catch (error) {
+        console.error("[LLM] Error generating response:", error);
+        // On iOS, provide more specific error message
+        if (isIOS) {
+          onError?.("Ошибка на iOS. Попробуйте перезагрузить страницу.");
+        } else {
+          onError?.("Не удалось сгенерировать ответ");
+        }
       }
-
-      // Update user profile and conversation memory
-      void updateUserProfile(text, assistantReply);
-      void updateConversationMemory(text, assistantReply);
-
-    } catch (error) {
-      console.error("[LLM] Error generating response:", error);
-      onError?.("Не удалось сгенерировать ответ");
+    } catch (outerError) {
+      console.error("[LLM] Critical error in processUserMessage:", outerError);
+      // Prevent app crash on iOS
+      if (isIOS) {
+        onError?.("Критическая ошибка. Перезагрузите страницу.");
+      }
     } finally {
       console.log(`[LLM] Finished processing call (ID: ${callId})`);
       currentProcessingTextRef.current = '';
