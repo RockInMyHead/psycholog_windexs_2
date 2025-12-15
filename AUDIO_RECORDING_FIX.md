@@ -12,7 +12,7 @@ The stop/start recording pattern was causing MediaRecorder to lose accumulated c
 
 ## Solution
 
-### New Continuous Recording Pattern
+### Improved Continuous Recording Pattern
 Instead of stopping and restarting MediaRecorder:
 
 ```javascript
@@ -20,11 +20,22 @@ Instead of stopping and restarting MediaRecorder:
 const blob = await audioCapture.stopRecording(); // Stops recorder
 await audioCapture.startRecording(stream);        // New recorder, empty chunks
 
-// NEW (FIXED):
-audioCapture.requestData();                       // Force current chunk generation
-await new Promise(resolve => setTimeout(resolve, 100)); // Wait for ondataavailable
-const blob = audioCapture.getAndClearChunks();    // Get blob, clear chunks
+// NEW (FIXED) - Natural Chunk Accumulation:
+const blob = audioCapture.getAndClearChunks();    // Get naturally accumulated chunks
+if (!blob || blob.size === 0) {
+  await new Promise(resolve => setTimeout(resolve, 500)); // Wait for chunks
+  blob = audioCapture.getAndClearChunks();        // Retry with accumulated data
+}
 // Recording continues without interruption
+```
+
+### Platform-Optimized Timing
+```javascript
+// Chunk durations (longer for better stability):
+iOS: 3000ms, Android: 1500ms, Desktop: 1000ms
+
+// Timer intervals (longer for reliable data accumulation):
+iOS: 3000ms, Android: 2500ms, Desktop: 2000ms
 ```
 
 ### Cross-Platform Optimizations

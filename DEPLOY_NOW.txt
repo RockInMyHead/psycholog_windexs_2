@@ -17,15 +17,15 @@ cd /var/www/psycholog.windexs.ru
 tar -xzf /tmp/psycholog_windexs_2/audio-fix-deploy.tar.gz
 
 # 4. Verify deployment
-ls -la assets/index-DwKbkrgF.js
-# Should show: index-DwKbkrgF.js (~954KB)
+ls -la assets/index-HuENCxTh.js
+# Should show: index-HuENCxTh.js (~952KB)
 
 # 5. Reload nginx
 sudo systemctl reload nginx
 
 # 6. Test
 curl -s "https://psycholog.windexs.ru" | grep "index-.*\.js"
-# Should return: index-DwKbkrgF.js
+# Should return: index-HuENCxTh.js
 
 # 7. Clean up
 rm -rf /tmp/psycholog_windexs_2
@@ -33,11 +33,17 @@ rm -rf /tmp/psycholog_windexs_2
 EXPECTED RESULT:
 ================
 ✅ No JavaScript errors
-✅ Audio recording works (no 0 bytes blobs)
+✅ Audio recording works (blob sizes > 0 bytes)
 ✅ Continuous recording on all platforms
-✅ iOS compatibility
-✅ Android compatibility
-✅ Mac/Windows compatibility
+✅ iOS compatibility (3000ms chunks)
+✅ Android compatibility (1500ms chunks)
+✅ Mac/Windows compatibility (1000ms chunks)
+
+LOGS YOU SHOULD SEE:
+====================
+[Timer] Recording state: isRecording=true, isPaused=false, chunks=X
+[Timer] Got accumulated blob: 18421 bytes ✅
+[Timer] ✅ Sending blob (18421 bytes) for transcription
 
 FIXES INCLUDED:
 ===============
@@ -48,8 +54,10 @@ FIXES INCLUDED:
 ✅ iOS white screen prevented
 ✅ Chat error handling improved
 ✅ Microphone permission handling improved
-✅ Continuous audio recording implemented
-✅ Cross-platform optimizations
+✅ Continuous audio recording with natural chunk accumulation
+✅ Cross-platform optimized chunk durations and timer intervals
+✅ Enhanced logging for debugging recording state
+✅ Retry logic for empty blobs (500ms wait + retry)
 
 TESTING:
 ========
