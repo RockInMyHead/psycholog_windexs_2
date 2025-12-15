@@ -38,6 +38,24 @@ iOS: 3000ms, Android: 1500ms, Desktop: 1000ms
 iOS: 3000ms, Android: 2500ms, Desktop: 2000ms
 ```
 
+### TTS Recording Restart Fix
+**Problem:** After TTS playback, MediaRecorder was completely stopped (`isRecording=false`)
+**Root Cause:** Safari/iOS doesn't reliably resume paused MediaRecorder
+**Solution:** Always restart recording completely after TTS instead of resume
+
+```javascript
+// OLD (unreliable):
+if (audioCapture.state.isPaused) {
+  audioCapture.resumeRecording(); // Doesn't work reliably on Safari
+}
+
+// NEW (reliable):
+audioCapture.stopRecording(); // Clean stop
+setTimeout(() => {
+  audioCapture.startRecording(stream); // Clean restart
+}, 100);
+```
+
 ### Cross-Platform Optimizations
 
 #### 1. **Platform-Specific Chunk Durations**

@@ -139,9 +139,13 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
   }, []);
 
   const pauseRecording = useCallback(() => {
+    console.log(`[AudioCapture] Pause requested, current state: ${mediaRecorderRef.current?.state}`);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
       setState(prev => ({ ...prev, isPaused: true }));
+      console.log(`[AudioCapture] Recording paused successfully`);
+    } else {
+      console.log(`[AudioCapture] Cannot pause: recorder=${!!mediaRecorderRef.current}, state=${mediaRecorderRef.current?.state}`);
     }
   }, []);
 

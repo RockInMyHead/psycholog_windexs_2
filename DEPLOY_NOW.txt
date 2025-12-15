@@ -17,8 +17,8 @@ cd /var/www/psycholog.windexs.ru
 tar -xzf /tmp/psycholog_windexs_2/audio-fix-deploy.tar.gz
 
 # 4. Verify deployment
-ls -la assets/index-HuENCxTh.js
-# Should show: index-HuENCxTh.js (~952KB)
+ls -la assets/index-Csi01gVi.js
+# Should show: index-Csi01gVi.js (~953KB)
 
 # 5. Reload nginx
 sudo systemctl reload nginx
@@ -41,7 +41,13 @@ EXPECTED RESULT:
 
 LOGS YOU SHOULD SEE:
 ====================
-[Timer] Recording state: isRecording=true, isPaused=false, chunks=X
+[TTS] PauseRecordingForTTS called, current state: isRecording=true, isPaused=false
+[TTS] Recording paused for TTS
+[TTS] ResumeRecordingAfterTTS called, delay: 200ms, state: isRecording=false, isPaused=false
+[TTS] Always restarting recording completely after TTS for reliability
+[TTS] Stopped existing recording before restart
+[TTS] Recording restarted after TTS
+[Timer] Recording state: isRecording=true, isPaused=false, chunks=2
 [Timer] Got accumulated blob: 18421 bytes ✅
 [Timer] ✅ Sending blob (18421 bytes) for transcription
 
@@ -58,6 +64,7 @@ FIXES INCLUDED:
 ✅ Cross-platform optimized chunk durations and timer intervals
 ✅ Enhanced logging for debugging recording state
 ✅ Retry logic for empty blobs (500ms wait + retry)
+✅ TTS recording restart fix (always restart after TTS for Safari compatibility)
 
 TESTING:
 ========

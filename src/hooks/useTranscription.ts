@@ -354,11 +354,12 @@ export const useTranscription = ({
 
   // --- TTS Control ---
   const pauseRecordingForTTS = useCallback(() => {
-    // Reduce logging frequency for common TTS pause events
+    addDebugLog(`[TTS] PauseRecordingForTTS called, current state: isRecording=${audioCapture.state.isRecording}, isPaused=${audioCapture.state.isPaused}`);
     ttsGuard.setTTSActive(true, Date.now());
 
     // Pause audio capture
     audioCapture.pauseRecording();
+    addDebugLog(`[TTS] Recording paused for TTS`);
 
     // Stop volume monitoring
     vad.stopVolumeMonitoring();
@@ -371,17 +372,29 @@ export const useTranscription = ({
 
   const resumeRecordingAfterTTS = useCallback(() => {
     const resumeDelay = ttsGuard.getResumeDelay();
-    // Reduce logging frequency - only log important events
-    if (resumeDelay > 1000) { // Only log if delay is significant
-    addDebugLog(`[TTS] Resuming after TTS with ${resumeDelay}ms delay`);
-    }
+    addDebugLog(`[TTS] ResumeRecordingAfterTTS called, delay: ${resumeDelay}ms, state: isRecording=${audioCapture.state.isRecording}, isPaused=${audioCapture.state.isPaused}`);
 
     setTimeout(() => {
       ttsGuard.setTTSActive(false, Date.now());
 
-      // Resume audio capture
-      if (audioCapture.state.audioStream && audioCapture.state.isPaused) {
-        audioCapture.resumeRecording();
+      // Always restart recording completely after TTS - more reliable than resume
+      addDebugLog(`[TTS] Always restarting recording completely after TTS for reliability`);
+
+      if (audioCapture.state.audioStream) {
+        // First stop any existing recording
+        try {
+          audioCapture.stopRecording();
+          addDebugLog(`[TTS] Stopped existing recording before restart`);
+        } catch (stopError) {
+          addDebugLog(`[TTS] Stop recording error (expected if not recording): ${stopError}`);
+        }
+
+        // Then restart recording completely
+        setTimeout(() => {
+          audioCapture.startRecording(audioCapture.state.audioStream).catch(error => {
+            addDebugLog(`[TTS] Failed to restart recording after TTS: ${error}`);
+          });
+        }, 100); // Small delay to ensure clean restart
       }
 
       // Restart volume monitoring
