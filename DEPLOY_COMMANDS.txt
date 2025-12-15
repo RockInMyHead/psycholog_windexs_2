@@ -1,0 +1,39 @@
+DEPLOYMENT COMMANDS FOR psycholog.windexs.ru
+==========================================
+
+ERROR: "Cannot access uninitialized variable" on /audio page
+
+SOLUTION: Upload updated JavaScript bundle
+
+STEP 1: Upload archive to server
+---------------------------------
+scp audio-fix-deploy.tar.gz root@77.37.146.116:~/
+
+STEP 2: Extract on server
+-------------------------
+ssh root@77.37.146.116
+cd /var/www/psycholog.windexs.ru
+tar -xzf ~/audio-fix-deploy.tar.gz
+rm ~/audio-fix-deploy.tar.gz
+
+STEP 3: Verify
+-------------
+curl -I https://psycholog.windexs.ru/audio
+
+EXPECTED RESULT:
+- No more "Cannot access uninitialized variable" errors
+- iOS white screen fixed
+- TTS logging spam eliminated
+- Telegram button shows icon only
+
+ALTERNATIVE: Manual upload
+--------------------------
+Copy all files from local 'dist/' folder to server '/var/www/psycholog.windexs.ru/'
+Overwrite existing files
+
+FILES TO REPLACE:
+- index.html
+- assets/index-D9_ZgnPJ.js (new bundle)
+- assets/index-DTCsXawP.css
+
+DEPLOYMENT COMPLETE ✅
