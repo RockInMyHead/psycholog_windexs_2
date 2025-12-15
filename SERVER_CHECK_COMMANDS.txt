@@ -1,0 +1,37 @@
+SERVER CHECK AND FIX COMMANDS
+=============================
+
+# 1. Check current JavaScript file on server
+ls -la /var/www/psycholog.windexs.ru/assets/
+
+# Expected result:
+# -rw-r--r-- 1 www-data www-data 949K Dec 15 03:24 index-D9_ZgnPJ.js  ← NEW FILE
+# Should NOT see: index-Dtn52uhQ.js                                 ← OLD FILE
+
+# 2. If old file still exists, force rebuild
+cd /var/www/psycholog.windexs.ru
+
+# Remove old build
+rm -rf assets/ dist/ *.js *.css
+rm -f index.html
+
+# Rebuild from source (if you have source code)
+npm run build
+
+# OR copy new build files from your local machine
+# scp -r dist/* user@server:/var/www/psycholog.windexs.ru/
+
+# 3. Check which JS file is served
+curl -s "https://psycholog.windexs.ru" | grep -o "index-[a-zA-Z0-9_-]*\.js"
+
+# Should return: index-D9_ZgnPJ.js
+
+# 4. Clear nginx cache and reload
+sudo systemctl reload nginx
+
+# 5. Clear browser cache
+# Press Ctrl+Shift+R or Ctrl+F5
+
+# 6. Test the page
+# Go to: https://psycholog.windexs.ru/audio
+# Check console - should have NO errors
