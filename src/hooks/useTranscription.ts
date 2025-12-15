@@ -83,17 +83,37 @@ export const useTranscription = ({
       }
 
       try {
-        // Stop recording to get current accumulated audio
-        const blob = await audioCapture.stopRecording();
-        addDebugLog(`[Timer] Got accumulated blob: ${blob?.size || 0} bytes`);
+        // Pause recording to get current accumulated audio
+        audioCapture.pauseRecording();
+        addDebugLog(`[Timer] Recording paused, getting accumulated audio`);
 
-        // IMMEDIATELY restart recording for next segment
-        if (audioCapture.state.audioStream) {
-          await audioCapture.startRecording(audioCapture.state.audioStream);
+        // Get current recorded chunks as blob
+        const chunks = audioCapture.state.recordedChunks;
+        const blob = chunks.length > 0 ? new Blob(chunks, { type: audioCapture.state.mimeType || 'audio/webm' }) : null;
+        addDebugLog(`[Timer] Got accumulated blob: ${blob?.size || 0} bytes from ${chunks.length} chunks`);
+
+        // Clear chunks for next segment
+        audioCapture.clearRecordedChunks();
+
+        // Resume recording immediately for next segment
+        try {
+          audioCapture.resumeRecording();
+          addDebugLog(`[Timer] Recording resumed for next segment`);
+        } catch (resumeError) {
+          addDebugLog(`[Timer] Failed to resume recording: ${resumeError}`);
+          // Try to restart recording completely
+          if (audioCapture.state.audioStream && !audioCapture.state.isRecording) {
+            try {
+              await audioCapture.startRecording(audioCapture.state.audioStream);
+              addDebugLog(`[Timer] Recording restarted completely`);
+            } catch (restartError) {
+              addDebugLog(`[Timer] Failed to restart recording: ${restartError}`);
+            }
+          }
         }
 
         // Check if we should send this audio
-        if (blob && await vad.shouldSendAudio(blob, 2000)) { // 2s duration
+        if (blob && blob.size > 0 && await vad.shouldSendAudio(blob, 2000)) { // 2s duration
           setTranscriptionStatus("Отправляю аудио на сервер...");
           const text = await openaiSTT.transcribeWithOpenAI(blob);
 
@@ -115,7 +135,7 @@ export const useTranscription = ({
         }
       }
     }, 2000); // Check every 2 seconds
-  }, [ttsGuard, audioCapture, vad, openaiSTT, textProcessor, onTranscriptionComplete, addDebugLog]);
+  }, [ttsGuard, audioCapture, vad, openaiSTT, textProcessor, onTranscriptionComplete, addDebugLog, setTranscriptionStatus]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) {
