@@ -1,0 +1,64 @@
+🚀 FINAL DEPLOYMENT COMMANDS - ALL FIXES READY
+==============================================
+
+Run these commands on your Ubuntu server:
+
+# 1. Clone repository
+cd /tmp
+rm -rf psycholog_windexs_2
+git clone https://github.com/RockInMyHead/psycholog_windexs_2.git
+
+# 2. Backup current files
+mkdir -p /var/www/psycholog.windexs.ru/backup/$(date +%Y%m%d_%H%M%S)
+cp -r /var/www/psycholog.windexs.ru/* /var/www/psycholog.windexs.ru/backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null || true
+
+# 3. Extract deployment archive
+cd /var/www/psycholog.windexs.ru
+tar -xzf /tmp/psycholog_windexs_2/audio-fix-deploy.tar.gz
+
+# 4. Verify deployment
+ls -la assets/index-DwKbkrgF.js
+# Should show: index-DwKbkrgF.js (~954KB)
+
+# 5. Reload nginx
+sudo systemctl reload nginx
+
+# 6. Test
+curl -s "https://psycholog.windexs.ru" | grep "index-.*\.js"
+# Should return: index-DwKbkrgF.js
+
+# 7. Clean up
+rm -rf /tmp/psycholog_windexs_2
+
+EXPECTED RESULT:
+================
+✅ No JavaScript errors
+✅ Audio recording works (no 0 bytes blobs)
+✅ Continuous recording on all platforms
+✅ iOS compatibility
+✅ Android compatibility
+✅ Mac/Windows compatibility
+
+FIXES INCLUDED:
+===============
+✅ Hook initialization order fixed
+✅ useEffect import added
+✅ isIOS initialization fixed
+✅ TTS logging spam eliminated
+✅ iOS white screen prevented
+✅ Chat error handling improved
+✅ Microphone permission handling improved
+✅ Continuous audio recording implemented
+✅ Cross-platform optimizations
+
+TESTING:
+========
+1. Clear browser cache (Ctrl+Shift+R)
+2. Visit: https://psycholog.windexs.ru/audio
+3. Grant microphone access
+4. Start audio call
+5. Speak for 10-15 seconds
+6. Check console: Should see blobs > 0 bytes
+7. Verify transcriptions appear
+
+Ready for production! 🎉
