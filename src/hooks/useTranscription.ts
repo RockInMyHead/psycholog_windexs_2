@@ -73,10 +73,10 @@ export const useTranscription = ({
     if (mobileTranscriptionTimerRef.current) return;
 
     // Platform-specific timer intervals:
-    // - iOS: 2000ms (Safari needs more time for stable chunks)
-    // - Android: 2000ms (standard)
-    // - Desktop: 1500ms (faster response on powerful devices)
-    const timerInterval = deviceProfile.isIOS || deviceProfile.isAndroid ? 2000 : 1500;
+    // - iOS: 3000ms (Safari needs more time for stable chunks)
+    // - Android: 2500ms (standard)
+    // - Desktop: 2000ms (faster response on powerful devices)
+    const timerInterval = deviceProfile.isIOS ? 3000 : deviceProfile.isAndroid ? 2500 : 2000;
     addDebugLog(`[Transcription] Starting timer (${timerInterval}ms interval) for ${deviceProfile.isIOS ? 'iOS' : deviceProfile.isAndroid ? 'Android' : 'Desktop'}`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
@@ -88,22 +88,36 @@ export const useTranscription = ({
       }
 
       try {
-        // Request data to force generation of current chunk
-        audioCapture.requestData();
-        
-        // Wait a bit for ondataavailable to fire
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Get accumulated audio without stopping recording
+        // Check if recording is active and not paused
+        addDebugLog(`[Timer] Recording state: isRecording=${audioCapture.state.isRecording}, isPaused=${audioCapture.state.isPaused}, chunks=${audioCapture.state.recordedChunks.length}`);
+
+        // For continuous recording, we need accumulated chunks from the last timer interval
+        // Instead of requestData (which may not work reliably), let's use accumulated chunks directly
         const blob = audioCapture.getAndClearChunks();
         addDebugLog(`[Timer] Got accumulated blob: ${blob?.size || 0} bytes`);
-        
+
+        // If no accumulated data, wait a bit more for chunks to arrive naturally
+        let finalBlob = blob;
+        if (!blob || blob.size === 0) {
+          addDebugLog(`[Timer] No accumulated data, waiting 500ms for natural chunk accumulation`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Try to get chunks again
+          finalBlob = audioCapture.getAndClearChunks();
+          if (finalBlob && finalBlob.size > 0) {
+            addDebugLog(`[Timer] Got data on retry: ${finalBlob.size} bytes`);
+          } else {
+            addDebugLog(`[Timer] Still no data after retry`);
+          }
+        }
+
         // Recording continues automatically without restart
 
         // Check if we should send this audio
-        if (blob && blob.size > 0 && await vad.shouldSendAudio(blob, 2000)) { // 2s duration
+        if (finalBlob && finalBlob.size > 0 && await vad.shouldSendAudio(finalBlob, 2000)) { // 2s duration
+          addDebugLog(`[Timer] ✅ Sending blob (${finalBlob.size} bytes) for transcription`);
           setTranscriptionStatus("Отправляю аудио на сервер...");
-          const text = await openaiSTT.transcribeWithOpenAI(blob);
+          const text = await openaiSTT.transcribeWithOpenAI(finalBlob);
 
           if (text) {
             const normalized = textProcessor.normalizeSTT(text);
@@ -133,7 +147,7 @@ export const useTranscription = ({
         }
       }
     }, timerInterval); // Platform-specific interval
-  }, [deviceProfile, ttsGuard, audioCapture, vad, openaiSTT, textProcessor, onTranscriptionComplete, addDebugLog, setTranscriptionStatus]);
+  }, [deviceProfile.isIOS, deviceProfile.isAndroid, ttsGuard, audioCapture, vad, openaiSTT, textProcessor, onTranscriptionComplete, addDebugLog, setTranscriptionStatus]);
 
   const stopMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) {

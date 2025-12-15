@@ -100,7 +100,11 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
       // - iOS: 2s (Safari requires longer chunks for stability)
       // - Android: 1s (standard duration)
       // - Desktop (Mac/Windows Chrome/Firefox): 500ms (faster response)
-      const chunkDuration = deviceProfile.isIOS ? 2000 : (deviceProfile.isAndroid ? 1000 : 500);
+      // Platform-specific chunk durations for optimal performance:
+      // - iOS: 3000ms (Safari requires longer chunks for stability)
+      // - Android: 1500ms (standard duration)
+      // - Desktop (Mac/Windows Chrome/Firefox): 1000ms (faster response)
+      const chunkDuration = deviceProfile.isIOS ? 3000 : (deviceProfile.isAndroid ? 1500 : 1000);
       console.log(`[AudioCapture] Starting recording with ${chunkDuration}ms chunks for ${deviceProfile.isIOS ? 'iOS' : deviceProfile.isAndroid ? 'Android' : 'Desktop'}`);
       recorder.start(chunkDuration);
 
@@ -143,8 +147,12 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
 
   const resumeRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      console.log(`[AudioCapture] Resuming recording, state: ${mediaRecorderRef.current.state}`);
       mediaRecorderRef.current.resume();
       setState(prev => ({ ...prev, isPaused: false }));
+      console.log(`[AudioCapture] Recording resumed successfully`);
+    } else {
+      console.log(`[AudioCapture] Cannot resume: recorder=${!!mediaRecorderRef.current}, state=${mediaRecorderRef.current?.state}`);
     }
   }, []);
 
