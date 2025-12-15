@@ -1,0 +1,40 @@
+UBUNTU SERVER DEPLOYMENT VIA GIT
+================================
+
+Run these commands on your Ubuntu server:
+
+# 1. Install git if needed
+sudo apt update && sudo apt install -y git
+
+# 2. Create temp directory and clone repo
+cd /tmp
+git clone https://github.com/RockInMyHead/psycholog_windexs_2.git psycholog_deploy
+cd psycholog_deploy
+
+# 3. Backup current files
+mkdir -p /var/www/psycholog.windexs.ru/backup/$(date +%Y%m%d_%H%M%S)
+cp -r /var/www/psycholog.windexs.ru/* /var/www/psycholog.windexs.ru/backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null || true
+
+# 4. Deploy new files
+cd /var/www/psycholog.windexs.ru
+tar -xzf /tmp/psycholog_deploy/audio-fix-deploy.tar.gz
+
+# 5. Verify deployment
+ls -la assets/index-D9_ZgnPJ.js
+
+# 6. Clean up
+rm -rf /tmp/psycholog_deploy
+
+# 7. Reload nginx
+sudo systemctl reload nginx
+
+# 8. Test
+curl -s "https://psycholog.windexs.ru" | grep "index-.*\.js"
+
+EXPECTED RESULT:
+- index-D9_ZgnPJ.js in HTML
+- No more "Cannot access uninitialized variable" errors
+
+ONE-LINER ALTERNATIVE:
+=====================
+cd /tmp && git clone https://github.com/RockInMyHead/psycholog_windexs_2.git && cd /tmp/psycholog_windexs_2 && cp -r /var/www/psycholog.windexs.ru/* /var/www/psycholog.windexs.ru/backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null || true && cd /var/www/psycholog.windexs.ru && tar -xzf /tmp/psycholog_windexs_2/audio-fix-deploy.tar.gz && rm -rf /tmp/psycholog_windexs_2 && sudo systemctl reload nginx && echo "DEPLOYMENT COMPLETE"
