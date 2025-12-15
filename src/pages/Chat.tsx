@@ -101,6 +101,16 @@ const Chat = () => {
 
     } catch (error) {
       console.error('Error initializing chat:', error);
+
+      // Show user-friendly error message
+      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
+      if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
+        setBillingError("Не удается подключиться к серверу. Проверьте интернет-соединение.");
+      } else if (errorMessage.includes('500') || errorMessage.includes('Server error')) {
+        setBillingError("Ошибка сервера. Попробуйте перезагрузить страницу.");
+      } else {
+        setBillingError("Ошибка инициализации чата. Попробуйте перезагрузить страницу.");
+      }
     } finally {
       setLoading(false);
     }
@@ -370,6 +380,13 @@ const Chat = () => {
   const handleSend = async () => {
     const text = inputValue.trim();
     if (!text) return;
+
+    // Check if chat is properly initialized
+    if (!user || !currentSessionId || loading) {
+      console.log('[Chat] Cannot send message - chat not initialized');
+      return;
+    }
+
     setInputValue("");
     await sendMessage(text);
   };
@@ -450,8 +467,14 @@ const Chat = () => {
 
               if (text.length > 0) {
                 console.log('[Voice] Sending transcribed message:', text);
-                await sendMessage(text);
-                console.log('[Voice] Message sent successfully');
+                // Check if chat is initialized before sending voice message
+                if (user && currentSessionId && !loading) {
+                  await sendMessage(text);
+                  console.log('[Voice] Message sent successfully');
+                } else {
+                  console.log('[Voice] Cannot send voice message - chat not initialized');
+                  setAudioError("Чат не инициализирован. Попробуйте перезагрузить страницу.");
+                }
               } else {
                 console.log('[Voice] Empty transcription result');
                 setAudioError("Не удалось распознать речь. Попробуйте ещё раз или напишите текстом.");
