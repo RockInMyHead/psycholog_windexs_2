@@ -322,7 +322,7 @@ export const useTranscription = ({
 
   // --- TTS Control ---
   const pauseRecordingForTTS = useCallback(() => {
-    addDebugLog(`[TTS] Pausing recording for TTS`);
+    // Reduce logging frequency for common TTS pause events
     ttsGuard.setTTSActive(true, Date.now());
 
     // Pause audio capture
@@ -339,7 +339,10 @@ export const useTranscription = ({
 
   const resumeRecordingAfterTTS = useCallback(() => {
     const resumeDelay = ttsGuard.getResumeDelay();
-    addDebugLog(`[TTS] Resuming after TTS with ${resumeDelay}ms delay`);
+    // Reduce logging frequency - only log important events
+    if (resumeDelay > 1000) { // Only log if delay is significant
+      addDebugLog(`[TTS] Resuming after TTS with ${resumeDelay}ms delay`);
+    }
 
     setTimeout(() => {
       ttsGuard.setTTSActive(false, Date.now());

@@ -316,10 +316,13 @@ const AudioCall = () => {
       setMarkStatus('Слушаю');
       if (isCallActiveRef.current) {
         resumeRecordingAfterTTS?.();
-        console.log('[TTS] TTS session ended, ready for new text');
+        // Remove excessive logging - only log once per session
+        if (!isTTSPlaying && !isTTSSynthesizing) {
+          console.log('[TTS] TTS session ended, ready for new text');
+        }
       }
     }
-  }, [isTTSPlaying, isTTSSynthesizing, pauseRecordingForTTS, resumeRecordingAfterTTS]);
+  }, [isTTSPlaying, isTTSSynthesizing]); // Remove function dependencies to prevent infinite loops
 
   useEffect(() => {
     isAssistantSpeakingRef.current = isTTSPlaying || isTTSSynthesizing;
