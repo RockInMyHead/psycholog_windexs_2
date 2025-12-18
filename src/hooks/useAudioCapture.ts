@@ -125,7 +125,7 @@ export const useAudioCapture = (deviceProfile: DeviceProfile) => {
       console.error('[AudioCapture] Start failed:', error);
       throw error;
     }
-  }, [deviceProfile.isIOS, getSupportedMimeTypes]);
+  }, [deviceProfile.isIOS, deviceProfile.isAndroid, getSupportedMimeTypes]);
 
   const stopRecording = useCallback(async (): Promise<Blob | null> => {
     return new Promise((resolve) => {

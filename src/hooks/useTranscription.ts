@@ -67,16 +67,19 @@ export const useTranscription = ({
 
   // Mobile transcription timer
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
+  
+  // P0-4: Лок на рестарты recorder (защита от "штормов")
+  const restartLockRef = useRef(false);
 
   // --- Mobile Transcription Timer ---
   const startMobileTranscriptionTimer = useCallback(() => {
     if (mobileTranscriptionTimerRef.current) return;
 
-    // Platform-specific timer intervals:
-    // - iOS: 3000ms (Safari needs more time for stable chunks)
+    // P0-6: Platform-specific timer intervals (с запасом для iOS):
+    // - iOS: 3500ms (Safari needs more time for stable chunks, чтобы chunkDuration=3000 успел прилететь)
     // - Android: 2500ms (standard)
     // - Desktop: 2000ms (faster response on powerful devices)
-    const timerInterval = deviceProfile.isIOS ? 3000 : deviceProfile.isAndroid ? 2500 : 2000;
+    const timerInterval = deviceProfile.isIOS ? 3500 : deviceProfile.isAndroid ? 2500 : 2000;
     addDebugLog(`[Transcription] Starting timer (${timerInterval}ms interval) for ${deviceProfile.isIOS ? 'iOS' : deviceProfile.isAndroid ? 'Android' : 'Desktop'}`);
 
     mobileTranscriptionTimerRef.current = window.setInterval(async () => {
@@ -113,8 +116,9 @@ export const useTranscription = ({
 
         // Recording continues automatically without restart
 
-        // Check if we should send this audio
-        if (finalBlob && finalBlob.size > 0 && await vad.shouldSendAudio(finalBlob, 2000)) { // 2s duration
+        // P0-3: Check if we should send this audio (синхронизируем с timerInterval)
+        const expectedMs = timerInterval;
+        if (finalBlob && finalBlob.size > 0 && await vad.shouldSendAudio(finalBlob, expectedMs)) {
           addDebugLog(`[Timer] ✅ Sending blob (${finalBlob.size} bytes) for transcription`);
           setTranscriptionStatus("Отправляю аудио на сервер...");
           const text = await openaiSTT.transcribeWithOpenAI(finalBlob);
@@ -136,13 +140,16 @@ export const useTranscription = ({
         }
       } catch (error) {
         addDebugLog(`[Mobile] Error in timer: ${error}`);
-        // Check if recording is still active
-        if (!audioCapture.state.isRecording && audioCapture.state.audioStream) {
+        // P0-4: Check if recording is still active (с локом против штормов)
+        if (!audioCapture.state.isRecording && audioCapture.state.audioStream && !restartLockRef.current) {
+          restartLockRef.current = true;
           try {
             await audioCapture.startRecording(audioCapture.state.audioStream);
             addDebugLog(`[Timer] Recording restarted after error`);
           } catch (restartError) {
             addDebugLog(`[Timer] Failed to restart recording: ${restartError}`);
+          } finally {
+            window.setTimeout(() => (restartLockRef.current = false), 1500);
           }
         }
       }
@@ -267,31 +274,31 @@ export const useTranscription = ({
       addDebugLog(`[Mic] ✅ Final validation passed | Active tracks: ${activeTracks.length}`);
       setMicrophoneAccessGranted(true);
 
-      // Start audio capture
-      await audioCapture.startRecording(stream);
-
-      // Start volume monitoring for interruption detection
+      // Start volume monitoring for interruption detection (lightweight, doesn't conflict)
       vad.startVolumeMonitoring(stream, onInterruption);
 
       // Choose transcription strategy
-      const strategy = getTranscriptionStrategy(deviceProfile);
       const forceOpenAI = shouldForceOpenAI(deviceProfile);
+      
+      // P0-1: iOS всегда использует OpenAI для стабильности
+      const useOpenAI = deviceProfile.isIOS || forceOpenAI;
 
-      addDebugLog(`[Strategy] ${strategy} | Force OpenAI: ${forceOpenAI}`);
+      addDebugLog(`[Strategy] Device: ${deviceProfile.isIOS ? 'iOS' : deviceProfile.isAndroid ? 'Android' : 'Desktop'} | Using: ${useOpenAI ? 'OpenAI' : 'Browser'}`);
 
-      if (forceOpenAI) {
-        // Android or forced OpenAI mode
+      if (useOpenAI) {
+        // OpenAI mode: needs MediaRecorder
         setTranscriptionMode('openai');
+        
+        // ВАЖНО: MediaRecorder стартуем только в OpenAI режиме
+        await audioCapture.startRecording(stream);
+        
         startMobileTranscriptionTimer();
+        addDebugLog(`[Strategy] Started OpenAI mode with MediaRecorder`);
       } else {
-        // iOS starts with browser mode, Android uses OpenAI
-        if (deviceProfile.isIOS) {
-          setTranscriptionMode('browser');
-          browserSTT.start();
-        } else {
-          setTranscriptionMode('openai');
-          startMobileTranscriptionTimer();
-        }
+        // Browser mode: НЕ запускаем MediaRecorder (избегаем конфликтов)
+        setTranscriptionMode('browser');
+        browserSTT.start();
+        addDebugLog(`[Strategy] Started Browser STT mode (no MediaRecorder)`);
       }
 
     } catch (error: any) {
@@ -357,69 +364,72 @@ export const useTranscription = ({
     addDebugLog(`[TTS] PauseRecordingForTTS called, current state: isRecording=${audioCapture.state.isRecording}, isPaused=${audioCapture.state.isPaused}`);
     ttsGuard.setTTSActive(true, Date.now());
 
-    // Pause audio capture
-    audioCapture.pauseRecording();
-    addDebugLog(`[TTS] Recording paused for TTS`);
-
     // Stop volume monitoring
     vad.stopVolumeMonitoring();
 
-    // Stop browser STT if active - with special handling for iOS
-    if (transcriptionMode === 'browser') {
-      if (deviceProfile.isIOS) {
-        // On iOS, completely stop browser STT during TTS to prevent conflicts
-        console.log('[TTS] iOS: Completely stopping browser STT during TTS');
-        browserSTT.pause();
-      } else {
-        browserSTT.pause();
-      }
+    // P0-2: В OpenAI режиме - останавливаем таймер и паузим запись
+    if (transcriptionMode === 'openai') {
+      stopMobileTranscriptionTimer();
+      audioCapture.pauseRecording();
+      addDebugLog(`[TTS] OpenAI mode: Timer stopped, recording paused`);
     }
-  }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, deviceProfile.isIOS, addDebugLog]);
+
+    // Stop browser STT if active
+    if (transcriptionMode === 'browser') {
+      browserSTT.pause();
+      addDebugLog(`[TTS] Browser STT paused`);
+    }
+  }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, stopMobileTranscriptionTimer, addDebugLog]);
 
   const resumeRecordingAfterTTS = useCallback(() => {
     const resumeDelay = ttsGuard.getResumeDelay();
-    addDebugLog(`[TTS] ResumeRecordingAfterTTS called, delay: ${resumeDelay}ms, state: isRecording=${audioCapture.state.isRecording}, isPaused=${audioCapture.state.isPaused}`);
+    addDebugLog(`[TTS] Resume called, delay=${resumeDelay}ms`);
 
-    setTimeout(() => {
+    window.setTimeout(async () => {
       ttsGuard.setTTSActive(false, Date.now());
 
-      // Always restart recording completely after TTS - more reliable than resume
-      addDebugLog(`[TTS] Always restarting recording completely after TTS for reliability`);
-
-      if (audioCapture.state.audioStream) {
-        // First stop any existing recording
-        try {
-          audioCapture.stopRecording();
-          addDebugLog(`[TTS] Stopped existing recording before restart`);
-        } catch (stopError) {
-          addDebugLog(`[TTS] Stop recording error (expected if not recording): ${stopError}`);
-        }
-
-        // Then restart recording completely
-        setTimeout(() => {
-          audioCapture.startRecording(audioCapture.state.audioStream).catch(error => {
-            addDebugLog(`[TTS] Failed to restart recording after TTS: ${error}`);
-          });
-        }, 100); // Small delay to ensure clean restart
-      }
-
-      // Restart volume monitoring
+      // P0-2: Restart volume monitoring
       if (audioCapture.state.audioStream) {
         vad.startVolumeMonitoring(audioCapture.state.audioStream, onInterruption);
       }
 
-      // Resume appropriate transcription with delay for TTS cleanup
-      if (transcriptionMode === 'browser') {
-        // Add extra delay for iOS/Safari to ensure TTS is fully completed
-        const browserResumeDelay = deviceProfile.isIOS ? resumeDelay + 500 : resumeDelay;
-        setTimeout(() => {
-          console.log('[TTS] Resuming browser STT after TTS completion');
-          browserSTT.resume();
-        }, browserResumeDelay);
+      // P0-2: OpenAI mode - resume вместо restart
+      if (transcriptionMode === 'openai') {
+        // Основной путь: resume вместо restart
+        if (audioCapture.state.isRecording && audioCapture.state.isPaused) {
+          audioCapture.resumeRecording();
+          addDebugLog(`[TTS] Recorder resumed`);
+        } else if (!audioCapture.state.isRecording && audioCapture.state.audioStream) {
+          // Фоллбек: если recorder действительно остановился
+          try {
+            await audioCapture.startRecording(audioCapture.state.audioStream);
+            addDebugLog(`[TTS] Recorder restarted (was not recording)`);
+          } catch (e) {
+            addDebugLog(`[TTS] Recorder restart failed: ${e}`);
+          }
+        }
+        
+        // Перезапустить таймер если нужно
+        if (!mobileTranscriptionTimerRef.current) {
+          startMobileTranscriptionTimer();
+          addDebugLog(`[TTS] Timer restarted`);
+        }
       }
-      // Mobile timer continues automatically
+
+      // Browser mode
+      if (transcriptionMode === 'browser') {
+        const extra = deviceProfile.isIOS ? 500 : 0;
+        window.setTimeout(() => {
+          browserSTT.resume();
+          addDebugLog(`[TTS] Browser STT resumed`);
+        }, resumeDelay + extra);
+      }
     }, resumeDelay);
-  }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, onInterruption, addDebugLog]);
+  }, [
+    ttsGuard, audioCapture, vad, browserSTT,
+    transcriptionMode, onInterruption, addDebugLog,
+    deviceProfile.isIOS, startMobileTranscriptionTimer
+  ]);
 
   // --- Cleanup ---
   const cleanup = useCallback((resetMicrophoneState: boolean = true) => {

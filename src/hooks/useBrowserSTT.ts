@@ -38,6 +38,10 @@ export const useBrowserSTT = (
     retryCount: 0
   });
 
+  // P0-5: Refs для избежания stale closures
+  const isActiveRef = useRef(false);
+  const retryCountRef = useRef(0);
+
   const lastProcessedTextRef = useRef<string>('');
   const recentlyProcessedTextsRef = useRef<Set<string>>(new Set());
 
@@ -140,17 +144,23 @@ export const useBrowserSTT = (
     console.error('[BrowserSTT] Recognition error:', error);
     setState(prev => ({ ...prev, error }));
 
-    // Handle retriable errors
+    // P0-5: Handle retriable errors (используем ref вместо state)
     const retriableErrors = ['network', 'audio-capture', 'not-allowed'];
-    if (retriableErrors.includes(error) && state.retryCount < 3) {
-      console.log(`[BrowserSTT] Retriable error '${error}', attempt ${state.retryCount + 1}/3`);
-      setState(prev => ({ ...prev, retryCount: prev.retryCount + 1 }));
+    if (retriableErrors.includes(error) && retryCountRef.current < 3) {
+      retryCountRef.current += 1;
+      const attempt = retryCountRef.current;
+      console.log(`[BrowserSTT] Retriable error '${error}', attempt ${attempt}/3`);
+      setState(prev => ({ ...prev, retryCount: attempt }));
 
       setTimeout(() => {
-        if (state.isActive) {
-          start();
+        if (isActiveRef.current && recognitionRef.current) {
+          try {
+            recognitionRef.current.start();
+          } catch (e) {
+            console.log(`[BrowserSTT] Retry start failed: ${e}`);
+          }
         }
-      }, 1000 * (state.retryCount + 1));
+      }, 1000 * attempt);
       return;
     }
 
@@ -161,7 +171,7 @@ export const useBrowserSTT = (
     }
 
     onError(`Speech recognition error: ${error}`);
-  }, [state.retryCount, state.isActive, deviceProfile.isIOS, onError]);
+  }, [deviceProfile.isIOS, onError]);
 
   const start = useCallback(() => {
     try {
@@ -173,10 +183,12 @@ export const useBrowserSTT = (
 
       recognition.onresult = processRecognitionResult;
       recognition.onerror = handleError;
+      
+      // P0-5: onend использует ref вместо state
       recognition.onend = () => {
         setState(prev => ({ ...prev, isListening: false }));
         // Auto-restart if still active
-        if (state.isActive) {
+        if (isActiveRef.current) {
           try {
             recognition.start();
           } catch (e) {
@@ -193,18 +205,24 @@ export const useBrowserSTT = (
       };
 
       recognition.start();
+      
+      // P0-5: Обновляем refs
+      isActiveRef.current = true;
+      retryCountRef.current = 0;
+      
       setState(prev => ({
         ...prev,
         isActive: true,
         isListening: true,
-        error: null
+        error: null,
+        retryCount: 0
       }));
 
     } catch (error) {
       console.error('[BrowserSTT] Start failed:', error);
       onError(`Failed to start speech recognition: ${error}`);
     }
-  }, [createRecognition, processRecognitionResult, handleError, state.isActive, deviceProfile.isSafari, onInterruption, onError]);
+  }, [createRecognition, processRecognitionResult, handleError, deviceProfile.isSafari, onInterruption, onError]);
 
   const stop = useCallback(() => {
     if (recognitionRef.current) {
@@ -215,6 +233,10 @@ export const useBrowserSTT = (
       }
       recognitionRef.current = null;
     }
+
+    // P0-5: Сбрасываем refs
+    isActiveRef.current = false;
+    retryCountRef.current = 0;
 
     setState({
       isActive: false,
