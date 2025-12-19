@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5173,
     host: true, // Разрешить доступ из сети
+    allowedHosts: ['.ngrok-free.dev', '.ngrok.app'], // Разрешить ngrok хосты
     https: process.env.USE_HTTPS === 'true' ? {
       key: './server/key.pem',
       cert: './server/cert.pem',
