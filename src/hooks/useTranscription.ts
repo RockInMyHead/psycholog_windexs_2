@@ -59,7 +59,8 @@ export const useTranscription = ({
       addDebugLog(`[BrowserSTT] Error: ${error}`);
       onError?.(error);
     },
-    onInterruption
+    onInterruption,
+    addDebugLog
   );
 
   // OpenAI STT

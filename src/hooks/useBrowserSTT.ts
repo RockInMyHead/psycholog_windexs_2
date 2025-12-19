@@ -2,7 +2,7 @@ import { useRef, useCallback, useState } from 'react';
 import { DeviceProfile } from './useDeviceProfile';
 
 // Minimal SpeechRecognition type shims for browsers (Safari/Chrome)
-type SpeechRecognitionErrorEvent = Event & { error: string };
+type SpeechRecognitionErrorEvent = Event & { error: string; message?: string };
 type SpeechRecognitionEvent = Event & { results: SpeechRecognitionResultList; resultIndex: number };
 type SpeechRecognition = {
   lang: string;
@@ -11,8 +11,11 @@ type SpeechRecognition = {
   maxAlternatives: number;
   start: () => void;
   stop: () => void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onstart?: (() => void) | null;
+  onaudiostart?: (() => void) | null;
+  onsoundstart?: (() => void) | null;
   onspeechstart?: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
   onerror?: ((event: SpeechRecognitionErrorEvent) => void) | null;
   onend?: (() => void) | null;
 };
@@ -28,7 +31,8 @@ export const useBrowserSTT = (
   deviceProfile: DeviceProfile,
   onTranscription: (text: string, isFinal: boolean) => void,
   onError: (error: string) => void,
-  onInterruption?: () => void
+  onInterruption?: () => void,
+  addDebugLog?: (message: string) => void
 ) => {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const [state, setState] = useState<BrowserSTTState>({
@@ -136,11 +140,13 @@ export const useBrowserSTT = (
 
     if (error === 'aborted') {
       // Aborted is normal when TTS interrupts speech recognition on iOS/Safari
+      addDebugLog?.('[BrowserSTT] Speech recognition aborted (normal during TTS on iOS)');
       console.log('[BrowserSTT] Speech recognition aborted (normal during TTS on iOS)');
       setState(prev => ({ ...prev, isListening: false, error: null }));
       return;
     }
 
+    addDebugLog?.(`[BrowserSTT] Recognition error: ${error}`);
     console.error('[BrowserSTT] Recognition error:', error);
     setState(prev => ({ ...prev, error }));
 
@@ -149,14 +155,17 @@ export const useBrowserSTT = (
     if (retriableErrors.includes(error) && retryCountRef.current < 3) {
       retryCountRef.current += 1;
       const attempt = retryCountRef.current;
+      addDebugLog?.(`[BrowserSTT] Retriable error '${error}', attempt ${attempt}/3`);
       console.log(`[BrowserSTT] Retriable error '${error}', attempt ${attempt}/3`);
       setState(prev => ({ ...prev, retryCount: attempt }));
 
       setTimeout(() => {
         if (isActiveRef.current && recognitionRef.current) {
           try {
+            addDebugLog?.(`[BrowserSTT] Retrying start after error`);
             recognitionRef.current.start();
           } catch (e) {
+            addDebugLog?.(`[BrowserSTT] Retry start failed: ${e}`);
             console.log(`[BrowserSTT] Retry start failed: ${e}`);
           }
         }
@@ -171,45 +180,60 @@ export const useBrowserSTT = (
     }
 
     onError(`Speech recognition error: ${error}`);
-  }, [deviceProfile.isIOS, onError]);
+  }, [deviceProfile.isIOS, onError, addDebugLog]);
 
   const start = useCallback(() => {
+    addDebugLog?.("[STT] start() called");
     try {
       if (!recognitionRef.current) {
         recognitionRef.current = createRecognition();
+        addDebugLog?.("[STT] created new recognition instance");
       }
 
       const recognition = recognitionRef.current;
 
-      recognition.onresult = processRecognitionResult;
-      recognition.onerror = handleError;
-      
-      // P0-5: onend использует ref вместо state
-      recognition.onend = () => {
-        setState(prev => ({ ...prev, isListening: false }));
-        // Auto-restart if still active
-        if (isActiveRef.current) {
-          try {
-            recognition.start();
-          } catch (e) {
-            // Ignore restart errors
-          }
-        }
-      };
-
+      // ВСЕ события с логированием
+      recognition.onstart = () => addDebugLog?.("[STT] onstart");
+      recognition.onaudiostart = () => addDebugLog?.("[STT] onaudiostart");
+      recognition.onsoundstart = () => addDebugLog?.("[STT] onsoundstart");
       recognition.onspeechstart = () => {
+        addDebugLog?.("[STT] onspeechstart");
         // Voice interruption logic for Safari
         if (onInterruption && deviceProfile.isSafari) {
           onInterruption();
         }
       };
+      recognition.onresult = (e: SpeechRecognitionEvent) => {
+        const transcript = e.results?.[0]?.[0]?.transcript ?? "";
+        addDebugLog?.(`[STT] onresult: "${transcript}"`);
+        processRecognitionResult(e);
+      };
+      recognition.onend = () => {
+        addDebugLog?.("[STT] onend");
+        setState(prev => ({ ...prev, isListening: false }));
+        // Auto-restart if still active
+        if (isActiveRef.current) {
+          try {
+            addDebugLog?.("[STT] auto-restarting after onend");
+            recognition.start();
+          } catch (e) {
+            addDebugLog?.(`[STT] auto-restart failed: ${e}`);
+            // Ignore restart errors
+          }
+        }
+      };
+      recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+        addDebugLog?.(`[STT] onerror: ${e.error || "unknown"} ${e.message || ""}`);
+        handleError(e);
+      };
 
+      addDebugLog?.("[STT] calling recognition.start()");
       recognition.start();
-      
+
       // P0-5: Обновляем refs
       isActiveRef.current = true;
       retryCountRef.current = 0;
-      
+
       setState(prev => ({
         ...prev,
         isActive: true,
@@ -219,16 +243,20 @@ export const useBrowserSTT = (
       }));
 
     } catch (error) {
+      addDebugLog?.(`[STT] start() failed: ${error}`);
       console.error('[BrowserSTT] Start failed:', error);
       onError(`Failed to start speech recognition: ${error}`);
     }
-  }, [createRecognition, processRecognitionResult, handleError, deviceProfile.isSafari, onInterruption, onError]);
+  }, [createRecognition, processRecognitionResult, handleError, deviceProfile.isSafari, onInterruption, onError, addDebugLog]);
 
   const stop = useCallback(() => {
+    addDebugLog?.("[STT] stop() called");
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
+        addDebugLog?.("[STT] recognition.stop() called from stop");
       } catch (e) {
+        addDebugLog?.(`[STT] stop error: ${e}`);
         // Ignore stop errors
       }
       recognitionRef.current = null;
@@ -248,29 +276,38 @@ export const useBrowserSTT = (
     // Clear processed texts
     lastProcessedTextRef.current = '';
     recentlyProcessedTextsRef.current.clear();
-  }, []);
+    addDebugLog?.("[STT] stopped and cleaned up");
+  }, [addDebugLog]);
 
   const pause = useCallback(() => {
+    addDebugLog?.("[STT] pause() called");
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
+        addDebugLog?.("[STT] recognition.stop() called");
       } catch (e) {
+        addDebugLog?.(`[STT] pause error: ${e}`);
         // Ignore stop errors
       }
     }
     setState(prev => ({ ...prev, isListening: false }));
-  }, []);
+  }, [addDebugLog]);
 
   const resume = useCallback(() => {
+    addDebugLog?.(`[STT] resume() called, active=${state.isActive}, listening=${state.isListening}`);
     if (state.isActive && !state.isListening) {
       try {
         recognitionRef.current?.start();
+        addDebugLog?.("[STT] recognition.start() called from resume");
         setState(prev => ({ ...prev, isListening: true }));
       } catch (e) {
+        addDebugLog?.(`[STT] resume error: ${e}`);
         // Ignore resume errors
       }
+    } else {
+      addDebugLog?.(`[STT] resume skipped: not active or already listening`);
     }
-  }, [state.isActive, state.isListening]);
+  }, [state.isActive, state.isListening, addDebugLog]);
 
   return {
     state,
