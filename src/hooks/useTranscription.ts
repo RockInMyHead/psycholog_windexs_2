@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useDeviceProfile } from './useDeviceProfile';
 import { useAudioCapture } from './useAudioCapture';
 import { useVAD } from './useVAD';
@@ -43,32 +43,17 @@ export const useTranscription = ({
   // Voice Activity Detection
   const vad = useVAD(deviceProfile);
 
-  // Browser STT
-  const browserSTT = useBrowserSTT(
-    deviceProfile,
-    (text, isFinal) => {
-      if (isFinal) {
-        const normalized = textProcessor.normalizeSTT(text);
-        if (normalized) {
-          addDebugLog(`[User] 🎤 Пользователь сказал: "${normalized}" (browser)`);
-          onTranscriptionComplete(normalized, 'browser');
-        }
-      }
-    },
-    (error) => {
-      addDebugLog(`[BrowserSTT] Error: ${error}`);
-      onError?.(error);
-    },
-    onInterruption,
-    addDebugLog
-  );
+  // Новые флаги состояния STT
+  const shouldListenRef = useRef(false);   // "нам нужно слушать"
+  const isListeningRef = useRef(false);    // "фактически слушаем" (ТОЛЬКО по onstart/onend)
+  const startInFlightRef = useRef(false);
 
   // OpenAI STT
   const openaiSTT = useOpenAISTT(deviceProfile);
 
   // Mobile transcription timer
   const mobileTranscriptionTimerRef = useRef<number | null>(null);
-  
+
   // P0-4: Лок на рестарты recorder (защита от "штормов")
   const restartLockRef = useRef(false);
 
@@ -356,13 +341,72 @@ export const useTranscription = ({
     }
   }, [
     deviceProfile, getTranscriptionStrategy, shouldForceOpenAI,
-    audioCapture, vad, browserSTT, textProcessor, ttsGuard,
+    audioCapture, vad, textProcessor, ttsGuard,
     onError, onInterruption, addDebugLog, startMobileTranscriptionTimer
   ]);
 
   // --- TTS Control ---
+
+  // Ref для browserSTT, чтобы избежать циклических зависимостей
+  const browserSTTRef = useRef<any>(null);
+
+  const safeStart = useCallback((reason: string) => {
+    if (!shouldListenRef.current) return;
+    if (isListeningRef.current) return;
+    if (startInFlightRef.current) return;
+
+    startInFlightRef.current = true;
+
+    setTimeout(() => {
+      try {
+        browserSTTRef.current?.start();
+        addDebugLog(`[STT] start() OK (${reason})`);
+      } catch (e: any) {
+        if (e?.name === "InvalidStateError") {
+          // это НЕ ошибка в нашем флоу — просто уже запущено
+          isListeningRef.current = true;
+          addDebugLog(`[STT] start() skipped: already started (${reason})`);
+        } else {
+          addDebugLog(`[STT] start() FAIL (${reason}): ${e?.name} ${e?.message || e}`);
+        }
+      } finally {
+        startInFlightRef.current = false;
+      }
+    }, 150);
+  }, [addDebugLog]);
+
+  const browserSTT = useBrowserSTT(
+    deviceProfile,
+    (text, isFinal) => {
+      if (isFinal) {
+        const normalized = textProcessor.normalizeSTT(text);
+        if (normalized) {
+          addDebugLog(`[User] 🎤 Пользователь сказал: "${normalized}" (browser)`);
+          onTranscriptionComplete(normalized, 'browser');
+        }
+      }
+    },
+    (error) => {
+      addDebugLog(`[BrowserSTT] Error: ${error}`);
+      onError?.(error);
+    },
+    onInterruption,
+    addDebugLog,
+    shouldListenRef,
+    isListeningRef,
+    isTTSActiveRef
+  );
+
+  // Сохраняем browserSTT в ref и обновляем safeStart
+  React.useEffect(() => {
+    browserSTTRef.current = browserSTT;
+    if (browserSTT && (browserSTT as any).safeStartRef) {
+      (browserSTT as any).safeStartRef.current = safeStart;
+    }
+  }, [browserSTT, safeStart]);
+
   const pauseRecordingForTTS = useCallback(() => {
-    addDebugLog(`[TTS] PauseRecordingForTTS called, current state: isRecording=${audioCapture.state.isRecording}, isPaused=${audioCapture.state.isPaused}`);
+    shouldListenRef.current = false;
     ttsGuard.setTTSActive(true, Date.now());
 
     // Stop volume monitoring
@@ -375,10 +419,14 @@ export const useTranscription = ({
       addDebugLog(`[TTS] OpenAI mode: Timer stopped, recording paused`);
     }
 
-    // Stop browser STT if active
+    // Stop browser STT if active - жесткая остановка через abort
     if (transcriptionMode === 'browser') {
-      browserSTT.pause();
-      addDebugLog(`[TTS] Browser STT paused`);
+      try {
+        browserSTT.abort(); // критично: abort вместо pause
+        addDebugLog("[STT] abort() for TTS");
+      } catch (e) {
+        addDebugLog(`[STT] abort() error: ${e}`);
+      }
     }
   }, [ttsGuard, audioCapture, vad, browserSTT, transcriptionMode, stopMobileTranscriptionTimer, addDebugLog]);
 
@@ -409,7 +457,7 @@ export const useTranscription = ({
             addDebugLog(`[TTS] Recorder restart failed: ${e}`);
           }
         }
-        
+
         // Перезапустить таймер если нужно
         if (!mobileTranscriptionTimerRef.current) {
           startMobileTranscriptionTimer();
@@ -417,19 +465,18 @@ export const useTranscription = ({
         }
       }
 
-      // Browser mode
+      // Browser mode - использовать safeStart вместо resume
       if (transcriptionMode === 'browser') {
-        const extra = deviceProfile.isIOS ? 500 : 0;
         window.setTimeout(() => {
-          browserSTT.resume();
-          addDebugLog(`[TTS] Browser STT resumed`);
-        }, resumeDelay + extra);
+          shouldListenRef.current = true;
+          safeStart("resume-after-tts");
+        }, resumeDelay + (deviceProfile.isIOS ? 500 : 0));
       }
     }, resumeDelay);
   }, [
-    ttsGuard, audioCapture, vad, browserSTT,
+    ttsGuard, audioCapture, vad,
     transcriptionMode, onInterruption, addDebugLog,
-    deviceProfile.isIOS, startMobileTranscriptionTimer
+    deviceProfile.isIOS, startMobileTranscriptionTimer, safeStart
   ]);
 
   // --- Cleanup ---

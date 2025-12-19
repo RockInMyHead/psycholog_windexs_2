@@ -11,6 +11,7 @@ type SpeechRecognition = {
   maxAlternatives: number;
   start: () => void;
   stop: () => void;
+  abort: () => void;
   onstart?: (() => void) | null;
   onaudiostart?: (() => void) | null;
   onsoundstart?: (() => void) | null;
@@ -32,7 +33,10 @@ export const useBrowserSTT = (
   onTranscription: (text: string, isFinal: boolean) => void,
   onError: (error: string) => void,
   onInterruption?: () => void,
-  addDebugLog?: (message: string) => void
+  addDebugLog?: (message: string) => void,
+  shouldListenRef?: React.MutableRefObject<boolean>,
+  isListeningRef?: React.MutableRefObject<boolean>,
+  isTTSActiveRef?: React.MutableRefObject<boolean>
 ) => {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const [state, setState] = useState<BrowserSTTState>({
@@ -45,9 +49,11 @@ export const useBrowserSTT = (
   // P0-5: Refs для избежания stale closures
   const isActiveRef = useRef(false);
   const retryCountRef = useRef(0);
+  const safeStartRef = useRef<((reason: string) => void) | null>(null);
 
   const lastProcessedTextRef = useRef<string>('');
   const recentlyProcessedTextsRef = useRef<Set<string>>(new Set());
+  const lastFinalRef = useRef<string>('');
 
   const createRecognition = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -193,7 +199,10 @@ export const useBrowserSTT = (
       const recognition = recognitionRef.current;
 
       // ВСЕ события с логированием
-      recognition.onstart = () => addDebugLog?.("[STT] onstart");
+      recognition.onstart = () => {
+        isListeningRef.current = true; // внешний ref из useTranscription
+        addDebugLog?.("[STT] onstart");
+      };
       recognition.onaudiostart = () => addDebugLog?.("[STT] onaudiostart");
       recognition.onsoundstart = () => addDebugLog?.("[STT] onsoundstart");
       recognition.onspeechstart = () => {
@@ -204,22 +213,25 @@ export const useBrowserSTT = (
         }
       };
       recognition.onresult = (e: SpeechRecognitionEvent) => {
-        const transcript = e.results?.[0]?.[0]?.transcript ?? "";
-        addDebugLog?.(`[STT] onresult: "${transcript}"`);
-        processRecognitionResult(e);
+        const result = e.results[e.resultIndex];
+        if (!result?.isFinal) return;
+
+        const text = (result[0]?.transcript || "").trim();
+        if (!text || text === lastFinalRef.current) return;
+
+        lastFinalRef.current = text;
+        addDebugLog?.(`[STT] final: "${text}"`);
+        onTranscription(text, true);
       };
       recognition.onend = () => {
+        isListeningRef.current = false; // внешний ref из useTranscription
         addDebugLog?.("[STT] onend");
         setState(prev => ({ ...prev, isListening: false }));
-        // Auto-restart if still active
-        if (isActiveRef.current) {
-          try {
-            addDebugLog?.("[STT] auto-restarting after onend");
-            recognition.start();
-          } catch (e) {
-            addDebugLog?.(`[STT] auto-restart failed: ${e}`);
-            // Ignore restart errors
-          }
+
+        // авто-рестарт только если мы НЕ в TTS (проверяется через внешний shouldListenRef)
+        if (shouldListenRef?.current && !isTTSActiveRef?.current && safeStartRef.current) {
+          addDebugLog?.("[STT] auto-restarting after onend");
+          safeStartRef.current("onend-restart");
         }
       };
       recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
@@ -302,18 +314,31 @@ export const useBrowserSTT = (
         setState(prev => ({ ...prev, isListening: true }));
       } catch (e) {
         addDebugLog?.(`[STT] resume error: ${e}`);
-        // Ignore resume errors
+        // Ignore resume errors - не логируем ложный "resumed"
       }
     } else {
       addDebugLog?.(`[STT] resume skipped: not active or already listening`);
     }
   }, [state.isActive, state.isListening, addDebugLog]);
 
+  const abort = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+        addDebugLog?.("[STT] abort() called");
+      } catch (e) {
+        addDebugLog?.(`[STT] abort() error: ${e}`);
+        // Ignore abort errors
+      }
+    }
+  }, [addDebugLog]);
+
   return {
     state,
     start,
     stop,
     pause,
-    resume
+    resume,
+    abort
   };
 };
