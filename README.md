@@ -243,30 +243,465 @@ pay/ & pay-module/
 
 ### 🤖 OpenAI интеграция
 
-**Используемые модели:**
+#### **Используемые модели и сервисы:**
 - **GPT-4o** - основной ИИ для психологических консультаций
+  - Контекстная память разговоров
+  - Персонализация на основе профиля пользователя
+  - Эмпатичный и профессиональный стиль общения
 - **Whisper** - распознавание речи (для мобильных устройств)
-- **TTS** - синтез речи с естественной интонацией
+  - Поддержка русского языка
+  - Оптимизация для iOS (Safari)
+- **TTS API** - синтез речи с естественной интонацией
+  - Множество голосов на выбор
+  - Поддержка русского языка
 
-**Ключевые возможности:**
-- Контекстная память разговоров
-- Персонализация ответов на основе профиля пользователя
-- Эмпатичный и профессиональный стиль общения
+#### **Оптимизации для производительности:**
+- **Retry логика** с экспоненциальным backoff
+- **Кэширование ответов** для часто задаваемых вопросов
+- **Rate limiting** для предотвращения перегрузок
+- **Fallback стратегии** при недоступности API
 
 ### 💰 Платежная система (YooKassa)
 
-**Модель оплаты:**
+#### **Модель оплаты:**
 - **Pay-as-you-go** - оплата по факту использования
 - **Пополнение кошелька** - пользователи вносят деньги на баланс
 - **Списание по тарифам** - автоматическое списание за услуги
 
-**Поддерживаемые функции:**
+#### **Тарифы:**
+- **Аудио звонки**: 8 ₽ за минуту
+- **Текстовый чат**: 0.2 ₽ за слово (токен)
+- **Медитации**: бесплатно
+- **Цитаты**: бесплатно
+
+#### **Поддерживаемые функции:**
 - Создание платежных ссылок для пополнения
-- Проверка статуса платежей
+- Проверка статуса платежей через API
 - Управление балансом кошелька
 - Автоматическое списание за услуги
 - Вебхуки для обновления баланса
-- История транзакций
+- История транзакций с фильтрацией
+
+#### **Безопасность платежей:**
+- **Idempotency keys** для предотвращения дублирования
+- **Webhook verification** с цифровой подписью
+- **PCI DSS compliance** через YooKassa
+- **SSL/TLS** шифрование всех транзакций
+
+## 📡 API Документация
+
+### 🎯 **Базовая информация**
+- **Base URL**: `https://your-domain.com/api`
+- **Authentication**: Cookie-based sessions
+- **Content-Type**: `application/json`
+- **Rate Limiting**: 100 requests/minute per user
+
+### 👤 **Аутентификация**
+
+#### **POST /api/auth/register**
+Регистрация нового пользователя
+
+**Request:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securepassword",
+  "name": "Имя Пользователя"
+}
+```
+
+**Response:**
+```json
+{
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "Имя Пользователя",
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  "sessionId": "session_456"
+}
+```
+
+#### **POST /api/auth/login**
+Вход в систему
+
+**Request:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securepassword"
+}
+```
+
+#### **GET /api/auth/session**
+Получение информации о текущей сессии
+
+**Response:**
+```json
+{
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "Имя Пользователя"
+  },
+  "isAuthenticated": true
+}
+```
+
+### 💬 **Чат с ИИ-психологом**
+
+#### **POST /api/chat/sessions**
+Создание новой сессии чата
+
+**Request:**
+```json
+{
+  "userId": "user_123",
+  "title": "Помощь с тревогой"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "session_789",
+  "userId": "user_123",
+  "title": "Помощь с тревогой",
+  "createdAt": "2024-01-01T00:00:00Z",
+  "status": "active"
+}
+```
+
+#### **POST /api/chat/messages**
+Отправка сообщения в чат
+
+**Request:**
+```json
+{
+  "sessionId": "session_789",
+  "userId": "user_123",
+  "content": "У меня проблемы со сном",
+  "role": "user"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "message_101",
+  "sessionId": "session_789",
+  "content": "Я понимаю вашу проблему. Давайте разберемся вместе...",
+  "role": "assistant",
+  "createdAt": "2024-01-01T00:00:00Z",
+  "cost": 1.50
+}
+```
+
+#### **GET /api/chat/sessions/:sessionId/messages**
+Получение истории сообщений сессии
+
+**Response:**
+```json
+[
+  {
+    "id": "message_100",
+    "content": "У меня проблемы со сном",
+    "role": "user",
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  {
+    "id": "message_101",
+    "content": "Я понимаю вашу проблему...",
+    "role": "assistant",
+    "createdAt": "2024-01-01T00:00:01Z",
+    "cost": 1.50
+  }
+]
+```
+
+### 📞 **Аудио звонки**
+
+#### **POST /api/audio-calls**
+Создание аудио звонка
+
+**Request:**
+```json
+{
+  "userId": "user_123"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "call_456",
+  "userId": "user_123",
+  "startedAt": "2024-01-01T00:00:00Z",
+  "status": "active"
+}
+```
+
+#### **PUT /api/audio-calls/:callId/end**
+Завершение аудио звонка
+
+**Request:**
+```json
+{
+  "duration": 300
+}
+```
+
+**Response:**
+```json
+{
+  "id": "call_456",
+  "duration": 300,
+  "endedAt": "2024-01-01T00:05:00Z",
+  "cost": 40.00,
+  "status": "completed"
+}
+```
+
+### 🎵 **Аудио сервисы**
+
+#### **POST /api/audio/transcriptions**
+Распознавание речи из аудио файла
+
+**Request:** `multipart/form-data`
+- `file`: аудио файл (WAV, MP3, M4A)
+
+**Response:**
+```json
+{
+  "text": "Здравствуйте, я нуждаюсь в помощи",
+  "language": "ru",
+  "duration": 3.5
+}
+```
+
+#### **POST /api/audio/speech**
+Генерация речи из текста
+
+**Request:**
+```json
+{
+  "text": "Здравствуйте! Я Марк, ваш психолог.",
+  "voice": "alloy",
+  "speed": 1.0
+}
+```
+
+**Response:** Audio stream (MP3)
+
+### 💰 **Кошелек и платежи**
+
+#### **GET /api/wallet**
+Получение баланса кошелька
+
+**Query:** `?userId=user_123`
+
+**Response:**
+```json
+{
+  "balance": 500.00,
+  "balanceKopecks": 50000,
+  "transactions": [
+    {
+      "id": "txn_123",
+      "type": "credit",
+      "amount": 300.00,
+      "createdAt": "2024-01-01T00:00:00Z",
+      "description": "Пополнение баланса"
+    }
+  ]
+}
+```
+
+#### **POST /api/wallet/topup**
+Пополнение баланса
+
+**Request:**
+```json
+{
+  "userId": "user_123",
+  "amount": 500,
+  "meta": {
+    "paymentMethod": "yookassa",
+    "description": "Пополнение через сайт"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "paymentUrl": "https://yookassa.ru/payment/...",
+  "paymentId": "payment_789"
+}
+```
+
+#### **POST /api/wallet/debit**
+Списание с баланса
+
+**Request:**
+```json
+{
+  "userId": "user_123",
+  "amount": 8.00,
+  "reason": "voice_call",
+  "idempotencyKey": "call_456_minute_1"
+}
+```
+
+### 🧘 **Медитации**
+
+#### **POST /api/meditations**
+Запись завершенной медитации
+
+**Request:**
+```json
+{
+  "userId": "user_123",
+  "meditationTitle": "Утренняя практика осознанности",
+  "duration": 600,
+  "rating": 5,
+  "notes": "Отличная сессия, чувствую спокойствие"
+}
+```
+
+#### **GET /api/users/:userId/meditations**
+Получение истории медитаций пользователя
+
+**Response:**
+```json
+[
+  {
+    "id": "med_123",
+    "title": "Утренняя практика осознанности",
+    "duration": 600,
+    "rating": 5,
+    "completedAt": "2024-01-01T07:00:00Z"
+  }
+]
+```
+
+### 💭 **Цитаты**
+
+#### **GET /api/quotes**
+Получение случайных цитат
+
+**Query:** `?limit=5&category=stress`
+
+**Response:**
+```json
+[
+  {
+    "id": "quote_123",
+    "text": "Спокойствие - не отсутствие шума, а мастерство его игнорировать",
+    "author": "Михаил Лабковский",
+    "category": "stress",
+    "likesCount": 1250
+  }
+]
+```
+
+#### **POST /api/quotes/:quoteId/toggle-like**
+Лайк/дизлайк цитаты
+
+### 👤 **Профиль пользователя**
+
+#### **GET /api/user-profiles/:userId**
+Получение профиля пользователя
+
+**Response:**
+```json
+{
+  "userId": "user_123",
+  "personalityTraits": "Интроверт, аналитический склад ума",
+  "communicationStyle": "Предпочитает письменное общение",
+  "currentConcerns": "Проблемы со сном, стресс на работе",
+  "emotionalState": "Тревожный",
+  "totalSessions": 15,
+  "lastActivity": "2024-01-01T10:00:00Z"
+}
+```
+
+#### **PUT /api/user-profiles/:userId**
+Обновление профиля
+
+**Request:**
+```json
+{
+  "personalityTraits": "Интроверт, аналитический склад ума",
+  "communicationStyle": "Предпочитает письменное общение",
+  "currentConcerns": "Проблемы со сном, стресс на работе"
+}
+```
+
+### 🧠 **Память и история**
+
+#### **GET /api/memory/:userId/:type**
+Получение памяти пользователя
+
+**Types:** `voice`, `chat`, `general`
+
+#### **POST /api/memory/:userId/:type/append**
+Добавление в память
+
+**Request:**
+```json
+{
+  "content": "Пользователь упомянул проблемы с родителями",
+  "importance": "high"
+}
+```
+
+### 📊 **Статистика**
+
+#### **GET /api/users/:userId/stats**
+Общая статистика пользователя
+
+**Response:**
+```json
+{
+  "totalChatSessions": 25,
+  "totalAudioCalls": 8,
+  "totalMeditationMinutes": 1200,
+  "totalQuotesViewed": 150,
+  "lastActivity": "2024-01-01T10:00:00Z",
+  "totalSpent": 320.50
+}
+```
+
+### 🔧 **Служебные эндпоинты**
+
+#### **GET /health**
+Проверка здоровья сервера
+
+**Response:**
+```json
+{
+  "status": "OK",
+  "timestamp": "2024-01-01T10:00:00Z",
+  "version": "1.0.0"
+}
+```
+
+#### **GET /api/models**
+Получение доступных моделей OpenAI
+
+**Response:**
+```json
+{
+  "models": [
+    "gpt-4o",
+    "gpt-4o-mini",
+    "whisper-1",
+    "tts-1"
+  ]
+}
+```
 
 ### 🗄️ База данных (SQLite + Drizzle ORM)
 
@@ -284,51 +719,170 @@ pay/ & pay-module/
 
 ### 🌐 Продакшн развертывание
 
-#### Шаг 1: Сборка фронтенда
+#### **Подготовка сервера**
+
+**Системные требования:**
+- Ubuntu 20.04+ / CentOS 8+ / Debian 11+
+- Root или sudo доступ
+- Домен с SSL сертификатом
+
+**Установка зависимостей:**
 ```bash
+# Обновление системы
+sudo apt update && sudo apt upgrade -y
+
+# Установка Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Установка nginx
+sudo apt install nginx -y
+
+# Установка certbot (для SSL)
+sudo apt install certbot python3-certbot-nginx -y
+
+# Установка SQLite3
+sudo apt install sqlite3 -y
+```
+
+#### **Шаг 1: SSL сертификаты**
+
+```bash
+# Получение Let's Encrypt сертификата
+sudo certbot --nginx -d your-domain.com
+
+# Проверка автообновления
+sudo certbot renew --dry-run
+```
+
+#### **Шаг 2: Клонирование и настройка**
+
+```bash
+# Клонирование репозитория
+git clone https://github.com/RockInMyHead/psycholog_windexs.git
+cd psycholog_windexs
+
+# Установка зависимостей
+npm install
+cd server && npm install && cd ..
+
+# Настройка переменных окружения
+cp .env.example .env
+nano .env  # Отредактируйте API ключи и настройки
+```
+
+#### **Шаг 3: Сборка и развертывание**
+
+```bash
+# Сборка фронтенда
 npm run build
+
+# Создание директорий
+sudo mkdir -p /var/www/zen-mind-mate
+sudo mkdir -p /opt/zen-mind-mate
+sudo mkdir -p /var/log/zen-mind-mate
+
+# Копирование файлов
+sudo cp -r dist/* /var/www/zen-mind-mate/
+sudo cp -r server/* /opt/zen-mind-mate/
+
+# Настройка прав
+sudo chown -R www-data:www-data /var/www/zen-mind-mate
+sudo chown -R nodejs:nodejs /opt/zen-mind-mate
 ```
 
-#### Шаг 2: Настройка сервера
+#### **Шаг 4: Настройка systemd сервиса**
 
-**Используйте готовый скрипт деплоя:**
 ```bash
-./deploy.sh
-```
+# Создание пользователя для сервиса
+sudo useradd -r -s /bin/false nodejs
 
-**Или настройте вручную:**
-
-1. **Скопируйте файлы на сервер:**
-```bash
-# Копирование продакшен сборки
-scp -r dist/* user@server:/var/www/html/
-
-# Копирование сервера
-scp -r server/* user@server:/opt/zen-mind-mate/
-```
-
-2. **Настройка systemd сервиса:**
-```bash
-# Копирование unit файла
+# Копирование и редактирование unit файла
 sudo cp psycholog-api.service /etc/systemd/system/
+sudo nano /etc/systemd/system/psycholog-api.service
 
-# Перезагрузка systemd
-sudo systemctl daemon-reload
+# Содержимое psycholog-api.service:
+[Unit]
+Description=Zen Mind Mate API Server
+After=network.target
+
+[Service]
+Type=simple
+User=nodejs
+WorkingDirectory=/opt/zen-mind-mate
+ExecStart=/usr/bin/node app.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=1033
+
+# Логи
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zen-mind-mate
+
+[Install]
+WantedBy=multi-user.target
 
 # Запуск сервиса
+sudo systemctl daemon-reload
 sudo systemctl enable psycholog-api
 sudo systemctl start psycholog-api
+
+# Проверка статуса
+sudo systemctl status psycholog-api
 ```
 
-3. **Настройка nginx:**
-```nginx
-# Используйте готовый конфиг из nginx.conf
+#### **Шаг 5: Настройка nginx**
+
+```bash
+# Копирование и настройка конфигурации
 sudo cp nginx.conf /etc/nginx/sites-available/zen-mind-mate
+sudo nano /etc/nginx/sites-available/zen-mind-mate
+
+# Активация сайта
 sudo ln -s /etc/nginx/sites-available/zen-mind-mate /etc/nginx/sites-enabled/
-sudo nginx -t && sudo nginx -s reload
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
-#### Шаг 3: Проверка развертывания
+#### **Шаг 6: Настройка firewall**
+
+```bash
+# UFW (Ubuntu)
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw --force enable
+
+# Или firewalld (CentOS)
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --reload
+```
+
+#### **Шаг 7: Настройка бэкапов**
+
+```bash
+# Создание скрипта бэкапа
+sudo nano /opt/zen-mind-mate/backup.sh
+
+#!/bin/bash
+BACKUP_DIR="/opt/zen-mind-mate/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+mkdir -p $BACKUP_DIR
+sqlite3 zen-mind-mate.db ".backup $BACKUP_DIR/backup_$DATE.db"
+
+# Удаление бэкапов старше 30 дней
+find $BACKUP_DIR -name "backup_*.db" -mtime +30 -delete
+
+# Настройка cron
+sudo crontab -e
+# Добавить: 0 2 * * * /opt/zen-mind-mate/backup.sh
+```
+
+#### **Шаг 8: Проверка развертывания**
+
 ```bash
 # Проверка доступности
 curl -I https://your-domain.com
@@ -336,35 +890,137 @@ curl -I https://your-domain.com
 # Проверка API
 curl https://your-domain.com/api/health
 
+# Проверка базы данных
+sudo -u nodejs sqlite3 /opt/zen-mind-mate/zen-mind-mate.db "SELECT COUNT(*) FROM users;"
+
 # Проверка логов
 sudo journalctl -u psycholog-api -f
 ```
 
-### 🐳 Docker развертывание (опционально)
+### 🔄 **Обновление продакшена (Zero-downtime)**
 
-```dockerfile
-# Dockerfile для фронтенда
-FROM node:18-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
+```bash
+# На сервере
+cd /opt/zen-mind-mate
 
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Создание бэкапа
+cp zen-mind-mate.db zen-mind-mate.db.backup
+
+# Обновление кода
+git pull origin main
+npm install
+
+# Остановка сервиса
+sudo systemctl stop psycholog-api
+
+# Сборка фронтенда
+cd ..
+npm run build
+sudo cp -r dist/* /var/www/zen-mind-mate/
+
+# Запуск сервиса
+sudo systemctl start psycholog-api
+
+# Проверка
+curl https://your-domain.com/api/health
 ```
 
-### 🔧 Переменные окружения для продакшена
+### 🐳 **Docker развертывание**
+
+#### **Dockerfile:**
+```dockerfile
+FROM node:20-alpine
+
+# Системные зависимости
+RUN apk add --no-cache sqlite ffmpeg
+
+# Пользователь
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+# Зависимости
+COPY package*.json ./
+COPY server/package*.json ./server/
+RUN npm ci --only=production
+
+# Исходный код
+COPY . .
+
+# Сборка фронтенда
+RUN npm run build
+
+USER nodejs
+
+EXPOSE 1033 5173
+
+CMD ["node", "server/app.js"]
+```
+
+#### **docker-compose.yml:**
+```yaml
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "1033:1033"
+      - "5173:5173"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=./data/app.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/ssl/certs
+    depends_on:
+      - app
+    restart: unless-stopped
+```
+
+### 🔧 **Переменные окружения для продакшена**
 
 ```env
+# ===========================================
+# PRODUCTION CONFIGURATION
+# ===========================================
 NODE_ENV=production
 PORT=1033
-VITE_OPENAI_API_KEY=your-production-key
-DATABASE_URL=/opt/zen-mind-mate/data/app.db
+DATABASE_URL=/opt/zen-mind-mate/zen-mind-mate.db
+
+# ===========================================
+# OPENAI CONFIGURATION
+# ===========================================
+VITE_OPENAI_API_KEY=sk-your-production-openai-key
+
+# ===========================================
+# PAYMENT CONFIGURATION
+# ===========================================
 YOOKASSA_SHOP_ID=your-shop-id
 YOOKASSA_SECRET_KEY=your-secret-key
+YOOKASSA_RETURN_URL=https://your-domain.com/wallet
+
+# ===========================================
+# LOGGING & MONITORING
+# ===========================================
+LOG_LEVEL=info
+ENABLE_METRICS=true
+METRICS_PORT=9090
+
+# ===========================================
+# SECURITY
+# ===========================================
+CORS_ORIGIN=https://your-domain.com
+SESSION_SECRET=your-super-secret-session-key
 ```
 
 ## 🛠️ Разработка и отладка
@@ -519,31 +1175,156 @@ sudo journalctl -u psycholog-api --since "1 hour ago"
 
 ## 📊 Мониторинг и аналитика
 
-### 📈 Метрики приложения
-- Количество активных пользователей
-- Средняя длительность сессий
-- Конверсия в премиум подписки
-- Уровень удовлетворенности пользователей
+### 📈 **Метрики приложения**
 
-### 🔍 Логирование
-- **Frontend:** Browser console + пользовательские события
-- **Backend:** Winston logger с ротацией файлов
-- **API:** Запросы/ответы OpenAI
-- **Payments:** Все операции YooKassa
+#### **Пользовательские метрики:**
+- **Активные пользователи:** DAU/MAU/регистрации
+- **Сессии:** средняя длительность чатов и звонков
+- **Конверсия:** пополнение кошелька → использование услуг
+- **Удовлетворенность:** рейтинги медитаций, повторные визиты
 
-### 📋 Системные требования
+#### **Бизнес метрики:**
+- **Доход:** ARPU, LTV, retention rate
+- **Стоимость услуг:** средний чек пополнения
+- **ROI по каналам:** эффективность маркетинга
 
-**Минимальные:**
-- CPU: 1 core
-- RAM: 512 MB
-- Disk: 1 GB
-- Node.js: 18+
+#### **Технические метрики:**
+- **Производительность:** latency API, время ответа ИИ
+- **Качество аудио:** успешность распознавания речи
+- **Стабильность:** uptime, error rate, crash reports
 
-**Рекомендуемые:**
-- CPU: 2+ cores
-- RAM: 1 GB+
-- Disk: 5 GB+
-- Node.js: 20+
+### 🔍 **Логирование и мониторинг**
+
+#### **Backend логирование (Winston):**
+```javascript
+// Структура логов
+{
+  timestamp: "2024-01-01T10:00:00Z",
+  level: "info|warn|error",
+  service: "api|openai|payments",
+  userId: "user_123",
+  sessionId: "session_456",
+  message: "Chat message processed",
+  metadata: {
+    duration: 1250,
+    cost: 0.5,
+    tokens: 150
+  }
+}
+```
+
+#### **Уровни логирования:**
+- **ERROR:** Критические ошибки (падения, API failures)
+- **WARN:** Предупреждения (rate limits, timeouts)
+- **INFO:** Основные события (создание сессий, платежи)
+- **DEBUG:** Детальная отладка (API requests/responses)
+
+#### **Мониторинг систем:**
+- **Health checks:** `/health` эндпоинт
+- **Metrics collection:** Prometheus/Grafana
+- **Alerting:** Slack notifications для критичных ошибок
+- **Log aggregation:** ELK stack или аналог
+
+### 💰 **Финансовая аналитика**
+
+#### **Модель дохода:**
+- **Основной доход:** Аудио звонки (8₽/мин) + чат (0.2₽/слово)
+- **Дополнительный:** Потенциал монетизации медитаций/цитат
+
+#### **Метрики стоимости:**
+- **CPA (Customer Acquisition Cost):** Стоимость привлечения пользователя
+- **LTV (Lifetime Value):** Общая ценность пользователя
+- **Payback period:** Время окупаемости маркетинга
+
+#### **Анализ поведения:**
+- **Funnel analysis:** Регистрация → первое пополнение → регулярное использование
+- **Cohort analysis:** Поведение пользователей по времени регистрации
+- **A/B тестирование:** Тарифы, UI/UX улучшения
+
+### 🔒 **Безопасность**
+
+#### **API Безопасность:**
+- **Rate limiting:** 100 req/min per user, 1000 req/min per IP
+- **Input validation:** Joi schemas для всех запросов
+- **SQL injection protection:** Parameterized queries
+- **XSS protection:** Content Security Policy headers
+
+#### **Аутентификация:**
+- **Session management:** Secure HTTP-only cookies
+- **Password hashing:** bcrypt с salt rounds
+- **JWT tokens:** Для API authentication (опционально)
+
+#### **Данные пользователей:**
+- **Encryption:** AES-256 для чувствительных данных
+- **GDPR compliance:** Право на удаление данных
+- **Data retention:** Автоматическое удаление неактивных аккаунтов
+
+### 🧪 **Тестирование**
+
+#### **Unit тесты:**
+```bash
+cd server
+npm test
+```
+
+#### **E2E тесты:**
+```bash
+npx playwright test
+```
+
+#### **API тесты:**
+```bash
+# Postman коллекция: docs/api_tests.postman_collection.json
+newman run docs/api_tests.postman_collection.json
+```
+
+#### **Load testing:**
+```bash
+# k6 для нагрузочного тестирования
+k6 run scripts/load_test.js
+```
+
+### 📋 **Системные требования**
+
+#### **Минимальные (development):**
+- **CPU:** 1 core (2.4 GHz)
+- **RAM:** 512 MB
+- **Disk:** 1 GB SSD
+- **Node.js:** 18.0+
+- **SQLite:** 3.12+
+
+#### **Рекомендуемые (production):**
+- **CPU:** 2+ cores (3.0 GHz+)
+- **RAM:** 1 GB
+- **Disk:** 5 GB SSD
+- **Node.js:** 20.0+
+- **Redis:** Для кэширования (опционально)
+
+#### **Масштабирование:**
+- **Horizontal scaling:** Load balancer + multiple instances
+- **Database:** PostgreSQL для >1000 пользователей
+- **CDN:** CloudFlare для статических файлов
+- **Monitoring:** DataDog/New Relic для production
+
+### 🚀 **Оптимизация производительности**
+
+#### **Frontend:**
+- **Code splitting:** Lazy loading компонентов
+- **Image optimization:** WebP форматы, responsive images
+- **Caching:** Service Worker для PWA
+- **Bundle analysis:** `npm run build -- --analyze`
+
+#### **Backend:**
+- **Database indexing:** Оптимизация запросов
+- **Caching:** Redis для частых запросов
+- **Connection pooling:** Для database connections
+- **API optimization:** GraphQL federation (будущие планы)
+
+#### **ИИ оптимизации:**
+- **Prompt engineering:** Оптимизация промптов для скорости
+- **Model selection:** GPT-4o-mini для простых запросов
+- **Response caching:** Кэширование типовых ответов
+- **Streaming:** Real-time ответы для лучшего UX
 
 ## 📞 Поддержка
 
